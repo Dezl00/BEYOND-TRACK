@@ -49,6 +49,8 @@ pnpm dev
 
 ## التحقق
 
+نتائج التنفيذ وحدود الاختبارات وخطوات التحقق بعد النشر: [docs/verification.md](docs/verification.md).
+
 ```sh
 pnpm typecheck
 pnpm test
