@@ -1,5 +1,5 @@
 {
   "framework": "nextjs",
   "regions": ["fra1"],
-  "crons": [{ "path": "/api/jobs", "schedule": "* * * * *" }]
+  "crons": [{ "path": "/api/jobs", "schedule": "0 0 * * *" }]
 }
