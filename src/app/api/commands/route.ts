@@ -11,6 +11,7 @@ import * as admin from "@/server/admin";
 import { processJobs } from "@/server/jobs";
 import { db, sql } from "@/db";
 import { deleteSchema, deleteRecord } from "@/server/delete";
+import { issueRequestPurge, purgeRequests } from "@/server/request-purge";
 export const maxDuration = 60;
 export async function POST(req: Request) {
   try {
@@ -25,6 +26,13 @@ export async function POST(req: Request) {
     await rateLimit("commands", a.id, 120, 60);
     let result: unknown;
     switch (command) {
+      case "request-purge-code":
+        z.object({}).strict().parse(data);
+        result = await issueRequestPurge(a, m);
+        break;
+      case "request-purge-confirm":
+        result = await purgeRequests(a, v.purgeConfirmSchema.parse(data), m);
+        break;
       case "activation":
         result = await setActive(a, activationSchema.parse(data), m);
         break;

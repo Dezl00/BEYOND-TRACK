@@ -403,6 +403,27 @@ export const outbox = pgTable(
   },
   (t) => [index("outbox_ready").on(t.availableAt)],
 );
+export const requestPurgeChallenges = pgTable(
+  "request_purge_challenges",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    attempts: smallint("attempts").default(0).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdAt: time("created_at"),
+  },
+  (t) => [
+    uniqueIndex("purge_challenge_user").on(t.userId),
+    index("purge_challenge_session").on(t.sessionId),
+  ],
+);
 export const pushSubscriptions = pgTable(
   "push_subscriptions",
   {

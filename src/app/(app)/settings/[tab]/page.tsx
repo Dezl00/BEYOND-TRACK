@@ -1,4 +1,5 @@
 import PushSettings from "@/components/push-settings";
+import RequestPurge from "@/components/request-purge";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePageActor } from "@/server/page-auth";
@@ -57,7 +58,17 @@ export default async function SettingsTab({
   const sessionPage = page(sessions);
   return (
     <>
-      <Heading title={ar.settings.title} />
+      <Heading
+        title={
+          tab === "appearance"
+            ? ar.common.appearance
+            : tab === "security"
+              ? ar.common.security
+              : tab === "notifications"
+                ? ar.nav.notifications
+                : ar.settings.system
+        }
+      />
       <div className="tabs">
         {[
           ["appearance", ar.common.appearance],
@@ -77,6 +88,9 @@ export default async function SettingsTab({
           ))}
       </div>
       <div className="stack settings-narrow">
+        {tab === "system" && a.is_owner ? (
+          <RequestPurge email={a.email} />
+        ) : null}
         {tab === "notifications" ? (
           <section className="panel panel-body">
             <PushSettings />

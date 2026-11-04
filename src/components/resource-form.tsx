@@ -142,8 +142,8 @@ export default function ResourceForm({
       wide={resource === "role"}
       trigger={
         <Button
-          intent={initial ? "blue" : "green"}
-          className={initial ? "small" : ""}
+          intent={initial ? "" : "green"}
+          className={initial ? "small edit-button" : ""}
         >
           {initial ? <Pencil size={14} /> : <Plus size={16} />}
           <span>{initial ? ar.common.edit : ar.common.create}</span>

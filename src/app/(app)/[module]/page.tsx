@@ -14,7 +14,7 @@ import { ar } from "@/messages/ar";
 import { can } from "@/lib/domain";
 import { number, date, requestCode } from "@/lib/format";
 import { one, sql } from "@/db";
-import { Heading, Empty, Pagination } from "@/components/common";
+import { Empty, Pagination } from "@/components/common";
 import ResourceForm from "@/components/resource-form";
 import Filters from "@/components/filters";
 import RequestTable from "@/components/request-table";
@@ -67,22 +67,33 @@ export default async function ResourcePage({
     module === "audit"
       ? await auditList(a, q)
       : module === "notifications"
-        ? await notifications(a, q.cursor)
+        ? await notifications(a, q.cursor, q.q)
         : ["technical", "finance", "procurement", "receipts"].includes(module)
           ? await listRequests(a, q, module)
           : await listResource(a, module, q);
   return (
     <>
-      <Heading title={title(module)}>
-        {module in resources && can(a, `${permission}.create`) ? (
-          <ResourceForm
-            resource={resources[module as keyof typeof resources]}
-            project={q.project}
-            actor={a}
-          />
-        ) : null}
-        {module === "notifications" ? <NotificationRead /> : null}
-      </Heading>
+      <Filters
+        key={module}
+        title={title(module)}
+        actions={
+          <>
+            {module in resources && can(a, `${permission}.create`) ? (
+              <ResourceForm
+                resource={resources[module as keyof typeof resources]}
+                project={q.project}
+                actor={a}
+              />
+            ) : null}
+            {module === "notifications" ? <NotificationRead /> : null}
+          </>
+        }
+        statuses={["technical", "finance", "procurement", "receipts"].includes(
+          module,
+        )}
+        exportable={can(a, `${permission}.export`)}
+        audit={module === "audit"}
+      />
       {["boq", "materials", "units"].includes(module) ? (
         <div className="tabs">
           {(["boq", "materials", "units"] as const).map((key) => (
@@ -103,18 +114,7 @@ export default async function ResourcePage({
           ) : null}
         </div>
       ) : null}
-      <section className="panel">
-        <Filters
-          key={module}
-          statuses={[
-            "technical",
-            "finance",
-            "procurement",
-            "receipts",
-          ].includes(module)}
-          exportable={can(a, `${permission}.export`)}
-          audit={module === "audit"}
-        />
+      <section className="panel table-panel">
         {["technical", "finance", "procurement", "receipts"].includes(
           module,
         ) ? (

@@ -5,6 +5,7 @@ import { queueEmail } from "./events";
 import { ar } from "@/messages/ar";
 import { requestCode, effectivePreference } from "@/lib/domain-email";
 import { deliverPush, pushConfigured } from "./push";
+import { cloud } from "./cloudinary";
 type Job = {
   id: string;
   kind: number;
@@ -89,6 +90,7 @@ export async function processJobs(limit = 20) {
                   ar.email.notificationSubject,
                   `<html lang="ar" dir="rtl"><body><p>${ar.notificationTypes[type]} · ${requestCode(request.number)}</p><a href="${link}">${ar.email.viewRequest}</a></body></html>`,
                   `${job.id}:${u.id}`,
+                  requestId,
                 );
               }
             }
@@ -104,6 +106,18 @@ export async function processJobs(limit = 20) {
             deliverPush(target.id, String(job.payload.notificationId)),
           ),
         );
+        await db().execute(sql`DELETE FROM outbox WHERE id=${job.id}`);
+      } else if (job.kind === 4) {
+        const result = await cloud().uploader.destroy(
+          String(job.payload.publicId),
+          {
+            resource_type: String(job.payload.resourceType),
+            type: "authenticated",
+            invalidate: true,
+          },
+        );
+        if (result.result !== "ok" && result.result !== "not found")
+          throw new Error("File cleanup failed");
         await db().execute(sql`DELETE FROM outbox WHERE id=${job.id}`);
       } else {
         if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM)
@@ -130,6 +144,9 @@ export async function processJobs(limit = 20) {
 export async function maintain() {
   await db().transaction(async (tx) => {
     await tx.execute(sql`DELETE FROM auth_challenges WHERE expires_at<now()`);
+    await tx.execute(
+      sql`DELETE FROM request_purge_challenges WHERE expires_at<now()`,
+    );
     await tx.execute(
       sql`DELETE FROM sessions WHERE expires_at<now()-interval '1 day'`,
     );

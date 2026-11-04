@@ -31,6 +31,10 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: { default: ar.brand, template: `%s | ${ar.brand}` },
   robots: { index: false, follow: false },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: "/apple-touch-icon.png",
+  },
 };
 export default async function RootLayout({
   children,

@@ -4,6 +4,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search, Download } from "lucide-react";
 import { ar } from "@/messages/ar";
 import { SelectBox, DateInput, Field, Lookup } from "./ui";
+import { Heading } from "./common";
 type Values = {
   q: string;
   status: string;
@@ -25,10 +26,14 @@ function valuesFrom(params: URLSearchParams): Values {
   };
 }
 export default function Filters({
+  title,
+  actions,
   statuses = false,
   exportable = false,
   audit = false,
 }: {
+  title?: string;
+  actions?: React.ReactNode;
   statuses?: boolean;
   exportable?: boolean;
   audit?: boolean;
@@ -87,8 +92,106 @@ export default function Filters({
       if (timer.current) clearTimeout(timer.current);
     };
   }, []);
+  const form = (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (timer.current) clearTimeout(timer.current);
+        navigate(values);
+      }}
+    >
+      <div className="search-field">
+        <Search size={16} />
+        <input
+          className="input"
+          aria-label={ar.common.search}
+          placeholder={ar.common.search}
+          value={values.q}
+          onChange={(event) => change("q", event.target.value)}
+        />
+      </div>
+      {audit ? (
+        <>
+          <Field label={ar.fields.user}>
+            <Lookup
+              resource="users"
+              value={values.user}
+              onChange={(value) => change("user", value)}
+              allowNone
+              includeInactive
+            />
+          </Field>
+          <Field label={ar.fields.action}>
+            <SelectBox
+              value={values.action}
+              onChange={(value) => change("action", value)}
+              options={[
+                { value: "all", label: ar.common.all },
+                ...ar.auditActions.map((label, i) => ({
+                  value: String(i),
+                  label,
+                })),
+              ]}
+            />
+          </Field>
+          <Field label={ar.fields.entity}>
+            <SelectBox
+              value={values.entity}
+              onChange={(value) => change("entity", value)}
+              options={[
+                { value: "all", label: ar.common.all },
+                ...ar.auditEntities.map((label, i) => ({
+                  value: String(i),
+                  label,
+                })),
+              ]}
+            />
+          </Field>
+          <Field label={ar.fields.from}>
+            <DateInput
+              value={values.from}
+              onChange={(value) => change("from", value)}
+            />
+          </Field>
+          <Field label={ar.fields.to}>
+            <DateInput
+              value={values.to}
+              onChange={(value) => change("to", value)}
+            />
+          </Field>
+        </>
+      ) : null}
+    </form>
+  );
+  const exportButton = exportable ? (
+    <a
+      className="btn small export-button"
+      href={`/api/export?${params.toString()}&resource=${path.split("/")[1]}`}
+    >
+      <Download size={15} />
+      {ar.common.export}
+    </a>
+  ) : null;
   return (
-    <>
+    <div
+      className={`list-controls ${audit ? "audit-controls" : ""}`}
+      aria-busy={pending || undefined}
+    >
+      {title ? (
+        <Heading title={title}>
+          {actions}
+          {!audit ? form : null}
+          {exportButton}
+        </Heading>
+      ) : (
+        <div className="toolbar">
+          {form}
+          {exportButton}
+        </div>
+      )}
+      {title && audit ? (
+        <div className="toolbar audit-toolbar">{form}</div>
+      ) : null}
       {statuses ? (
         <div
           className="request-status-tabs"
@@ -151,89 +254,8 @@ export default function Filters({
           ))}
         </div>
       ) : null}
-      <div className="toolbar" aria-busy={pending || undefined}>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (timer.current) clearTimeout(timer.current);
-            navigate(values);
-          }}
-        >
-          <div className="search-field">
-            <Search size={16} />
-            <input
-              className="input"
-              aria-label={ar.common.search}
-              placeholder={ar.common.search}
-              value={values.q}
-              onChange={(event) => change("q", event.target.value)}
-            />
-          </div>
-          {audit ? (
-            <>
-              <Field label={ar.fields.user}>
-                <Lookup
-                  resource="users"
-                  value={values.user}
-                  onChange={(value) => change("user", value)}
-                  allowNone
-                  includeInactive
-                />
-              </Field>
-              <Field label={ar.fields.action}>
-                <SelectBox
-                  value={values.action}
-                  onChange={(value) => change("action", value)}
-                  options={[
-                    { value: "all", label: ar.common.all },
-                    ...ar.auditActions.map((label, i) => ({
-                      value: String(i),
-                      label,
-                    })),
-                  ]}
-                />
-              </Field>
-              <Field label={ar.fields.entity}>
-                <SelectBox
-                  value={values.entity}
-                  onChange={(value) => change("entity", value)}
-                  options={[
-                    { value: "all", label: ar.common.all },
-                    ...ar.auditEntities.map((label, i) => ({
-                      value: String(i),
-                      label,
-                    })),
-                  ]}
-                />
-              </Field>
-              <Field label={ar.fields.from}>
-                <DateInput
-                  value={values.from}
-                  onChange={(value) => change("from", value)}
-                />
-              </Field>
-              <Field label={ar.fields.to}>
-                <DateInput
-                  value={values.to}
-                  onChange={(value) => change("to", value)}
-                />
-              </Field>
-            </>
-          ) : null}
-        </form>
-        {exportable ? (
-          <a
-            className="btn small export-button"
-            href={`/api/export?${params.toString()}&resource=${path.split("/")[1]}`}
-          >
-            <Download size={15} />
-            {ar.common.exportPage}
-          </a>
-        ) : null}
-        {pending ? (
-          <span className="table-progress" aria-hidden="true" />
-        ) : null}
-      </div>
-    </>
+
+      {pending ? <span className="table-progress" aria-hidden="true" /> : null}
+    </div>
   );
 }

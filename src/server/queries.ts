@@ -9,6 +9,7 @@ import {
   requireRequest,
 } from "./access";
 import { AppError } from "./errors";
+import { ar } from "@/messages/ar";
 export type Query = z.infer<typeof listQuerySchema>;
 export const pageSize = 25;
 export type RecordRow = Record<string, unknown> & { id: string; name?: string };
@@ -168,11 +169,11 @@ export async function listResource(a: Actor, resource: string, q: Query) {
   }
   throw new AppError("notFound", 404);
 }
-export async function notifications(a: Actor, cursor?: string) {
+export async function notifications(a: Actor, cursor?: string, q = "") {
   const c = decodeCursor(cursor);
   return page(
     await rows<RecordRow>(
-      sql`SELECT n.id,n.type,n.read_at,n.created_at,n.request_id,r.number FROM notifications n JOIN purchase_requests r ON r.id=n.request_id WHERE n.user_id=${a.id} AND ${requestScope(a)} ${c ? sql`AND(n.created_at,n.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY n.created_at DESC,n.id DESC LIMIT 26`,
+      sql`SELECT n.id,n.type,n.read_at,n.created_at,n.request_id,r.number FROM notifications n JOIN purchase_requests r ON r.id=n.request_id WHERE n.user_id=${a.id} AND ${requestScope(a)} AND (${q}='' OR r.number::text ILIKE ${"%" + q + "%"} OR CASE n.type WHEN 0 THEN ${ar.notificationTypes[0]} WHEN 1 THEN ${ar.notificationTypes[1]} ELSE ${ar.notificationTypes[2]} END ILIKE ${"%" + q + "%"}) ${c ? sql`AND(n.created_at,n.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY n.created_at DESC,n.id DESC LIMIT 26`,
     ),
     true,
   );
@@ -182,7 +183,7 @@ export async function auditList(a: Actor, q: Query) {
   const c = decodeCursor(q.cursor);
   return page(
     await rows<RecordRow>(
-      sql`WITH events AS (SELECT id,actor_id,project_id,action,entity,entity_id,ip,user_agent,diff,created_at FROM audit_log UNION ALL SELECT (payload->>'id')::uuid,(payload->>'actor_id')::uuid,(payload->>'project_id')::uuid,(payload->>'action')::smallint,(payload->>'entity')::smallint,payload->>'entity_id',payload->>'ip',payload->>'user_agent',payload->'diff',(payload->>'created_at')::timestamptz FROM outbox WHERE kind=0) SELECT e.*,u.name user_name,p.name project_name FROM events e LEFT JOIN users u ON u.id=e.actor_id LEFT JOIN projects p ON p.id=e.project_id WHERE true ${q.project ? sql`AND e.project_id=${q.project}` : sql``} ${q.user ? sql`AND e.actor_id=${q.user}` : sql``} ${q.action !== undefined ? sql`AND e.action=${q.action}` : sql``} ${q.entity !== undefined ? sql`AND e.entity=${q.entity}` : sql``} ${q.from ? sql`AND e.created_at>=${q.from}::date` : sql``} ${q.to ? sql`AND e.created_at<${q.to}::date+interval '1 day'` : sql``} ${c ? sql`AND(e.created_at,e.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY e.created_at DESC,e.id DESC LIMIT 26`,
+      sql`WITH events AS (SELECT id,actor_id,project_id,action,entity,entity_id,ip,user_agent,diff,created_at FROM audit_log UNION ALL SELECT (payload->>'id')::uuid,(payload->>'actor_id')::uuid,(payload->>'project_id')::uuid,(payload->>'action')::smallint,(payload->>'entity')::smallint,payload->>'entity_id',payload->>'ip',payload->>'user_agent',payload->'diff',(payload->>'created_at')::timestamptz FROM outbox WHERE kind=0) SELECT e.*,u.name user_name,p.name project_name FROM events e LEFT JOIN users u ON u.id=e.actor_id LEFT JOIN projects p ON p.id=e.project_id WHERE (${q.q}='' OR u.name ILIKE ${"%" + q.q + "%"} OR p.name ILIKE ${"%" + q.q + "%"} OR e.entity_id ILIKE ${"%" + q.q + "%"} OR e.diff::text ILIKE ${"%" + q.q + "%"}) ${q.project ? sql`AND e.project_id=${q.project}` : sql``} ${q.user ? sql`AND e.actor_id=${q.user}` : sql``} ${q.action !== undefined ? sql`AND e.action=${q.action}` : sql``} ${q.entity !== undefined ? sql`AND e.entity=${q.entity}` : sql``} ${q.from ? sql`AND e.created_at>=${q.from}::date` : sql``} ${q.to ? sql`AND e.created_at<${q.to}::date+interval '1 day'` : sql``} ${c ? sql`AND(e.created_at,e.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY e.created_at DESC,e.id DESC LIMIT 26`,
     ),
     true,
   );

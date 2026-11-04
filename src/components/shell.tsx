@@ -16,7 +16,6 @@ import {
   History,
   Settings2,
   Menu,
-  LogOut,
 } from "lucide-react";
 import { ar } from "@/messages/ar";
 import { type Actor, can } from "@/lib/domain";
@@ -26,6 +25,7 @@ import { Button } from "./form-controls";
 import LiveNotifications from "./live-notifications";
 import { Lookup } from "./dropdown";
 import { FormatContext } from "./format-context";
+import AccountMenu, { LogoutButton } from "./account-menu";
 const Modal = dynamic(() => import("./ui").then((module) => module.Modal));
 const links = [
   ["dashboard", LayoutDashboard, "requests.view"],
@@ -74,26 +74,6 @@ export default function Shell({
     }, 5 * 60_000);
     return () => clearInterval(timer);
   }, []);
-  async function logout() {
-    try {
-      const registration = await navigator.serviceWorker?.getRegistration("/");
-      const subscription = await registration?.pushManager.getSubscription();
-      if (subscription) {
-        await fetch("/api/push", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: subscription.endpoint }),
-        });
-        await subscription.unsubscribe();
-      }
-    } catch {}
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    window.location.assign("/login");
-  }
   const navigation = (
     <>
       <Brand />
@@ -131,19 +111,7 @@ export default function Shell({
           ))}
       </nav>
       <div className="sidebar-foot">
-        <div className="profile">
-          <div className="avatar">{actor.name.slice(0, 1)}</div>
-          <div>
-            <div className="profile-name">{actor.name}</div>
-            <div className="profile-role">
-              {actor.is_owner ? ar.auth.owner : actor.role_name}
-            </div>
-          </div>
-        </div>
-        <Button className="full link" onClick={() => void logout()}>
-          <LogOut size={17} />
-          {ar.common.logout}
-        </Button>
+        <LogoutButton />
       </div>
     </>
   );
@@ -205,16 +173,15 @@ export default function Shell({
                 {date(new Date(), digits)}
               </span>
               {!actor.force_password_change ? <LiveNotifications /> : null}
-              <Link
-                href="/settings/security"
-                className="avatar"
-                aria-label={ar.settings.profile}
-              >
-                {actor.name.slice(0, 1)}
-              </Link>
+              <AccountMenu actor={actor} />
             </div>
           </header>
-          <main className="main">{children}</main>
+          <main className="main">
+            <div className="print-brand">
+              <Brand />
+            </div>
+            {children}
+          </main>
         </div>
       </div>
     </FormatContext.Provider>

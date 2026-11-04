@@ -1,11 +1,26 @@
 import Link from "next/link";
 import { Inbox, ArrowLeft, Plus } from "lucide-react";
 import { ar } from "@/messages/ar";
+import Breadcrumbs from "./breadcrumbs";
 export function Brand() {
   return (
     <div className="brand" aria-label={ar.brand}>
-      <span role="img" aria-label={ar.company} className="brand-image" />
-      <span className="brand-track">{ar.brandTrack}</span>
+      <span className="brand-images">
+        <img
+          src="/logo.svg"
+          width="162"
+          height="54"
+          alt={ar.company}
+          className="brand-image brand-light"
+        />
+        <img
+          src="/logo-dark.svg"
+          width="162"
+          height="54"
+          alt={ar.company}
+          className="brand-image brand-dark"
+        />
+      </span>
     </div>
   );
 }
@@ -38,8 +53,8 @@ export function Heading({
   return (
     <div className="page-heading">
       <div>
+        <Breadcrumbs title={title} />
         {eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}
-        <h1>{title}</h1>
       </div>
       {children ? <div className="row no-print">{children}</div> : null}
     </div>

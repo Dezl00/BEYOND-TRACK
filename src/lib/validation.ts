@@ -245,3 +245,7 @@ export const listQuerySchema = z.object({
   from: dateOnly.optional(),
   to: dateOnly.optional(),
 });
+export const purgeConfirmSchema = z.object({
+  challenge: uuid,
+  code: z.string().regex(/^\d{6}$/, ar.errors.otp),
+});

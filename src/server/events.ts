@@ -54,9 +54,10 @@ export async function queueEmail(
   subject: string,
   html: string,
   key?: string,
+  requestId?: string,
 ) {
   await conn.execute(
-    sql`INSERT INTO outbox(kind,payload) VALUES (2,${JSON.stringify({ encrypted: encrypt({ to, subject, html }), key })}::jsonb)`,
+    sql`INSERT INTO outbox(kind,payload) VALUES (2,${JSON.stringify({ encrypted: encrypt({ to, subject, html }), key, requestId })}::jsonb)`,
   );
 }
 export async function authAudit(

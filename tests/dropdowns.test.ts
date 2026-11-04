@@ -6,6 +6,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -14,11 +15,14 @@ import { Modal, Button, Field } from "@/components/ui";
 import Filters from "@/components/filters";
 import ActivationSwitch from "@/components/activation-switch";
 import Shell from "@/components/shell";
+import Breadcrumbs from "@/components/breadcrumbs";
+import RequestPurge from "@/components/request-purge";
 import { ar } from "@/messages/ar";
 import type { Actor } from "@/lib/domain";
 
 const nav = vi.hoisted(() => ({
   params: "",
+  path: "/requests",
   replace: vi.fn(),
   push: vi.fn(),
   prefetch: vi.fn(),
@@ -26,23 +30,22 @@ const nav = vi.hoisted(() => ({
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => nav,
-  usePathname: () => "/requests",
+  usePathname: () => nav.path,
   useSearchParams: () => new URLSearchParams(nav.params),
 }));
 vi.mock("next/link", () => ({
   default: ({
     href,
     children,
-    className,
-  }: {
-    href: string;
-    children: React.ReactNode;
-    className?: string;
-  }) => createElement("a", { href, className }, children),
+    prefetch: _prefetch,
+    ...props
+  }: React.ComponentProps<"a"> & { prefetch?: boolean }) =>
+    createElement("a", { href, ...props }, children),
 }));
 vi.mock("@/components/live-notifications", () => ({ default: () => null }));
 beforeEach(() => {
   nav.params = "";
+  nav.path = "/requests";
   vi.clearAllMocks();
   vi.stubGlobal(
     "ResizeObserver",
@@ -267,5 +270,142 @@ describe("Immediate table controls", () => {
       expect(toggle.getAttribute("aria-checked")).toBe("true"),
     );
     expect(screen.getByRole("alert").textContent).toBe(ar.errors.forbidden);
+  });
+});
+
+describe("Header, breadcrumbs, and maintenance controls", () => {
+  it("moves the profile into the header and requires confirmation before logout", async () => {
+    const user = userEvent.setup();
+    render(
+      createElement(Shell, {
+        actor: {
+          id: "owner",
+          name: "Mohamed",
+          role_name: "دور",
+          is_owner: true,
+          force_password_change: false,
+          permissions: [],
+        } as unknown as Actor,
+        digits: 0,
+        children: null,
+      }),
+    );
+    expect(
+      within(document.querySelector("header")!).getByText("Mohamed"),
+    ).toBeTruthy();
+    expect(document.querySelector(".sidebar .profile")).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: ar.settings.profile }),
+    ).toBeNull();
+    const account = screen.getByRole("button", { name: ar.settings.profile });
+    await user.click(account);
+    expect(account.getAttribute("aria-expanded")).toBe("true");
+    const menu = screen.getByRole("menu");
+    expect(
+      within(menu)
+        .getByRole("menuitem", { name: ar.nav.settings })
+        .getAttribute("href"),
+    ).toBe("/settings");
+    await user.click(
+      within(menu).getByRole("menuitem", { name: ar.common.logout }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: ar.settings.logoutConfirm }),
+    ).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: ar.common.cancel }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("links nested request breadcrumbs and preserves the project context", () => {
+    nav.path = "/requests/request-id/attachments";
+    nav.params = "project=p1";
+    render(createElement(Breadcrumbs, { title: ar.fields.attachments }));
+    expect(
+      screen.getByRole("link", { name: ar.nav.dashboard }).getAttribute("href"),
+    ).toBe("/dashboard?project=p1");
+    expect(
+      screen.getByRole("link", { name: ar.nav.requests }).getAttribute("href"),
+    ).toBe("/requests?project=p1");
+    expect(
+      screen
+        .getByRole("link", { name: ar.requests.detail })
+        .getAttribute("href"),
+    ).toBe("/requests/request-id?project=p1");
+    expect(
+      screen
+        .getByRole("heading", { level: 1, name: ar.fields.attachments })
+        .parentElement?.getAttribute("aria-current"),
+    ).toBe("page");
+  });
+  it("places search and export in the page heading outside the data panel", () => {
+    nav.path = "/users";
+    render(
+      createElement(
+        "div",
+        null,
+        createElement(Filters, { title: ar.nav.users, exportable: true }),
+        createElement("section", { className: "panel" }),
+      ),
+    );
+    const heading = document.querySelector(".page-heading")!;
+    expect(
+      within(heading as HTMLElement).getByRole("textbox", {
+        name: ar.common.search,
+      }),
+    ).toBeTruthy();
+    expect(
+      within(heading as HTMLElement)
+        .getByRole("link", { name: ar.common.export })
+        .getAttribute("href"),
+    ).toContain("resource=users");
+    expect(document.querySelector(".panel input")).toBeNull();
+    expect(screen.queryByText("تصدير الصفحة")).toBeNull();
+  });
+  it("requires scope acknowledgement and a six-digit emailed code before purging", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn(async (_url: unknown, options: RequestInit) => {
+      const body = JSON.parse(options.body as string);
+      return new Response(
+        JSON.stringify(
+          body.command === "request-purge-code"
+            ? { challenge: "11111111-1111-4111-8111-111111111111" }
+            : { deleted: 3 },
+        ),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", request);
+    render(createElement(RequestPurge, { email: "owner@example.com" }));
+    await user.click(screen.getByRole("button", { name: ar.settings.purge }));
+    const send = screen.getByRole("button", {
+      name: ar.settings.purgeSend,
+    }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    await user.click(
+      screen.getByRole("switch", { name: ar.settings.purgeConfirm }),
+    );
+    await user.click(send);
+    const code = await screen.findByRole("textbox", {
+      name: ar.settings.purgeCode,
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    const remove = screen.getByRole("button", {
+      name: ar.common.delete,
+    }) as HTMLButtonElement;
+    expect(remove.disabled).toBe(true);
+    await user.type(code, "123456");
+    await user.click(remove);
+    await waitFor(() =>
+      expect(screen.getByText(ar.settings.purgeDone)).toBeTruthy(),
+    );
+    expect(JSON.parse(request.mock.calls[1][1].body as string)).toEqual({
+      command: "request-purge-confirm",
+      data: {
+        challenge: "11111111-1111-4111-8111-111111111111",
+        code: "123456",
+      },
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

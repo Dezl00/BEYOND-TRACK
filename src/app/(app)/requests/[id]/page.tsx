@@ -48,7 +48,7 @@ export default async function RequestPage({
         {can(a, "requests.edit") &&
         (a.is_owner ||
           (r.created_by === a.id && editable(r.submitted_at, r.status))) ? (
-          <Link className="btn blue" href={`/requests/${id}/edit`}>
+          <Link className="btn edit-button" href={`/requests/${id}/edit`}>
             <Pencil size={15} />
             {ar.common.edit}
           </Link>

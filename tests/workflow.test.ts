@@ -10,8 +10,12 @@ const state = vi.hoisted(() => ({
   database: null as unknown,
   cookies: new Map<string, string>(),
   push: vi.fn(async () => ({})),
+  cloudDestroy: vi.fn(async () => ({ result: "ok" })),
 }));
 vi.mock("web-push", () => ({ default: { sendNotification: state.push } }));
+vi.mock("@/server/cloudinary", () => ({
+  cloud: () => ({ uploader: { destroy: state.cloudDestroy } }),
+}));
 vi.mock("resend", () => ({
   Resend: class {
     emails = { send: async () => ({ data: { id: "test" }, error: null }) };
@@ -55,12 +59,14 @@ import {
 } from "@/server/requests";
 import { saveUser, saveRole } from "@/server/admin";
 import { setActive } from "@/server/activation";
+import { issueRequestPurge, purgeRequests } from "@/server/request-purge";
 import { deleteRecord } from "@/server/delete";
 import {
   listRequests,
   auditList,
   requestDetail,
   listResource,
+  notifications,
 } from "@/server/queries";
 import { liveSnapshot } from "@/server/live";
 import { processJobs } from "@/server/jobs";
@@ -169,9 +175,11 @@ beforeAll(async () => {
     "drizzle/generated/0000_dizzy_onslaught.sql",
     "drizzle/generated/0001_approvals_push.sql",
     "drizzle/generated/0002_resource_activation.sql",
+    "drizzle/generated/0003_request_purge.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
+    "drizzle/custom/0004_request_purge.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -755,8 +763,16 @@ describe("Arabic BOQ import", () => {
 });
 describe("Authentication", () => {
   it("assigns multiple projects, disables accounts and roles, and deletes users without losing historical actors", async () => {
-    for(const key of ["requests.view","requests.create","projects.view","boq.view"])
-      await pg.query("INSERT INTO permissions(key,label) VALUES($1,$2) ON CONFLICT(key) DO NOTHING",[key,ar.common.actions]);
+    for (const key of [
+      "requests.view",
+      "requests.create",
+      "projects.view",
+      "boq.view",
+    ])
+      await pg.query(
+        "INSERT INTO permissions(key,label) VALUES($1,$2) ON CONFLICT(key) DO NOTHING",
+        [key, ar.common.actions],
+      );
     const role = await saveRole(
       owner,
       {
@@ -996,5 +1012,262 @@ describe("Authentication", () => {
         )
       ).rows[0].n,
     ).toBe(0);
+  });
+});
+
+describe("Owner-only request purge", () => {
+  let admin: Actor;
+  async function codeFor(challenge: string) {
+    const mail = (
+      await pg.query<{ payload: { encrypted: string } }>(
+        "SELECT payload FROM outbox WHERE kind=2 AND payload->>'key'=$1",
+        ["purge:" + challenge],
+      )
+    ).rows[0];
+    return decrypt<{ html: string }>(mail.payload.encrypted).html.match(
+      /dir="ltr">(\d{6})/,
+    )![1];
+  }
+  async function session() {
+    const id = randomUUID();
+    await pg.query(
+      "INSERT INTO sessions(id,user_id,token_hash,expires_at,ip,user_agent) VALUES($1,$2,$3,now()+interval '1 hour','127.0.0.1','purge-test')",
+      [id, ids.owner, randomUUID()],
+    );
+    return { ...owner, session_id: id };
+  }
+  it("requires the database owner and binds an encrypted, hashed code to its issuing session", async () => {
+    await expect(issueRequestPurge(engineer, meta)).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(
+      issueRequestPurge({ ...engineer, is_owner: true }, meta),
+    ).rejects.toMatchObject({ status: 403 });
+    admin = await session();
+    const challenge = await issueRequestPurge(admin, meta),
+      code = await codeFor(challenge.challenge);
+    expect(challenge.email).toBe(owner.email);
+    const stored = (
+      await pg.query<{ token_hash: string }>(
+        "SELECT token_hash FROM request_purge_challenges WHERE id=$1",
+        [challenge.challenge],
+      )
+    ).rows[0];
+    expect(stored.token_hash).not.toBe(code);
+    expect(stored.token_hash).toHaveLength(64);
+    const device = await session();
+    await expect(
+      purgeRequests(device, { challenge: challenge.challenge, code }, meta),
+    ).rejects.toMatchObject({ code: "purge" });
+    const wrong = code === "000000" ? "111111" : "000000";
+    for (let i = 0; i < 5; i++)
+      await expect(
+        purgeRequests(
+          admin,
+          { challenge: challenge.challenge, code: wrong },
+          meta,
+        ),
+      ).rejects.toMatchObject({ code: "purge" });
+    expect(
+      (
+        await pg.query<{ attempts: number }>(
+          "SELECT attempts FROM request_purge_challenges WHERE id=$1",
+          [challenge.challenge],
+        )
+      ).rows[0].attempts,
+    ).toBe(5);
+    await expect(
+      purgeRequests(admin, { challenge: challenge.challenge, code }, meta),
+    ).rejects.toMatchObject({ code: "purge" });
+  });
+  it("expires codes, invalidates earlier resends, and revokes challenges with the session", async () => {
+    await pg.query("DELETE FROM rate_limits WHERE key LIKE 'purge-%'");
+    admin = await session();
+    const first = await issueRequestPurge(admin, meta);
+    const firstCode = await codeFor(first.challenge);
+    const second = await issueRequestPurge(admin, meta);
+    const secondCode = await codeFor(second.challenge);
+    expect(
+      (
+        await pg.query("SELECT id FROM request_purge_challenges WHERE id=$1", [
+          first.challenge,
+        ])
+      ).rows,
+    ).toHaveLength(0);
+    await expect(
+      purgeRequests(
+        admin,
+        { challenge: first.challenge, code: firstCode },
+        meta,
+      ),
+    ).rejects.toMatchObject({ code: "purge" });
+    await pg.query(
+      "UPDATE request_purge_challenges SET expires_at=now()-interval '1 second' WHERE id=$1",
+      [second.challenge],
+    );
+    await expect(
+      purgeRequests(
+        admin,
+        { challenge: second.challenge, code: secondCode },
+        meta,
+      ),
+    ).rejects.toMatchObject({ code: "purge" });
+    await pg.query("DELETE FROM sessions WHERE id=$1", [admin.session_id]);
+    expect(
+      (
+        await pg.query(
+          "SELECT id FROM request_purge_challenges WHERE user_id=$1",
+          [ids.owner],
+        )
+      ).rows,
+    ).toHaveLength(0);
+  });
+  it("atomically removes request dependents, preserves master data and immutable audit, queues file removal, and prevents replay", async () => {
+    await pg.query("DELETE FROM rate_limits WHERE key LIKE 'purge-%'");
+    admin = await session();
+    const request = randomUUID(),
+      line = randomUUID(),
+      receipt = randomUUID();
+    await pg.query(
+      "INSERT INTO purchase_requests(id,project_id,created_by,status) VALUES($1,$2,$3,3)",
+      [request, ids.p1, ids.owner],
+    );
+    await pg.query(
+      "INSERT INTO request_lines(id,request_id,material_id,quantity) VALUES($1,$2,$3,1)",
+      [line, request, ids.material],
+    );
+    await pg.query(
+      "INSERT INTO receipts(id,request_id,created_by,idempotency_key) VALUES($1,$2,$3,$4)",
+      [receipt, request, ids.owner, randomUUID()],
+    );
+    await pg.query(
+      "INSERT INTO receipt_lines(receipt_id,request_line_id,accepted,damaged,rejected,returned) VALUES($1,$2,1,0,0,0)",
+      [receipt, line],
+    );
+    await pg.query(
+      "INSERT INTO request_timeline(request_id,user_id,from_status,to_status) VALUES($1,$2,3,5)",
+      [request, ids.owner],
+    );
+    await pg.query(
+      "INSERT INTO attachments(request_id,receipt_id,uploaded_by,public_id,resource_type,format,name,bytes) VALUES($1,$2,$3,'purge-test-asset','image','png','اختبار',100)",
+      [request, receipt, ids.owner],
+    );
+    await pg.query(
+      "INSERT INTO notification_policy(type) VALUES(0) ON CONFLICT DO NOTHING",
+    );
+    await pg.query(
+      "INSERT INTO notifications(user_id,event_id,type,request_id) VALUES($1,$2,0,$3)",
+      [ids.engineer, randomUUID(), request],
+    );
+    await pg.exec("SELECT ensure_audit_partition(now())");
+    const auditId = randomUUID();
+    await pg.query(
+      "INSERT INTO audit_log(id,actor_id,entity_id,action,entity,ip,user_agent,diff) VALUES($1,$2,$3,0,4,'test','test','{}')",
+      [auditId, ids.owner, auditId],
+    );
+    expect(
+      (await auditList(owner, { q: auditId })).items.map((row) => row.id),
+    ).toEqual([auditId]);
+    expect(
+      (await notifications(engineer, undefined, "no-such-notification-query"))
+        .items,
+    ).toHaveLength(0);
+    const masters = [
+      "users",
+      "roles",
+      "projects",
+      "boq_items",
+      "materials",
+      "units",
+      "suppliers",
+    ];
+    const counts = await Promise.all(
+      masters.map((table) =>
+        pg
+          .query<{ n: number }>("SELECT count(*)::int n FROM " + table)
+          .then((result) => result.rows[0].n),
+      ),
+    );
+    const challenge = await issueRequestPurge(admin, meta),
+      code = await codeFor(challenge.challenge);
+    await pg.exec(
+      "CREATE FUNCTION reject_purge_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'rollback-test'; END $$; CREATE TRIGGER reject_purge_test BEFORE DELETE ON purchase_requests FOR EACH ROW EXECUTE FUNCTION reject_purge_test()",
+    );
+    await expect(
+      purgeRequests(admin, { challenge: challenge.challenge, code }, meta),
+    ).rejects.toThrow();
+    expect(
+      (await pg.query("SELECT id FROM receipts WHERE id=$1", [receipt])).rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await pg.query("SELECT id FROM attachments WHERE request_id=$1", [
+          request,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await pg.query<{ verified_at: Date | null }>(
+          "SELECT verified_at FROM request_purge_challenges WHERE id=$1",
+          [challenge.challenge],
+        )
+      ).rows[0].verified_at,
+    ).toBeNull();
+    await pg.exec(
+      "DROP TRIGGER reject_purge_test ON purchase_requests; DROP FUNCTION reject_purge_test()",
+    );
+    const result = await purgeRequests(
+      admin,
+      { challenge: challenge.challenge, code },
+      meta,
+    );
+    expect(result.deleted).toBeGreaterThan(0);
+    for (const table of [
+      "purchase_requests",
+      "request_lines",
+      "receipts",
+      "receipt_lines",
+      "request_timeline",
+      "attachments",
+      "notifications",
+    ])
+      expect(
+        (await pg.query<{ n: number }>("SELECT count(*)::int n FROM " + table))
+          .rows[0].n,
+      ).toBe(0);
+    for (let i = 0; i < masters.length; i++)
+      expect(
+        (
+          await pg.query<{ n: number }>(
+            "SELECT count(*)::int n FROM " + masters[i],
+          )
+        ).rows[0].n,
+      ).toBe(counts[i]);
+    expect(
+      (await pg.query("SELECT id FROM audit_log WHERE id=$1", [auditId])).rows,
+    ).toHaveLength(1);
+    await expect(
+      pg.query("DELETE FROM audit_log WHERE id=$1", [auditId]),
+    ).rejects.toThrow();
+    await expect(
+      purgeRequests(admin, { challenge: challenge.challenge, code }, meta),
+    ).rejects.toMatchObject({ code: "purge" });
+    expect(
+      (
+        await pg.query("SELECT id FROM sessions WHERE id=$1", [
+          admin.session_id,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+    await processJobs(1000);
+    expect(state.cloudDestroy).toHaveBeenCalledWith("purge-test-asset", {
+      resource_type: "image",
+      type: "authenticated",
+      invalidate: true,
+    });
+    expect(
+      (await pg.query("SELECT id FROM outbox WHERE kind=4")).rows,
+    ).toHaveLength(0);
   });
 });
