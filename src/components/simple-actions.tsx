@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Printer } from "lucide-react";
+import { Check } from "lucide-react";
 import { ar } from "@/messages/ar";
 import { Button, command, Message } from "./ui";
 export function NotificationRead({ id }: { id?: string }) {
@@ -35,14 +35,6 @@ export function NotificationRead({ id }: { id?: string }) {
       </Button>
       <Message error={error} />
     </>
-  );
-}
-export function Print() {
-  return (
-    <Button onClick={() => window.print()}>
-      <Printer size={16} />
-      {ar.common.print}
-    </Button>
   );
 }
 export function Revoke({ id }: { id: string }) {

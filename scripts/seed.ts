@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { hash } from "bcryptjs";
 import { db, sql, one } from "../src/db";
 import { ar } from "../src/messages/ar";
-import { modules, actions, specialPermissions } from "../src/lib/domain";
+import {
+  modules,
+  actionsForModule,
+  specialPermissions,
+} from "../src/lib/domain";
 import { password } from "../src/lib/validation";
 async function seed() {
   const email = process.env.SEED_ADMIN_EMAIL?.toLowerCase(),
@@ -25,11 +29,13 @@ async function seed() {
       );
     const permissions = new Map<string, string>();
     for (const key of [
-      ...modules.flatMap((mod) => actions.map((action) => `${mod}.${action}`)),
+      ...modules.flatMap((mod) =>
+        actionsForModule(mod).map((action) => `${mod}.${action}`),
+      ),
       ...specialPermissions,
     ]) {
       const [mod, action] = key.split(".");
-      const label = `${mod === "security" ? ar.common.security : ar.nav[mod as keyof typeof ar.nav]} · ${ar.permissionActions[action as keyof typeof ar.permissionActions]}`;
+      const label = `${mod === "security" ? ar.common.security : ar.nav[mod as keyof typeof ar.nav]} · ${mod === "reports" && action === "export" ? ar.reports.exportPrint : ar.permissionActions[action as keyof typeof ar.permissionActions]}`;
       await tx.execute(
         sql`INSERT INTO permissions(key,label) VALUES (${key},${label}) ON CONFLICT(key) DO NOTHING`,
       );

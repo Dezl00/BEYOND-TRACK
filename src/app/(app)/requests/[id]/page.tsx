@@ -16,7 +16,7 @@ import {
   Riyal,
 } from "@/components/common";
 import { RequestActions, AttachmentUpload } from "@/components/request-actions";
-import { Print } from "@/components/simple-actions";
+import RequestPrintOptions from "@/components/request-print-options";
 export default async function RequestPage({
   params,
   searchParams,
@@ -44,7 +44,7 @@ export default async function RequestPage({
         }
       >
         <StatusBadge status={r.status} />
-        <Print />
+        <RequestPrintOptions id={id} canPrice={pricing} />
         {can(a, "requests.edit") &&
         (a.is_owner ||
           (r.created_by === a.id && editable(r.submitted_at, r.status))) ? (

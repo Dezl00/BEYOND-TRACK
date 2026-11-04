@@ -7,6 +7,7 @@ import {
 import { cookies } from "next/headers";
 import { ar } from "@/messages/ar";
 import "./globals.css";
+import "./reporting.css";
 import { PwaProvider } from "@/components/pwa";
 const arabic = IBM_Plex_Sans_Arabic({
   subsets: ["arabic"],

@@ -180,6 +180,7 @@ beforeAll(async () => {
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
     "drizzle/custom/0004_request_purge.sql",
+    "drizzle/custom/0005_reports.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");

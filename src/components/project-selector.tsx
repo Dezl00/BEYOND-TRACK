@@ -28,6 +28,7 @@ export default function ProjectSelector() {
         onChange={(value) => {
           const next = new URLSearchParams(params.toString());
           next.delete("cursor");
+          if (path.startsWith("/reports")) next.delete("items");
           if (value) next.set("project", value);
           else next.delete("project");
           router.push(path + "?" + next.toString(), { scroll: false });

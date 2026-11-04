@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Pencil } from "lucide-react";
 import { ar } from "@/messages/ar";
-import { modules, actions, type Actor } from "@/lib/domain";
+import { modules, actionsForModule, type Actor } from "@/lib/domain";
 import * as v from "@/lib/validation";
 import {
   Button,
@@ -300,12 +300,16 @@ export default function ResourceForm({
                 <div className="permission-group" key={mod}>
                   <h3>{ar.nav[mod]}</h3>
                   <div className="row">
-                    {actions.map((action) => {
+                    {actionsForModule(mod).map((action) => {
                       const key = `${mod}.${action}`;
                       return (
                         <Checkbox
                           key={key}
-                          label={ar.permissionActions[action]}
+                          label={
+                            mod === "reports" && action === "export"
+                              ? ar.reports.exportPrint
+                              : ar.permissionActions[action]
+                          }
                           checked={perms.includes(key)}
                           onChange={(e) =>
                             set(

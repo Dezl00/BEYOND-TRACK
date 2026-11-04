@@ -23,6 +23,7 @@ import { NotificationRead } from "@/components/simple-actions";
 import { translateDiff } from "@/lib/audit-format";
 import UserSessions from "@/components/user-sessions";
 import DeleteButton from "@/components/delete-button";
+import { ChartNoAxesCombined } from "lucide-react";
 const resources = {
   projects: "project",
   boq: "boq",
@@ -314,6 +315,15 @@ export default async function ResourcePage({
                         ) : null}
                         <td>
                           <div className="table-actions">
+                            {module === "projects" && can(a, "reports.view") ? (
+                              <Link
+                                className="btn icon small export-button"
+                                href={`/reports?project=${row.id}`}
+                                aria-label={ar.reports.title}
+                              >
+                                <ChartNoAxesCombined size={17} />
+                              </Link>
+                            ) : null}
                             {can(a, `${permission}.edit`) &&
                             (!row.is_owner || a.is_owner) ? (
                               <ResourceForm

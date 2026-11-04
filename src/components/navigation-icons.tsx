@@ -12,6 +12,7 @@ import {
   Settings2,
   Bell,
   Grid2X2,
+  ChartNoAxesCombined,
 } from "lucide-react";
 export const navigationIcons = {
   dashboard: LayoutDashboard,
@@ -22,6 +23,7 @@ export const navigationIcons = {
   finance: ContactRound,
   procurement: Truck,
   receipts: PackageCheck,
+  reports: ChartNoAxesCombined,
   suppliers: ContactRound,
   users: UsersRound,
   roles: ShieldCheck,

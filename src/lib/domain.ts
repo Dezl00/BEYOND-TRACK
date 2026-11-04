@@ -65,6 +65,7 @@ export const modules = [
   "technical",
   "finance",
   "receipts",
+  "reports",
   "suppliers",
   "users",
   "roles",
@@ -79,6 +80,9 @@ export const actions = [
   "approve",
   "export",
 ] as const;
+export function actionsForModule(module: (typeof modules)[number]) {
+  return module === "reports" ? (["view", "export"] as const) : actions;
+}
 export const specialPermissions = [
   "projects.all",
   "requests.view_all",

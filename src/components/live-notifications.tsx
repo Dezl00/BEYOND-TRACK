@@ -54,7 +54,11 @@ export default function LiveNotifications() {
         if (!response.ok) return;
         const data: Snapshot = await response.json();
         setSnapshot(data);
-        if (revision.current && revision.current !== data.revision) {
+        if (
+          revision.current &&
+          revision.current !== data.revision &&
+          !path.endsWith("/print")
+        ) {
           // Keep in-progress forms and dialogs intact. A later poll applies the
           // update once the user leaves the field or closes the dialog.
           if (
@@ -73,7 +77,7 @@ export default function LiveNotifications() {
         busy.current = false;
       }
     },
-    [project, router],
+    [project, router, path],
   );
   useEffect(() => {
     revision.current = null;

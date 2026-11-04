@@ -8,6 +8,7 @@ export const navigationItems = [
   { key: "finance", permission: "finance.view" },
   { key: "procurement", permission: "procurement.view" },
   { key: "receipts", permission: "receipts.view" },
+  { key: "reports", permission: "reports.view" },
   { key: "suppliers", permission: "suppliers.view" },
   { key: "users", permission: "users.view" },
   { key: "roles", permission: "roles.view" },
@@ -56,6 +57,7 @@ export function navigationHref(key: NavigationKey | "more", project: string) {
     "receipts",
     "notifications",
     "more",
+    "reports",
   ].includes(key);
   return `/${key}${project && scoped ? `?project=${encodeURIComponent(project)}` : ""}`;
 }
