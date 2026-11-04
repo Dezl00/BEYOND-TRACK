@@ -13,7 +13,7 @@ export default function RequestTable({
 }) {
   if (!items.length) return <Empty />;
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" id="request-results">
       <table>
         <thead>
           <tr>

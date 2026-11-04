@@ -61,6 +61,8 @@ export async function GET(req: Request) {
       project_name: ar.common.project,
       number: ar.fields.requestNumber,
       status: ar.fields.status,
+      active: ar.common.active,
+      locked: ar.auth.locked,
       created_at: ar.fields.createdAt,
       expected_at: ar.fields.expectedAt,
       created_by_name: ar.fields.createdBy,
@@ -93,7 +95,11 @@ export async function GET(req: Request) {
                     ? ar.auditActions[Number(row[k])]
                     : k === "entity"
                       ? ar.auditEntities[Number(row[k])]
-                      : row[k],
+                      : typeof row[k] === "boolean"
+                        ? row[k]
+                          ? ar.common.yes
+                          : ar.common.no
+                        : row[k],
               ),
             )
             .join(","),

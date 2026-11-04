@@ -54,6 +54,8 @@ import {
   receive,
 } from "@/server/requests";
 import { saveUser, saveRole } from "@/server/admin";
+import { setActive } from "@/server/activation";
+import { deleteRecord } from "@/server/delete";
 import {
   listRequests,
   auditList,
@@ -166,8 +168,10 @@ beforeAll(async () => {
   for (const file of [
     "drizzle/generated/0000_dizzy_onslaught.sql",
     "drizzle/generated/0001_approvals_push.sql",
+    "drizzle/generated/0002_resource_activation.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
+    "drizzle/custom/0003_account_integrity.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -387,6 +391,40 @@ describe("Authorization and database invariants", () => {
   });
 });
 describe("Request to receipt", () => {
+  it("blocks new requests for disabled BOQ items, materials and units", async () => {
+    for (const [resource, id] of [
+      ["boq", ids.leaf],
+      ["boq", ids.main],
+      ["material", ids.material],
+      ["unit", ids.unit],
+    ] as const) {
+      await setActive(owner, { resource, id, active: false }, meta);
+      try {
+        await expect(create("1")).rejects.toMatchObject({ code: "invalid" });
+        expect(
+          (
+            await listResource(owner, "materials", { q: "", selectable: "1" })
+          ).items.map((row) => row.id),
+        ).not.toContain(ids.material);
+      } finally {
+        await setActive(owner, { resource, id, active: true }, meta);
+      }
+    }
+    await expect(
+      setActive(
+        engineer,
+        { resource: "boq", id: ids.leaf, active: false },
+        meta,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      setActive(
+        { ...owner, is_owner: false, permissions: ["boq.edit"] },
+        { resource: "boq", id: ids.leaf, active: false },
+        meta,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
   it("hides the BOQ from procurement and migrates both approval roles", async () => {
     await expect(listResource(buyer, "boq", { q: "" })).rejects.toMatchObject({
       status: 403,
@@ -716,6 +754,140 @@ describe("Arabic BOQ import", () => {
   });
 });
 describe("Authentication", () => {
+  it("assigns multiple projects, disables accounts and roles, and deletes users without losing historical actors", async () => {
+    for(const key of ["requests.view","requests.create","projects.view","boq.view"])
+      await pg.query("INSERT INTO permissions(key,label) VALUES($1,$2) ON CONFLICT(key) DO NOTHING",[key,ar.common.actions]);
+    const role = await saveRole(
+      owner,
+      {
+        name: "دور إدارة الاختبار",
+        permissions: [
+          "requests.view",
+          "requests.create",
+          "projects.view",
+          "boq.view",
+        ],
+      },
+      meta,
+    );
+    const identifier = `member-${randomUUID()}`;
+    const account = await saveUser(
+      owner,
+      {
+        name: "مستخدم متعدد المشاريع",
+        email: `${identifier}@test.invalid`,
+        username: identifier,
+        jobTitle: "مهندس",
+        roleId: role.id,
+        projectIds: [ids.p1, ids.p2],
+        password: "Temporary-test-12345",
+        locked: false,
+        forcePasswordChange: false,
+        otpEnabled: false,
+        otpExempt: false,
+      },
+      meta,
+    );
+    expect(
+      (
+        await pg.query(
+          "SELECT project_id FROM project_users WHERE user_id=$1",
+          [account.id],
+        )
+      ).rows,
+    ).toHaveLength(2);
+    await login({
+      identifier,
+      password: "Temporary-test-12345",
+      remember: false,
+    });
+    expect((await currentActor())?.id).toBe(account.id);
+    await setActive(
+      owner,
+      { resource: "user", id: account.id, active: false },
+      meta,
+    );
+    expect(await currentActor()).toBeNull();
+    await expect(
+      login({ identifier, password: "Temporary-test-12345", remember: false }),
+    ).rejects.toMatchObject({ status: 401 });
+    await setActive(
+      owner,
+      { resource: "user", id: account.id, active: true },
+      meta,
+    );
+    await login({
+      identifier,
+      password: "Temporary-test-12345",
+      remember: false,
+    });
+    await setActive(
+      owner,
+      { resource: "role", id: role.id, active: false },
+      meta,
+    );
+    expect(await currentActor()).toBeNull();
+    await expect(
+      login({ identifier, password: "Temporary-test-12345", remember: false }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(
+      (
+        await listResource(owner, "roles", {
+          q: "دور إدارة الاختبار",
+          selectable: "1",
+        })
+      ).items.map((row) => row.id),
+    ).not.toContain(role.id);
+    await setActive(
+      owner,
+      { resource: "role", id: role.id, active: true },
+      meta,
+    );
+    await login({
+      identifier,
+      password: "Temporary-test-12345",
+      remember: false,
+    });
+    const user = await requireActor();
+    const request = await saveRequest(
+      user,
+      {
+        projectId: ids.p1,
+        notes: "",
+        submit: false,
+        lines: [{ materialId: ids.material, quantity: "1", notes: "" }],
+      },
+      meta,
+    );
+    await deleteRecord(owner, { resource: "user", id: account.id }, meta);
+    expect(await currentActor()).toBeNull();
+    expect(
+      (await listResource(owner, "users", { q: identifier })).items,
+    ).toHaveLength(0);
+    await expect(
+      login({ identifier, password: "Temporary-test-12345", remember: false }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(
+      (
+        await pg.query<{ name: string }>(
+          "SELECT u.name FROM purchase_requests r JOIN users u ON u.id=r.created_by WHERE r.id=$1",
+          [request.id],
+        )
+      ).rows[0].name,
+    ).toBe("مستخدم متعدد المشاريع");
+    await expect(
+      deleteRecord(owner, { resource: "user", id: ids.owner }, meta),
+    ).rejects.toMatchObject({ code: "owner" });
+    await expect(
+      setActive(owner, { resource: "role", id: ids.role, active: false }, meta),
+    ).rejects.toMatchObject({ code: "owner" });
+    await expect(
+      pg.query("UPDATE users SET deleted_at=now() WHERE id=$1", [ids.owner]),
+    ).rejects.toThrow();
+    await expect(
+      pg.query("UPDATE roles SET active=false WHERE id=$1", [ids.role]),
+    ).rejects.toThrow();
+  });
   it("keeps project APIs forbidden until a forced password change completes, including for the owner", async () => {
     await pg.query("UPDATE users SET force_password_change=true WHERE id=$1", [
       ids.owner,

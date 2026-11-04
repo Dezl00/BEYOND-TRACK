@@ -90,11 +90,11 @@ export async function saveBoq(a: Actor, v: z.infer<typeof boqSchema>, m: Meta) {
       throw new AppError("invalid");
     if (v.id)
       await tx.execute(
-        sql`UPDATE boq_items SET parent_id=${v.parentId},level=${v.level},code=${v.code},name=${v.name},description=${v.level === 3 ? v.description : null},unit_id=${v.unitId},quantity=${v.quantity} WHERE id=${id}`,
+        sql`UPDATE boq_items SET parent_id=${v.parentId},level=${v.level},code=${v.code},name=${v.name},description=${v.level === 3 ? v.description : null},unit_id=${v.unitId},quantity=${v.quantity},active=COALESCE(${v.active ?? null},active) WHERE id=${id}`,
       );
     else
       await tx.execute(
-        sql`INSERT INTO boq_items(id,project_id,parent_id,level,code,name,description,unit_id,quantity) VALUES (${id},${v.projectId},${v.parentId},${v.level},${v.code},${v.name},${v.level === 3 ? v.description : null},${v.unitId},${v.quantity})`,
+        sql`INSERT INTO boq_items(id,project_id,parent_id,level,code,name,description,unit_id,quantity,active) VALUES (${id},${v.projectId},${v.parentId},${v.level},${v.code},${v.name},${v.level === 3 ? v.description : null},${v.unitId},${v.quantity},${v.active ?? true})`,
       );
     await audit(
       tx,
@@ -111,6 +111,7 @@ export async function saveBoq(a: Actor, v: z.infer<typeof boqSchema>, m: Meta) {
         description: v.description,
         unit_id: v.unitId,
         quantity: v.quantity,
+        ...(v.active !== undefined ? { active: v.active } : {}),
       }),
       v.projectId,
     );
@@ -242,7 +243,7 @@ export async function saveUser(
     const id = v.id || randomUUID(),
       old = v.id
         ? await one<Record<string, unknown>>(
-            sql`SELECT name,email,username,job_title,role_id,locked,otp_enabled,otp_exempt,force_password_change,is_owner FROM users WHERE id=${id} FOR UPDATE`,
+            sql`SELECT name,email,username,job_title,role_id,locked,otp_enabled,otp_exempt,force_password_change,is_owner FROM users WHERE id=${id} AND deleted_at IS NULL FOR UPDATE`,
             tx,
           )
         : {};
@@ -251,7 +252,12 @@ export async function saveUser(
     if (old.is_owner && v.locked) throw new AppError("owner", 403);
     if (v.otpExempt !== Boolean(old.otp_exempt) && !a.is_owner)
       throw new AppError("forbidden", 403);
-    if (!(await one(sql`SELECT id FROM roles WHERE id=${v.roleId}`, tx)))
+    if (
+      !(await one(
+        sql`SELECT id FROM roles WHERE id=${v.roleId} AND active=true`,
+        tx,
+      ))
+    )
       throw new AppError("invalid");
     if (!a.is_owner) {
       const requested = await rows<{ key: string }>(
@@ -329,8 +335,8 @@ export async function saveRole(
   return db().transaction(async (tx) => {
     const id = v.id || randomUUID();
     const old = v.id
-      ? await one<{ name: string }>(
-          sql`SELECT name FROM roles WHERE id=${id} FOR UPDATE`,
+      ? await one<{ name: string; active: boolean }>(
+          sql`SELECT name,active FROM roles WHERE id=${id} FOR UPDATE`,
           tx,
         )
       : null;
@@ -353,10 +359,12 @@ export async function saveRole(
       tx,
     );
     if (v.id)
-      await tx.execute(sql`UPDATE roles SET name=${v.name} WHERE id=${id}`);
+      await tx.execute(
+        sql`UPDATE roles SET name=${v.name},active=COALESCE(${v.active ?? null},active) WHERE id=${id}`,
+      );
     else
       await tx.execute(
-        sql`INSERT INTO roles(id,name) VALUES (${id},${v.name})`,
+        sql`INSERT INTO roles(id,name,active) VALUES (${id},${v.name},${v.active ?? true})`,
       );
     await tx.execute(sql`DELETE FROM role_permissions WHERE role_id=${id}`);
     for (const p of perms)
@@ -371,8 +379,16 @@ export async function saveRole(
       7,
       id,
       changes(
-        { name: old?.name, permissions: previous.map((p) => p.key).sort() },
-        { name: v.name, permissions: [...v.permissions].sort() },
+        {
+          name: old?.name,
+          active: old?.active,
+          permissions: previous.map((p) => p.key).sort(),
+        },
+        {
+          name: v.name,
+          ...(v.active !== undefined ? { active: v.active } : {}),
+          permissions: [...v.permissions].sort(),
+        },
       ),
     );
     return { id };

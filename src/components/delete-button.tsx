@@ -21,7 +21,11 @@ export default function DeleteButton({
       open={open}
       onOpenChange={setOpen}
       trigger={
-        <Button intent="red" className="small" aria-label={ar.common.delete}>
+        <Button
+          intent="red"
+          className="small icon"
+          aria-label={ar.common.delete}
+        >
           <Trash2 size={14} />
         </Button>
       }

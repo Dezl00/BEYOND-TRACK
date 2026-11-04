@@ -141,6 +141,7 @@ export const boqSchema = z
     description: z.string().trim().max(4000).default(""),
     unitId: uuid,
     quantity: qty,
+    active: z.boolean().optional(),
   })
   .refine((v) => v.level !== 3 || v.description.length > 0, ar.errors.required)
   .refine((v) => v.level === 3 || !v.description, ar.errors.invalid);
@@ -191,6 +192,7 @@ export const roleSchema = z.object({
   id: uuid.optional(),
   name: z.string().trim().min(1).max(100),
   permissions: z.array(z.string().min(1).max(80)).max(100),
+  active: z.boolean().optional(),
 });
 export const settingsSchema = z
   .object({
@@ -234,6 +236,8 @@ export const listQuerySchema = z.object({
   cursor: cursorSchema,
   q: z.string().trim().max(100).default(""),
   project: uuid.optional(),
+  level: z.coerce.number().int().min(1).max(3).optional(),
+  selectable: z.enum(["1"]).optional(),
   status: z.coerce.number().int().min(0).max(9).optional(),
   user: uuid.optional(),
   action: z.coerce.number().int().min(0).max(13).optional(),

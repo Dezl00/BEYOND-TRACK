@@ -51,7 +51,7 @@ export default async function Dashboard({
             ["complete", PackageCheck],
           ] as const
         ).map(([key, Icon]) => (
-          <div className="stat" key={key}>
+          <div className={`stat stat-${key}`} key={key}>
             <div className="stat-top">
               <span>{ar.dashboard[key]}</span>
               <span className="stat-icon">

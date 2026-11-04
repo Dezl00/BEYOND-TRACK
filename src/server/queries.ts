@@ -41,12 +41,17 @@ export function page<T extends { id: string }>(data: T[], dated = false) {
         : null,
   };
 }
-export async function projectOptions(a: Actor, q = "", cursor?: string) {
+export async function projectOptions(
+  a: Actor,
+  q = "",
+  cursor?: string,
+  selectable = false,
+) {
   requirePermission(a, "projects.view");
   const c = decodeCursor(cursor);
   return page(
     await rows<RecordRow>(
-      sql`SELECT p.id,p.name,p.code,p.location,p.archived FROM projects p WHERE ${projectScope(a)} AND (${q}='' OR p.name ILIKE ${"%" + q + "%"} OR p.code ILIKE ${"%" + q + "%"}) ${c ? sql`AND p.id>${c.id}::uuid` : sql``} ORDER BY p.id LIMIT 26`,
+      sql`SELECT p.id,p.name,p.code,p.location,p.archived FROM projects p WHERE ${projectScope(a)} ${selectable ? sql`AND p.archived=false` : sql``} AND (${q}='' OR p.name ILIKE ${"%" + q + "%"} OR p.code ILIKE ${"%" + q + "%"}) ${c ? sql`AND p.id>${c.id}::uuid` : sql``} ORDER BY p.id LIMIT 26`,
     ),
   );
 }
@@ -111,12 +116,13 @@ export async function requestDetail(a: Actor, id: string, cursor?: string) {
 export async function listResource(a: Actor, resource: string, q: Query) {
   const c = decodeCursor(q.cursor),
     after = (col = sql`id`) => (c ? sql`AND ${col}>${c.id}::uuid` : sql``);
-  if (resource === "projects") return projectOptions(a, q.q, q.cursor);
+  if (resource === "projects")
+    return projectOptions(a, q.q, q.cursor, !!q.selectable);
   if (resource === "boq") {
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT b.*,u.name unit_name,p.name project_name,pa.code parent_code FROM boq_items b JOIN projects p ON p.id=b.project_id JOIN units u ON u.id=b.unit_id LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`b.id`)} ORDER BY b.id LIMIT 26`,
+        sql`SELECT b.*,u.name unit_name,p.name project_name,pa.code parent_code FROM boq_items b JOIN projects p ON p.id=b.project_id JOIN units u ON u.id=b.unit_id LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${q.selectable ? sql`AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.level ? sql`AND b.level=${q.level}` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`b.id`)} ORDER BY b.id LIMIT 26`,
       ),
     );
   }
@@ -124,7 +130,7 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT m.*,b.project_id,b.code,b.name boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=b.unit_id WHERE ${projectScope(a, sql`b.project_id`)} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`m.id`)} ORDER BY m.id LIMIT 26`,
+        sql`SELECT m.*,b.project_id,b.code,b.name boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=b.unit_id LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${q.selectable ? sql`AND m.active=true AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`m.id`)} ORDER BY m.id LIMIT 26`,
       ),
     );
   }
@@ -132,7 +138,7 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "suppliers.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT id,name,active FROM suppliers WHERE (${q.q}='' OR name ILIKE ${"%" + q.q + "%"}) ${after()} ORDER BY id LIMIT 26`,
+        sql`SELECT id,name,active FROM suppliers WHERE ${q.selectable ? sql`active=true AND` : sql``} (${q.q}='' OR name ILIKE ${"%" + q.q + "%"}) ${after()} ORDER BY id LIMIT 26`,
       ),
     );
   }
@@ -140,7 +146,7 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT * FROM units WHERE (${q.q}='' OR name ILIKE ${"%" + q.q + "%"}) ${after()} ORDER BY id LIMIT 26`,
+        sql`SELECT * FROM units WHERE ${q.selectable ? sql`active=true AND` : sql``} (${q.q}='' OR name ILIKE ${"%" + q.q + "%"}) ${after()} ORDER BY id LIMIT 26`,
       ),
     );
   }
@@ -148,7 +154,7 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "users.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.role_id,u.locked,u.otp_enabled,u.otp_exempt,u.force_password_change,u.is_owner,r.name role_name,COALESCE((SELECT json_agg(project_id) FROM project_users WHERE user_id=u.id),'[]'::json) project_ids FROM users u JOIN roles r ON r.id=u.role_id WHERE (${q.q}='' OR u.name ILIKE ${"%" + q.q + "%"} OR u.email ILIKE ${"%" + q.q + "%"}) ${after(sql`u.id`)} ORDER BY u.id LIMIT 26`,
+        sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.role_id,u.locked,u.otp_enabled,u.otp_exempt,u.force_password_change,u.is_owner,r.active role_active,r.name role_name,COALESCE((SELECT json_agg(project_id) FROM project_users WHERE user_id=u.id),'[]'::json) project_ids,COALESCE((SELECT json_agg(json_build_object('id',p.id,'name',p.name,'code',p.code)) FROM project_users pu JOIN projects p ON p.id=pu.project_id WHERE pu.user_id=u.id),'[]'::json) projects FROM users u JOIN roles r ON r.id=u.role_id WHERE u.deleted_at IS NULL ${q.selectable ? sql`AND u.locked=false AND r.active=true` : sql``} AND (${q.q}='' OR u.name ILIKE ${"%" + q.q + "%"} OR u.email ILIKE ${"%" + q.q + "%"}) ${after(sql`u.id`)} ORDER BY u.id LIMIT 26`,
       ),
     );
   }
@@ -156,7 +162,7 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "roles.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT r.id,r.name,r.system,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=r.id),'[]'::json) permissions FROM roles r WHERE (${q.q}='' OR r.name ILIKE ${"%" + q.q + "%"}) ${after(sql`r.id`)} ORDER BY r.id LIMIT 26`,
+        sql`SELECT r.id,r.name,r.system,r.active,EXISTS(SELECT 1 FROM users own WHERE own.is_owner=true AND own.role_id=r.id) owner_role,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=r.id),'[]'::json) permissions FROM roles r WHERE ${q.selectable ? sql`r.active=true AND` : sql``} (${q.q}='' OR r.name ILIKE ${"%" + q.q + "%"}) ${after(sql`r.id`)} ORDER BY r.id LIMIT 26`,
       ),
     );
   }

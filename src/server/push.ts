@@ -25,11 +25,15 @@ export async function deliverPush(
     sql`SELECT s.endpoint,s.p256dh,s.auth,s.user_id,n.type,n.request_id FROM push_subscriptions s JOIN notifications n ON n.user_id=s.user_id WHERE s.id=${subscriptionId} AND n.id=${notificationId}`,
   );
   if (!data) return;
-  const user = await one<Actor & { locked: boolean }>(
-    sql`SELECT u.*,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions FROM users u WHERE u.id=${data.user_id}`,
+  const user = await one<
+    Actor & { locked: boolean; deleted_at: Date | null; role_active: boolean }
+  >(
+    sql`SELECT u.*,r.active role_active,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=${data.user_id}`,
   );
   if (
     !user ||
+    user.deleted_at ||
+    !user.role_active ||
     user.locked ||
     !(await one(
       sql`SELECT r.id FROM purchase_requests r WHERE r.id=${data.request_id} AND ${requestScope(user)}`,

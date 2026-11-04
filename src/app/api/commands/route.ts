@@ -1,3 +1,4 @@
+import { setActive, activationSchema } from "@/server/activation";
 import { after } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
@@ -24,6 +25,9 @@ export async function POST(req: Request) {
     await rateLimit("commands", a.id, 120, 60);
     let result: unknown;
     switch (command) {
+      case "activation":
+        result = await setActive(a, activationSchema.parse(data), m);
+        break;
       case "delete":
         result = await deleteRecord(a, deleteSchema.parse(data), m);
         break;

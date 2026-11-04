@@ -15,11 +15,8 @@ import {
   ShieldCheck,
   History,
   Settings2,
-  Bell,
   Menu,
   LogOut,
-  X,
-  ChevronDown,
 } from "lucide-react";
 import { ar } from "@/messages/ar";
 import { type Actor, can } from "@/lib/domain";
@@ -27,8 +24,8 @@ import { date } from "@/lib/format";
 import { Brand } from "./common";
 import { Button } from "./form-controls";
 import LiveNotifications from "./live-notifications";
+import { Lookup } from "./dropdown";
 import { FormatContext } from "./format-context";
-const Lookup = dynamic(() => import("./ui").then((module) => module.Lookup));
 const Modal = dynamic(() => import("./ui").then((module) => module.Modal));
 const links = [
   ["dashboard", LayoutDashboard, "requests.view"],
@@ -49,18 +46,19 @@ export default function Shell({
   actor,
   children,
   projectName,
+  projectChoices = [],
   digits,
 }: {
   actor: Actor;
   children: React.ReactNode;
   projectName?: string;
+  projectChoices?: { id: string; name: string }[];
   digits: number;
 }) {
   const path = usePathname(),
     params = useSearchParams(),
     router = useRouter(),
-    [mobile, setMobile] = useState(false),
-    [projectPicker, setProjectPicker] = useState(false);
+    [mobile, setMobile] = useState(false);
   const project = params.get("project") || "";
   useEffect(() => {
     const timer = setInterval(() => {
@@ -175,31 +173,30 @@ export default function Shell({
               ) : null}
               {!actor.force_password_change && can(actor, "projects.view") ? (
                 <div className="context-select">
-                  <div className="topbar-label">{ar.common.project}</div>
-                  {projectPicker ? (
-                    <Lookup
-                      defaultOpen
-                      resource="projects"
-                      value={project}
-                      initialLabel={projectName || ar.common.allProjects}
-                      allowNone
-                      onChange={(value) => {
-                        const next = new URLSearchParams(params.toString());
-                        next.delete("cursor");
-                        if (value) next.set("project", value);
-                        else next.delete("project");
-                        router.push(`${path}?${next}`);
-                      }}
-                    />
-                  ) : (
-                    <Button
-                      className="select-trigger"
-                      onClick={() => setProjectPicker(true)}
-                    >
-                      <span>{projectName || ar.common.allProjects}</span>
-                      <ChevronDown size={15} />
-                    </Button>
-                  )}
+                  <Lookup
+                    resource="projects"
+                    value={
+                      project ||
+                      (projectChoices.length === 1 ? projectChoices[0].id : "")
+                    }
+                    initialLabel={
+                      projectName ||
+                      (projectChoices.length === 1
+                        ? projectChoices[0].name
+                        : undefined)
+                    }
+                    allowNone={projectChoices.length !== 1}
+                    allLabel={ar.common.allProjects}
+                    onChange={(value) => {
+                      const next = new URLSearchParams(params.toString());
+                      next.delete("cursor");
+                      if (value) next.set("project", value);
+                      else next.delete("project");
+                      router.push(path + "?" + next.toString(), {
+                        scroll: false,
+                      });
+                    }}
+                  />
                 </div>
               ) : null}
             </div>

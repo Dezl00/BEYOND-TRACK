@@ -12,7 +12,7 @@ export function Brand() {
 export function StatusBadge({ status }: { status: number }) {
   return (
     <span
-      className={`badge ${status === 5 || status === 6 ? "green" : status === 7 || status === 8 ? "red" : status > 0 ? "blue" : ""}`}
+      className={`badge status-badge ${status === 5 || status === 6 ? "green" : status === 7 || status === 8 ? "red" : status > 0 ? "blue" : ""}`}
     >
       {ar.statuses[status]}
     </span>

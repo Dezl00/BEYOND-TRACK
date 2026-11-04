@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, X } from "lucide-react";
+import { Plus, Pencil } from "lucide-react";
 import { ar } from "@/messages/ar";
 import { modules, actions, type Actor } from "@/lib/domain";
 import * as v from "@/lib/validation";
@@ -11,6 +11,7 @@ import {
   Field,
   Checkbox,
   Lookup,
+  MultiLookup,
   SelectBox,
   Message,
   command,
@@ -42,7 +43,7 @@ export default function ResourceForm({
     [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const [state, setState] = useState<Data>(() => ({
+  const initialState = (): Data => ({
     id: initial?.id,
     name: initial?.name || "",
     code: initial?.code || "",
@@ -68,7 +69,8 @@ export default function ResourceForm({
     otpEnabled: initial?.otp_enabled || false,
     otpExempt: initial?.otp_exempt || false,
     permissions: initial?.permissions || [],
-  }));
+  });
+  const [state, setState] = useState<Data>(initialState);
   function set(key: string, value: unknown) {
     setState((s) => ({ ...s, [key]: value }));
   }
@@ -130,11 +132,17 @@ export default function ResourceForm({
     <Modal
       title={initial ? ar.common.edit : ar.common.create}
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(value) => {
+        setOpen(value);
+        if (value) {
+          setState(initialState());
+          setError("");
+        }
+      }}
       wide={resource === "role"}
       trigger={
         <Button
-          intent={initial ? "" : "green"}
+          intent={initial ? "blue" : "green"}
           className={initial ? "small" : ""}
         >
           {initial ? <Pencil size={14} /> : <Plus size={16} />}
@@ -259,32 +267,23 @@ export default function ResourceForm({
                 autoComplete: "new-password",
               })}
               <Field wide label={ar.fields.projects}>
-                <Lookup
+                <MultiLookup
                   resource="projects"
-                  value=""
-                  onChange={(value) => {
-                    if (!projectIds.includes(value))
-                      set("projectIds", [...projectIds, value]);
-                  }}
+                  values={projectIds}
+                  initialLabels={Object.fromEntries(
+                    (
+                      (initial?.projects || []) as {
+                        id: string;
+                        name: string;
+                        code?: string;
+                      }[]
+                    ).map((item) => [
+                      item.id,
+                      [item.code, item.name].filter(Boolean).join(" · "),
+                    ]),
+                  )}
+                  onChange={(values) => set("projectIds", values)}
                 />
-                <div className="row">
-                  {projectIds.map((id) => (
-                    <Button
-                      key={id}
-                      type="button"
-                      className="small"
-                      onClick={() =>
-                        set(
-                          "projectIds",
-                          projectIds.filter((p) => p !== id),
-                        )
-                      }
-                    >
-                      <bdi className="code">{id.slice(0, 8)}</bdi>
-                      <X size={12} />
-                    </Button>
-                  ))}
-                </div>
               </Field>
               {check("locked", ar.auth.locked, !!initial?.is_owner)}
               {check("forcePasswordChange", ar.auth.forcePassword)}

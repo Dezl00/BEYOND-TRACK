@@ -47,7 +47,11 @@ export function Checkbox({
   onChange,
   disabled,
   id,
-}: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) {
+  hideLabel = false,
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  label: string;
+  hideLabel?: boolean;
+}) {
   const [local, setLocal] = useState(!!defaultChecked);
   const active = checked ?? local;
   return (
@@ -69,7 +73,7 @@ export function Checkbox({
       <span className="toggle-track" aria-hidden="true">
         <span className="toggle-thumb" />
       </span>
-      <span>{label}</span>
+      <span className={hideLabel ? "sr-only" : undefined}>{label}</span>
     </button>
   );
 }

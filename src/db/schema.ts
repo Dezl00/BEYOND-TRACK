@@ -24,6 +24,7 @@ export const roles = pgTable(
     id: id(),
     name: varchar("name", { length: 100 }).notNull(),
     system: boolean("system").default(false).notNull(),
+    active: boolean("active").default(true).notNull(),
   },
   (t) => [uniqueIndex("roles_name").on(t.name)],
 );
@@ -62,6 +63,7 @@ export const users = pgTable(
       .references(() => roles.id),
     isOwner: boolean("is_owner").default(false).notNull(),
     locked: boolean("locked").default(false).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     lockedUntil: timestamp("locked_until", { withTimezone: true }),
     failedAttempts: smallint("failed_attempts").default(0).notNull(),
     otpEnabled: boolean("otp_enabled").default(false).notNull(),
@@ -126,6 +128,7 @@ export const boqItems = pgTable(
     level: smallint("level").notNull(),
     code: varchar("code", { length: 60 }).notNull(),
     name: varchar("name", { length: 250 }).notNull(),
+    active: boolean("active").default(true).notNull(),
     description: text("description"),
     unitId: uuid("unit_id")
       .notNull()

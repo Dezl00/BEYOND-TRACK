@@ -5,6 +5,7 @@ import { one, sql } from "@/db";
 import Shell from "@/components/shell";
 import { uuid } from "@/lib/validation";
 import { projectScope } from "@/server/access";
+import { can } from "@/lib/domain";
 export default async function AppLayout({
   children,
 }: {
@@ -12,19 +13,24 @@ export default async function AppLayout({
 }) {
   const pathname = (await headers()).get("x-pathname");
   const actor = await requirePageActor(pathname === "/settings/security");
-  const settings = await currentSettings();
   const selected = uuid.safeParse((await headers()).get("x-project-id"));
-  const project =
-    selected.success && !actor.force_password_change
-      ? await one<{ name: string }>(
-          sql`SELECT p.name FROM projects p WHERE p.id=${selected.data} AND ${projectScope(actor)}`,
-        )
-      : null;
+  const [settings, context] = await Promise.all([
+    currentSettings(),
+    !actor.force_password_change && can(actor, "projects.view")
+      ? one<{
+          name: string | null;
+          choices: { id: string; name: string }[];
+        }>(sql`SELECT
+          (SELECT p.name FROM projects p WHERE p.id=${selected.success ? selected.data : null}::uuid AND ${projectScope(actor)}) name,
+          COALESCE((SELECT json_agg(choice) FROM (SELECT p.id,p.name FROM projects p WHERE p.archived=false AND ${projectScope(actor)} ORDER BY p.name,p.id LIMIT 2) choice),'[]'::json) choices`)
+      : Promise.resolve(null),
+  ]);
   return (
     <Shell
       actor={actor}
       digits={settings?.digits || 0}
-      projectName={project?.name}
+      projectName={context?.name || undefined}
+      projectChoices={context?.choices || []}
     >
       {children}
     </Shell>

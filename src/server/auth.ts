@@ -30,6 +30,8 @@ type User = {
   locked_until: Date | null;
   failed_attempts: number;
   is_owner: boolean;
+  role_active?: boolean;
+  deleted_at?: Date | null;
   otp_enabled: boolean;
   otp_exempt: boolean;
   email: string;
@@ -40,7 +42,7 @@ export const currentActor = cache(async (): Promise<Actor | null> => {
   const value = (await cookies()).get(sessionCookie)?.value;
   if (!value || !/^[a-f0-9]{64}$/.test(value)) return null;
   const a = await one<Actor>(
-    sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.role_id,u.is_owner,u.force_password_change,u.theme,u.otp_enabled,u.otp_exempt,r.name role_name,s.id session_id,s.expires_at,s.remember,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions FROM sessions s JOIN users u ON u.id=s.user_id JOIN roles r ON r.id=u.role_id WHERE (s.token_hash=${hash(value)} OR (s.previous_token_hash=${hash(value)} AND s.previous_until>now())) AND s.expires_at>now() AND (u.locked=false OR u.is_owner=true) LIMIT 1`,
+    sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.role_id,u.is_owner,u.force_password_change,u.theme,u.otp_enabled,u.otp_exempt,r.name role_name,s.id session_id,s.expires_at,s.remember,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions FROM sessions s JOIN users u ON u.id=s.user_id JOIN roles r ON r.id=u.role_id WHERE (s.token_hash=${hash(value)} OR (s.previous_token_hash=${hash(value)} AND s.previous_until>now())) AND s.expires_at>now() AND u.deleted_at IS NULL AND r.active=true AND (u.locked=false OR u.is_owner=true) LIMIT 1`,
   );
   return a || null;
 });
@@ -99,7 +101,7 @@ export async function login(input: z.infer<typeof loginSchema>) {
   await rateLimit("login-ip", meta.ip, 20, 900);
   await rateLimit("login-account", input.identifier, 10, 900);
   const u = await one<User>(
-    sql`SELECT * FROM users WHERE email=${input.identifier} OR username=${input.identifier} LIMIT 1`,
+    sql`SELECT * FROM users WHERE deleted_at IS NULL AND (email=${input.identifier} OR username=${input.identifier}) LIMIT 1`,
   );
   // Constant-cost verification also for unknown identities.
   const valid = await compare(
@@ -113,12 +115,13 @@ export async function login(input: z.infer<typeof loginSchema>) {
   }
   const result = await db().transaction(async (tx) => {
     const fresh = await one<User>(
-      sql`SELECT * FROM users WHERE id=${u.id} FOR UPDATE`,
+      sql`SELECT u.*,r.active role_active FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=${u.id} AND u.deleted_at IS NULL FOR UPDATE OF u`,
       tx,
     );
     if (!fresh) throw new AppError("credentials", 401);
     if (
       !valid ||
+      fresh.role_active === false ||
       fresh.password_hash !== u.password_hash ||
       (!fresh.is_owner &&
         (fresh.locked ||
@@ -195,10 +198,16 @@ export async function verifyOtp(input: z.infer<typeof otpSchema>) {
       return null;
     }
     const u = await one<User>(
-      sql`SELECT * FROM users WHERE id=${c.user_id} FOR UPDATE`,
+      sql`SELECT u.*,r.active role_active FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=${c.user_id} AND u.deleted_at IS NULL FOR UPDATE OF u`,
       tx,
     );
-    if (!u || (!u.is_owner && u.locked)) return null;
+    if (
+      !u ||
+      u.role_active === false ||
+      u.deleted_at ||
+      (!u.is_owner && u.locked)
+    )
+      return null;
     await tx.execute(sql`DELETE FROM auth_challenges WHERE id=${c.id}`);
     return makeSession(tx, u, c.remember, meta);
   });
@@ -216,7 +225,7 @@ export async function forgotPassword(email: string) {
   await rateLimit("reset-ip", meta.ip, 5, 900);
   await rateLimit("reset-account", email, 3, 900);
   const u = await one<User>(
-    sql`SELECT * FROM users WHERE email=${email} AND locked=false`,
+    sql`SELECT * FROM users WHERE email=${email} AND locked=false AND deleted_at IS NULL`,
   );
   if (u && process.env.RESEND_API_KEY && process.env.EMAIL_FROM)
     await db().transaction(async (tx) => {

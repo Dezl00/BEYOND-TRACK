@@ -1,3 +1,4 @@
+import ActivationSwitch from "@/components/activation-switch";
 import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -104,11 +105,19 @@ export default async function ResourcePage({
       ) : null}
       <section className="panel">
         <Filters
-          statuses={["procurement", "receipts"].includes(module)}
+          key={module}
+          statuses={[
+            "technical",
+            "finance",
+            "procurement",
+            "receipts",
+          ].includes(module)}
           exportable={can(a, `${permission}.export`)}
           audit={module === "audit"}
         />
-        {["procurement", "receipts"].includes(module) ? (
+        {["technical", "finance", "procurement", "receipts"].includes(
+          module,
+        ) ? (
           <RequestTable items={data.items} digits={digits} />
         ) : !data.items.length ? (
           <Empty />
@@ -159,9 +168,14 @@ export default async function ResourcePage({
                         </>
                       ) : null}
                       {module === "units" ? <th>{ar.fields.symbol}</th> : null}
-                      {["suppliers", "projects", "materials"].includes(
-                        module,
-                      ) ? (
+                      {[
+                        "suppliers",
+                        "projects",
+                        "materials",
+                        "boq",
+                        "roles",
+                        "units",
+                      ].includes(module) ? (
                         <th>{ar.fields.status}</th>
                       ) : null}
                       <th>{ar.common.actions}</th>
@@ -268,62 +282,85 @@ export default async function ResourcePage({
                                 : String(row.role_name)}
                             </td>
                             <td>
-                              <span className="badge">
-                                {row.locked
-                                  ? ar.common.locked
-                                  : ar.common.active}
-                              </span>
+                              <ActivationSwitch
+                                resource="user"
+                                id={row.id}
+                                active={!row.locked}
+                                name={String(row.name)}
+                                disabled={
+                                  !can(a, "users.edit") || Boolean(row.is_owner)
+                                }
+                              />
                             </td>
                           </>
                         ) : null}
                         {module === "units" ? (
                           <td>{String(row.symbol)}</td>
                         ) : null}
-                        {["suppliers", "projects", "materials"].includes(
-                          module,
-                        ) ? (
+                        {[
+                          "suppliers",
+                          "projects",
+                          "materials",
+                          "boq",
+                          "roles",
+                          "units",
+                        ].includes(module) ? (
                           <td>
-                            <span className="badge">
-                              {row.archived
-                                ? ar.common.archived
-                                : row.active === false
-                                  ? ar.common.inactive
-                                  : ar.common.active}
-                            </span>
-                          </td>
-                        ) : null}
-                        <td>
-                          {can(a, `${permission}.edit`) &&
-                          (!row.is_owner || a.is_owner) ? (
-                            <ResourceForm
-                              resource={
-                                resources[module as keyof typeof resources]
-                              }
-                              initial={row}
-                              project={q.project}
-                              actor={a}
-                            />
-                          ) : null}
-                          {module === "users" &&
-                          can(a, "security.manage") &&
-                          (!row.is_owner || a.is_owner) ? (
-                            <UserSessions userId={row.id} />
-                          ) : null}
-                          {[
-                            "boq",
-                            "materials",
-                            "units",
-                            "suppliers",
-                            "roles",
-                          ].includes(module) &&
-                          can(a, `${permission}.delete`) ? (
-                            <DeleteButton
+                            <ActivationSwitch
                               resource={
                                 resources[module as keyof typeof resources]
                               }
                               id={row.id}
+                              name={String(row.name)}
+                              active={
+                                module === "projects"
+                                  ? !row.archived
+                                  : row.active !== false
+                              }
+                              disabled={
+                                !can(a, `${permission}.edit`) ||
+                                Boolean(row.owner_role)
+                              }
                             />
-                          ) : null}
+                          </td>
+                        ) : null}
+                        <td>
+                          <div className="table-actions">
+                            {can(a, `${permission}.edit`) &&
+                            (!row.is_owner || a.is_owner) ? (
+                              <ResourceForm
+                                resource={
+                                  resources[module as keyof typeof resources]
+                                }
+                                initial={row}
+                                project={q.project}
+                                actor={a}
+                              />
+                            ) : null}
+                            {module === "users" &&
+                            can(a, "security.manage") &&
+                            (!row.is_owner || a.is_owner) ? (
+                              <UserSessions userId={row.id} />
+                            ) : null}
+                            {[
+                              "boq",
+                              "materials",
+                              "units",
+                              "suppliers",
+                              "roles",
+                              "users",
+                            ].includes(module) &&
+                            can(a, `${permission}.delete`) &&
+                            !row.is_owner &&
+                            !row.owner_role ? (
+                              <DeleteButton
+                                resource={
+                                  resources[module as keyof typeof resources]
+                                }
+                                id={row.id}
+                              />
+                            ) : null}
+                          </div>{" "}
                         </td>
                       </>
                     )}
