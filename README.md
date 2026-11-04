@@ -21,6 +21,7 @@ pnpm dev
 
 1. استورد مستودع `Dezl00/BEYOND-TRACK`، واختر Next.js وNode.js 22 أو 24. أمر البناء `pnpm build`، والتثبيت `pnpm install --frozen-lockfile`.
 2. أضف متغيرات `.env.example` إلى Production. استخدم عنوان Neon الذي يحتوي `-pooler`، وحدد `APP_URL` بعنوان HTTPS النهائي دون مسار.
+   `APP_URL` يحدد عنوان روابط البريد. فحص CSRF يقارن `Origin` بنطاق الطلب الفعلي، ويدعم نطاقات Vercel والنطاق المخصص دون اعتماد تسجيل الدخول على مطابقة متغير البريد. تُرفض النطاقات الأخرى والمصادر الفارغة، ولا تُعتمد ترويسات `X-Forwarded-Host` القادمة من العميل.
 3. ولّد `AUTH_SECRET` و`CRON_SECRET` مستقلين باستخدام `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`. احتفظ بـ`AUTH_SECRET` ثابتًا، لأنه يحمي رموز OTP والرسائل الموجودة في الطابور.
 4. أضف `RESEND_API_KEY` و`EMAIL_FROM` من نطاق إرسال موثّق في Resend. لا يُسمح بتفعيل OTP قبل إعداد خدمة البريد. الإرسال غير المتزامن يحتاج مراقبة أخطاء الطابور.
 5. أضف مفاتيح Cloudinary في بيئة الخادم فقط. المرفقات من النوع `authenticated`، ويعرضها مسار محمي بعد التحقق من الجلسة والمشروع. لا تُضف بادئة `NEXT_PUBLIC_` إلى أي سر.

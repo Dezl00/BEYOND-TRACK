@@ -67,9 +67,33 @@ export async function metadata() {
 }
 export function csrf(request: Request) {
   const origin = request.headers.get("origin");
-  const allowed = new URL(process.env.APP_URL || "http://localhost:3000")
-    .origin;
-  if (origin !== allowed) throw new AppError("forbidden", 403);
+  if (!origin || request.headers.get("sec-fetch-site") === "cross-site")
+    throw new AppError("forbidden", 403);
+  try {
+    const source = new URL(origin),
+      destination = new URL(request.url);
+    const authority = request.headers.get("host") || destination.host;
+    // Host is browser-controlled and preserved by our deployment. Do not trust
+    // client-supplied Forwarded / X-Forwarded-Host values or allow domain suffixes.
+    if (!/^(?:\[[a-f0-9:.]+\]|[a-z0-9.-]+)(?::\d{1,5})?$/i.test(authority))
+      throw new Error("Invalid target host");
+    const target = new URL(`${destination.protocol}//${authority}`);
+    const loopback =
+      target.hostname === "localhost" ||
+      target.hostname === "[::1]" ||
+      /^127(?:\.\d{1,3}){3}$/.test(target.hostname);
+    // Vercel terminates TLS before forwarding requests to the Next.js server.
+    if (process.env.NODE_ENV === "production" && !loopback)
+      target.protocol = "https:";
+    if (
+      !["http:", "https:"].includes(source.protocol) ||
+      source.origin !== origin ||
+      source.origin !== target.origin
+    )
+      throw new Error("Cross-origin request");
+  } catch {
+    throw new AppError("forbidden", 403);
+  }
 }
 export async function rateLimit(
   namespace: string,
