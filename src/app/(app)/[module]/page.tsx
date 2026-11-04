@@ -1,6 +1,7 @@
+import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireActor } from "@/server/auth";
+import { requirePageActor } from "@/server/page-auth";
 import {
   listResource,
   listRequests,
@@ -47,18 +48,18 @@ export default async function ResourcePage({
     ![
       ...Object.keys(resources),
       "procurement",
+      "technical",
+      "finance",
       "receipts",
       "audit",
       "notifications",
     ].includes(module)
   )
     notFound();
-  const a = await requireActor(),
+  const a = await requirePageActor(),
     raw = await searchParams,
     q = listQuerySchema.parse(raw),
-    settings = await one<{ digits: number }>(
-      sql`SELECT digits FROM settings WHERE id=1`,
-    ),
+    settings = await currentSettings(),
     digits = settings?.digits || 0;
   const permission = ["materials", "units"].includes(module) ? "boq" : module;
   const data =
@@ -66,7 +67,7 @@ export default async function ResourcePage({
       ? await auditList(a, q)
       : module === "notifications"
         ? await notifications(a, q.cursor)
-        : ["procurement", "receipts"].includes(module)
+        : ["technical", "finance", "procurement", "receipts"].includes(module)
           ? await listRequests(a, q, module)
           : await listResource(a, module, q);
   return (

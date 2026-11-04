@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAutosave } from "./use-autosave";
 import { ar } from "@/messages/ar";
 import {
   settingsSchema,
@@ -47,6 +48,19 @@ export function PreferencesForm({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [success, setSuccess] = useState("");
+  const autoError = useAutosave(
+    { theme: selected, otpEnabled: otp, preferences },
+    async (value) => {
+      await command("preferences", preferencesSchema.parse(value));
+      document.documentElement.dataset.theme = value.theme ? "dark" : "light";
+      router.refresh();
+    },
+    (value) => {
+      setSelected(value.theme);
+      setOtp(value.otpEnabled);
+      setPreferences(value.preferences);
+    },
+  );
   return (
     <form
       className="stack"
@@ -76,7 +90,7 @@ export function PreferencesForm({
         }
       }}
     >
-      <Message error={error} success={success} />
+      <Message error={error || autoError} success={success} />
       {tab === "appearance" ? (
         <Field label={ar.common.appearance}>
           <SelectBox
@@ -183,6 +197,14 @@ export function SystemSettings({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [success, setSuccess] = useState("");
+  const autoError = useAutosave(
+    state,
+    async (value) => {
+      await command("settings", settingsSchema.parse(value));
+      router.refresh();
+    },
+    setState,
+  );
   return (
     <form
       className="stack"
@@ -299,8 +321,7 @@ export function SystemSettings({
   );
 }
 export function PasswordForm() {
-  const router = useRouter(),
-    [current, setCurrent] = useState(""),
+  const [current, setCurrent] = useState(""),
     [password, setPassword] = useState(""),
     [confirm, setConfirm] = useState(""),
     [busy, setBusy] = useState(false),
@@ -321,8 +342,9 @@ export function PasswordForm() {
           setCurrent("");
           setPassword("");
           setConfirm("");
-          router.push(result.redirect || "/dashboard");
-          router.refresh();
+          // A fresh document also refreshes the shared shell's account state
+          // and discards any pages prefetched before the password change.
+          window.location.replace(result.redirect || "/dashboard");
         } catch (e) {
           setError(
             "issues" in (e as object)

@@ -4,6 +4,7 @@ import { decrypt } from "./security";
 import { queueEmail } from "./events";
 import { ar } from "@/messages/ar";
 import { requestCode, effectivePreference } from "@/lib/domain-email";
+import { deliverPush, pushConfigured } from "./push";
 type Job = {
   id: string;
   kind: number;
@@ -12,9 +13,11 @@ type Job = {
 };
 export async function processJobs(limit = 20) {
   let processed = 0;
+  const deadline = Date.now() + 20_000;
   for (let n = 0; n < limit; n++) {
+    if (Date.now() > deadline) break;
     const job = await one<Job>(
-      sql`UPDATE outbox SET locked_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=(SELECT id FROM outbox WHERE available_at<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY kind,created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`,
+      sql`UPDATE outbox SET locked_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=(SELECT id FROM outbox WHERE available_at<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY CASE kind WHEN 2 THEN 0 WHEN 3 THEN 1 WHEN 1 THEN 2 ELSE 3 END,created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`,
     );
     if (!job) break;
     try {
@@ -38,8 +41,9 @@ export async function processJobs(limit = 20) {
             project_id: string;
             created_by: string;
             number: number;
+            status: number;
           }>(
-            sql`SELECT project_id,created_by,number FROM purchase_requests WHERE id=${requestId}`,
+            sql`SELECT project_id,created_by,number,status FROM purchase_requests WHERE id=${requestId}`,
             tx,
           );
           if (request) {
@@ -54,7 +58,7 @@ export async function processJobs(limit = 20) {
               in_app: boolean | null;
               email_enabled: boolean | null;
             }>(
-              sql`SELECT u.id,u.email,np.in_app,np.email email_enabled FROM users u LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.locked=false AND u.id<>${actorId} AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) ORDER BY u.id LIMIT 1000`,
+              sql`SELECT u.id,u.email,np.in_app,np.email email_enabled FROM users u LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.locked=false AND u.id<>${actorId} AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) AND (u.is_owner OR u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='technical.view') OR (EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND (${request.status} IN(2,3,4,5,6,9) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=${requestId} AND st.from_status=9))) OR (EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='procurement.view') AND NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND (${request.status} IN(2,3,4,5,6) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=${requestId} AND st.from_status=2))) OR (NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='procurement.view'))) ORDER BY u.id LIMIT 1000`,
               tx,
             );
             for (const u of users) {
@@ -64,10 +68,16 @@ export async function processJobs(limit = 20) {
                   ? undefined
                   : { in_app: u.in_app, email: !!u.email_enabled },
               );
-              if (pref.in_app)
-                await tx.execute(
-                  sql`INSERT INTO notifications(user_id,event_id,type,request_id) VALUES (${u.id},${job.id},${type},${requestId}) ON CONFLICT(user_id,event_id) DO NOTHING`,
+              if (pref.in_app) {
+                const notification = await one<{ id: string }>(
+                  sql`INSERT INTO notifications(user_id,event_id,type,request_id) VALUES (${u.id},${job.id},${type},${requestId}) ON CONFLICT(user_id,event_id) DO NOTHING RETURNING id`,
+                  tx,
                 );
+                if (notification && pushConfigured())
+                  await tx.execute(
+                    sql`INSERT INTO outbox(kind,payload) VALUES(3,${JSON.stringify({ notificationId: notification.id })}::jsonb)`,
+                  );
+              }
               if (pref.email) {
                 const link = new URL(
                   `/requests/${requestId}`,
@@ -85,7 +95,17 @@ export async function processJobs(limit = 20) {
           }
           await tx.execute(sql`DELETE FROM outbox WHERE id=${job.id}`);
         });
-      else {
+      else if (job.kind === 3) {
+        const targets = await rows<{ id: string }>(
+          sql`SELECT s.id FROM push_subscriptions s JOIN notifications n ON n.user_id=s.user_id WHERE n.id=${String(job.payload.notificationId)} LIMIT 10`,
+        );
+        await Promise.all(
+          targets.map((target) =>
+            deliverPush(target.id, String(job.payload.notificationId)),
+          ),
+        );
+        await db().execute(sql`DELETE FROM outbox WHERE id=${job.id}`);
+      } else {
         if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM)
           throw new Error("Email not configured");
         const mail = decrypt<{ to: string; subject: string; html: string }>(

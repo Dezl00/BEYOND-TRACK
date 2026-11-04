@@ -9,11 +9,13 @@ export const Status = {
   closed: 6,
   rejected: 7,
   cancelled: 8,
+  finance: 9,
 } as const;
 export type RequestStatus = (typeof Status)[keyof typeof Status];
 export const transitions: Record<number, number[]> = {
   0: [1, 8],
-  1: [2, 7, 8],
+  1: [9, 7, 8],
+  9: [2, 7, 8],
   2: [3, 7, 8],
   3: [8],
   4: [],
@@ -30,7 +32,7 @@ export function editable(
   return (
     status === 0 ||
     (status >= 1 &&
-      status <= 5 &&
+      (status <= 5 || status === 9) &&
       !!submittedAt &&
       now - new Date(submittedAt).getTime() <= 15 * 60_000)
   );
@@ -60,6 +62,8 @@ export const modules = [
   "boq",
   "requests",
   "procurement",
+  "technical",
+  "finance",
   "receipts",
   "suppliers",
   "users",

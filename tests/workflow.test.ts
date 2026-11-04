@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { hash as passwordHash } from "bcryptjs";
 import { sql as sqlTag } from "drizzle-orm";
@@ -9,6 +9,13 @@ import type { Actor } from "@/lib/domain";
 const state = vi.hoisted(() => ({
   database: null as unknown,
   cookies: new Map<string, string>(),
+  push: vi.fn(async () => ({})),
+}));
+vi.mock("web-push", () => ({ default: { sendNotification: state.push } }));
+vi.mock("resend", () => ({
+  Resend: class {
+    emails = { send: async () => ({ data: { id: "test" }, error: null }) };
+  },
 }));
 vi.mock("@/db", async () => {
   const { sql } = await import("drizzle-orm");
@@ -47,14 +54,26 @@ import {
   receive,
 } from "@/server/requests";
 import { saveUser, saveRole } from "@/server/admin";
-import { listRequests, auditList, requestDetail } from "@/server/queries";
+import {
+  listRequests,
+  auditList,
+  requestDetail,
+  listResource,
+} from "@/server/queries";
+import { liveSnapshot } from "@/server/live";
+import { processJobs } from "@/server/jobs";
+import { deliverPush } from "@/server/push";
 import {
   login,
   verifyOtp,
   forgotPassword,
   resetPassword,
   currentActor,
+  requireActor,
+  changePassword,
 } from "@/server/auth";
+import { GET as options } from "@/app/api/options/route";
+import { ar } from "@/messages/ar";
 import { decrypt } from "@/server/security";
 import { importTemplate, parseImport, importBoq } from "@/server/import";
 import { can, effectivePreference, receiptStatus } from "@/lib/domain";
@@ -123,6 +142,17 @@ const owner = actor(ids.owner, [], true),
     "receipts.view",
     "receipts.create",
   ]);
+const technical = actor(ids.buyer, [
+    ...buyer.permissions,
+    "technical.view",
+    "technical.approve",
+    "requests.approve",
+  ]),
+  finance = actor(ids.buyer, [
+    ...buyer.permissions,
+    "finance.view",
+    "finance.approve",
+  ]);
 beforeAll(async () => {
   vi.stubEnv(
     "AUTH_SECRET",
@@ -135,7 +165,9 @@ beforeAll(async () => {
   state.database = drizzle(pg);
   for (const file of [
     "drizzle/generated/0000_dizzy_onslaught.sql",
+    "drizzle/generated/0001_approvals_push.sql",
     "drizzle/custom/0001_integrity.sql",
+    "drizzle/custom/0002_approvals_and_push.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -233,7 +265,13 @@ async function request(id: string) {
 async function order(id: string) {
   let r = await request(id);
   await transitionRequest(
-    buyer,
+    technical,
+    { id, version: r.version, status: 9, reason: "" },
+    meta,
+  );
+  r = await request(id);
+  await transitionRequest(
+    finance,
     { id, version: r.version, status: 2, reason: "" },
     meta,
   );
@@ -349,6 +387,34 @@ describe("Authorization and database invariants", () => {
   });
 });
 describe("Request to receipt", () => {
+  it("hides the BOQ from procurement and migrates both approval roles", async () => {
+    await expect(listResource(buyer, "boq", { q: "" })).rejects.toMatchObject({
+      status: 403,
+    });
+    const roles = await pg.query<{ name: string }>(
+      "SELECT name FROM roles WHERE name IN('المكتب الفني','المالية')",
+    );
+    expect(roles.rows).toHaveLength(2);
+    const technicalPermissions = await pg.query<{ key: string }>(
+      "SELECT p.key FROM roles r JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id WHERE r.name='المكتب الفني'",
+    );
+    expect(technicalPermissions.rows.map((row) => row.key)).toContain(
+      "technical.approve",
+    );
+  });
+  it("changes live revisions only for visible project requests and bounds the notification preview", async () => {
+    const before = await liveSnapshot(other);
+    const { id } = await create("1");
+    expect((await liveSnapshot(other)).revision).toBe(before.revision);
+    const own = await liveSnapshot(engineer);
+    await transitionRequest(
+      technical,
+      { id, version: 1, status: 9, reason: "" },
+      meta,
+    );
+    expect((await liveSnapshot(engineer)).revision).not.toBe(own.revision);
+    expect((await liveSnapshot(engineer)).items.length).toBeLessThanOrEqual(6);
+  });
   it("scopes engineers to their own requests and blocks unauthorized transitions", async () => {
     const { id } = await create();
     expect(
@@ -356,11 +422,11 @@ describe("Request to receipt", () => {
     ).not.toContain(id);
     expect(
       (await listRequests(buyer, { q: "" })).items.map((r) => r.id),
-    ).toContain(id);
+    ).not.toContain(id);
     await expect(
       transitionRequest(
         engineer,
-        { id, version: 1, status: 2, reason: "" },
+        { id, version: 1, status: 9, reason: "" },
         meta,
       ),
     ).rejects.toMatchObject({ status: 403 });
@@ -400,18 +466,70 @@ describe("Request to receipt", () => {
       ),
     ).rejects.toMatchObject({ status: 403 });
   });
-  it("requires explicit overage approval before procurement", async () => {
+  it("requires both approvals and explicit overage approval before procurement", async () => {
     const { id } = await create("101");
+    expect(
+      (await listRequests(finance, { q: "" })).items.map((row) => row.id),
+    ).not.toContain(id);
     await expect(
       transitionRequest(buyer, { id, version: 1, status: 2, reason: "" }, meta),
-    ).rejects.toMatchObject({ code: "overage" });
-    await approveOverage(owner, id, meta);
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      transitionRequest(buyer, { id, version: 1, status: 9, reason: "" }, meta),
+    ).rejects.toMatchObject({ status: 404 });
     await transitionRequest(
-      buyer,
-      { id, version: 2, status: 2, reason: "" },
+      technical,
+      { id, version: 1, status: 9, reason: "" },
+      meta,
+    );
+    expect(
+      (await listRequests(finance, { q: "" })).items.map((row) => row.id),
+    ).toContain(id);
+    expect(
+      (await listRequests(buyer, { q: "" })).items.map((row) => row.id),
+    ).not.toContain(id);
+    await expect(
+      transitionRequest(
+        technical,
+        { id, version: 2, status: 2, reason: "" },
+        meta,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      transitionRequest(
+        finance,
+        { id, version: 2, status: 2, reason: "" },
+        meta,
+      ),
+    ).rejects.toMatchObject({ code: "overage" });
+    await approveOverage(technical, id, meta);
+    await transitionRequest(
+      finance,
+      { id, version: 3, status: 2, reason: "" },
       meta,
     );
     expect((await request(id)).status).toBe(2);
+    expect(
+      (await listRequests(buyer, { q: "" })).items.map((row) => row.id),
+    ).toContain(id);
+  });
+  it("keeps an engineer's draft hidden from the approval departments", async () => {
+    const { id } = await saveRequest(
+      engineer,
+      {
+        projectId: ids.p1,
+        notes: "",
+        submit: false,
+        lines: [{ materialId: ids.material, quantity: "1", notes: "" }],
+      },
+      meta,
+    );
+    expect(
+      (await listRequests(technical, { q: "" })).items.map((row) => row.id),
+    ).not.toContain(id);
+    expect(
+      (await listRequests(engineer, { q: "" })).items.map((row) => row.id),
+    ).toContain(id);
   });
   it("supports partial, excess, damaged/rejected receipts and returns without duplicate receipts", async () => {
     await pg.query("UPDATE materials SET quantity=10000 WHERE id=$1", [
@@ -529,6 +647,43 @@ describe("Request to receipt", () => {
       receiptStatus([{ quantity: "0.3", accepted: "0.4", returned: "0.1" }]),
     ).toBe(5);
   });
+  it("queues device notifications and rechecks notification preferences before delivery", async () => {
+    vi.stubEnv("VAPID_PUBLIC_KEY", "test-public");
+    vi.stubEnv("VAPID_PRIVATE_KEY", "test-private");
+    vi.stubEnv("VAPID_SUBJECT", "mailto:admin@test.invalid");
+    const subscription = (
+      await pg.query<{ id: string }>(
+        "INSERT INTO push_subscriptions(user_id,endpoint,p256dh,auth) VALUES($1,$2,'public','secret') RETURNING id",
+        [ids.owner, "https://fcm.googleapis.com/fcm/send/test"],
+      )
+    ).rows[0];
+    await create("1");
+    await processJobs(200);
+    expect(state.push).toHaveBeenCalled();
+    const notification = (
+      await pg.query<{ id: string; type: number }>(
+        "SELECT id,type FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 1",
+        [ids.owner],
+      )
+    ).rows[0];
+    const before = state.push.mock.calls.length;
+    await pg.query(
+      "INSERT INTO notification_preferences(user_id,type,in_app,email) VALUES($1,$2,false,false) ON CONFLICT(user_id,type) DO UPDATE SET in_app=false",
+      [ids.owner, notification.type],
+    );
+    await deliverPush(subscription.id, notification.id);
+    expect(state.push.mock.calls.length).toBe(before);
+    await pg.query("UPDATE notification_policy SET forced=true WHERE type=$1", [
+      notification.type,
+    ]);
+    await deliverPush(subscription.id, notification.id);
+    expect(state.push.mock.calls.length).toBe(before + 1);
+    await pg.query(
+      "UPDATE notification_policy SET forced=false WHERE type=$1",
+      [notification.type],
+    );
+    expect((await liveSnapshot(owner)).unread).toBeGreaterThan(0);
+  });
 });
 describe("Arabic BOQ import", () => {
   it("round-trips the Arabic XLSX template and imports all levels atomically", async () => {
@@ -561,6 +716,36 @@ describe("Arabic BOQ import", () => {
   });
 });
 describe("Authentication", () => {
+  it("keeps project APIs forbidden until a forced password change completes, including for the owner", async () => {
+    await pg.query("UPDATE users SET force_password_change=true WHERE id=$1", [
+      ids.owner,
+    ]);
+    const result = await login({
+      identifier: owner.email,
+      password: "Test-password-12345",
+      remember: false,
+    });
+    expect(result).toEqual({ redirect: "/settings/security" });
+    const endpoint = new Request(
+      "http://localhost:3000/api/options?resource=projects&q=",
+    );
+    const blocked = await options(endpoint);
+    expect(blocked.status).toBe(403);
+    expect(await blocked.json()).toEqual({ error: ar.errors.forcePassword });
+    await expect(requireActor()).rejects.toMatchObject({
+      code: "forcePassword",
+      status: 403,
+    });
+    const account = await requireActor(true);
+    await changePassword(account, {
+      current: "Test-password-12345",
+      password: "Updated-password-12345",
+    });
+    expect((await requireActor()).force_password_change).toBe(false);
+    const allowed = await options(endpoint);
+    expect(allowed.status).toBe(200);
+    expect((await allowed.json()).items.length).toBeGreaterThan(0);
+  });
   it("uses hashed sessions with one-hour expiry and supports logout/revocation", async () => {
     const result = await login({
       identifier: engineer.email,

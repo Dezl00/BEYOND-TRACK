@@ -1,6 +1,7 @@
+import PushSettings from "@/components/push-settings";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireActor } from "@/server/auth";
+import { requirePageActor } from "@/server/page-auth";
 import { requirePermission } from "@/server/access";
 import { one, rows, sql } from "@/db";
 import { ar } from "@/messages/ar";
@@ -24,7 +25,7 @@ export default async function SettingsTab({
   const { tab } = await params;
   if (!["appearance", "security", "notifications", "system"].includes(tab))
     notFound();
-  const a = await requireActor(tab === "security"),
+  const a = await requirePageActor(tab === "security"),
     raw = await searchParams,
     c = decodeCursor(raw.cursor);
   if (tab === "system") requirePermission(a, "settings.edit");
@@ -63,17 +64,24 @@ export default async function SettingsTab({
           ["security", ar.common.security],
           ["notifications", ar.nav.notifications],
           ...(can(a, "settings.edit") ? [["system", ar.settings.system]] : []),
-        ].map(([key, label]) => (
-          <Link
-            key={key}
-            className={tab === key ? "active" : ""}
-            href={`/settings/${key}`}
-          >
-            {label}
-          </Link>
-        ))}
+        ]
+          .filter(([key]) => !a.force_password_change || key === "security")
+          .map(([key, label]) => (
+            <Link
+              key={key}
+              className={tab === key ? "active" : ""}
+              href={`/settings/${key}`}
+            >
+              {label}
+            </Link>
+          ))}
       </div>
       <div className="stack settings-narrow">
+        {tab === "notifications" ? (
+          <section className="panel panel-body">
+            <PushSettings />
+          </section>
+        ) : null}
         {a.force_password_change ? (
           <p className="error-message">{ar.auth.requiredPassword}</p>
         ) : null}

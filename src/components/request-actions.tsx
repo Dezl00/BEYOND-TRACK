@@ -117,9 +117,14 @@ export function RequestActions({
             {ar.common.submit}
           </Button>
         ) : null}
-        {request.status === 1 && can(actor, "procurement.approve") ? (
-          <Button intent="blue" onClick={() => open("2")}>
-            {ar.common.startProcurement}
+        {request.status === 1 && can(actor, "technical.approve") ? (
+          <Button intent="blue" onClick={() => open("9")}>
+            {ar.common.approve}
+          </Button>
+        ) : null}
+        {request.status === 9 && can(actor, "finance.approve") ? (
+          <Button intent="green" onClick={() => open("2")}>
+            {ar.common.approve}
           </Button>
         ) : null}
         {request.status === 2 && can(actor, "procurement.approve") ? (
@@ -137,18 +142,26 @@ export function RequestActions({
             {ar.common.finish}
           </Button>
         ) : null}
-        {[1, 2].includes(request.status) && can(actor, "requests.approve") ? (
+        {[1, 2, 9].includes(request.status) &&
+        can(actor, "requests.approve") ? (
           <Button intent="green" onClick={() => open("overage")}>
             {ar.common.approveOverage}
           </Button>
         ) : null}
-        {[1, 2].includes(request.status) &&
-        can(actor, "procurement.approve") ? (
+        {[1, 2, 9].includes(request.status) &&
+        can(
+          actor,
+          request.status === 1
+            ? "technical.approve"
+            : request.status === 9
+              ? "finance.approve"
+              : "procurement.approve",
+        ) ? (
           <Button intent="red" onClick={() => open("7")}>
             {ar.common.reject}
           </Button>
         ) : null}
-        {[0, 1, 2, 3].includes(request.status) &&
+        {[0, 1, 2, 3, 9].includes(request.status) &&
         can(actor, "requests.delete") ? (
           <Button intent="red" onClick={() => open("8")}>
             {ar.common.cancel}

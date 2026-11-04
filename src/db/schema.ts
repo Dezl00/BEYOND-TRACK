@@ -400,6 +400,20 @@ export const outbox = pgTable(
   },
   (t) => [index("outbox_ready").on(t.availableAt)],
 );
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    endpoint: text("endpoint").notNull().unique(),
+    p256dh: varchar("p256dh", { length: 150 }).notNull(),
+    auth: varchar("auth", { length: 100 }).notNull(),
+    createdAt: time("created_at"),
+  },
+  (t) => [index("push_subscriptions_user").on(t.userId)],
+);
 // audit_log is created by the custom migration, partitioned by month with an immutable trigger.
 export const auditLog = pgTable(
   "audit_log",

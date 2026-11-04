@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { FileText } from "lucide-react";
-import { requireActor } from "@/server/auth";
+import { requirePageActor } from "@/server/page-auth";
 import { requireRequest } from "@/server/access";
 import { rows, sql } from "@/db";
 import { uuid, cursorSchema } from "@/lib/validation";
@@ -14,7 +14,7 @@ export default async function FilesPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
-  const a = await requireActor(),
+  const a = await requirePageActor(),
     id = uuid.parse((await params).id),
     q = await searchParams,
     c = decodeCursor(cursorSchema.parse(q.cursor));

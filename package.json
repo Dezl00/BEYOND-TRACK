@@ -20,17 +20,18 @@
     "@radix-ui/react-select": "^2.2.6",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.8.0",
+    "csv-parse": "^7.0.3",
     "decimal.js": "^10.6.0",
     "drizzle-orm": "^0.45.4",
-    "read-excel-file": "^9.3.14",
-    "write-excel-file": "^4.1.1",
-    "csv-parse": "^7.0.3",
     "file-type": "^21.0.0",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "read-excel-file": "^9.3.14",
     "resend": "^6.0.0",
+    "web-push": "^3.6.7",
+    "write-excel-file": "^4.1.1",
     "ws": "^8.18.3",
     "zod": "^4.1.12"
   },
@@ -39,12 +40,13 @@
     "@types/node": "^24.10.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.7",
+    "lighthouse": "^13.0.0",
+    "prettier": "^3.7.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4",
-    "prettier": "^3.7.4",
-    "lighthouse": "^13.0.0"
+    "vitest": "^3.2.4"
   }
 }

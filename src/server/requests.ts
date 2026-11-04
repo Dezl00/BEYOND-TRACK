@@ -36,7 +36,7 @@ export async function overages(id: string, conn: Executor = db()) {
     approved: boolean;
     over: boolean;
   }>(
-    sql`SELECT l.id,l.quantity,l.overage_approved_by IS NOT NULL approved,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests r ON r.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND r.status BETWEEN 1 AND 6),0)>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id WHERE l.request_id=${id}`,
+    sql`SELECT l.id,l.quantity,l.overage_approved_by IS NOT NULL approved,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests r ON r.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (r.status BETWEEN 1 AND 6 OR r.status=9)),0)>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id WHERE l.request_id=${id}`,
     conn,
   );
 }
@@ -117,8 +117,8 @@ export async function saveRequest(
     // Pricing is invalidated when the composition changes after an order. Receipts remain immutable.
     if (
       existing &&
-      status >= 3 &&
-      status <= 5 &&
+      status !== 0 &&
+      ![6, 7, 8].includes(status) &&
       (input.lines.length !== oldLines.length ||
         input.lines.some(
           (l) =>
@@ -129,7 +129,7 @@ export async function saveRequest(
             ),
         ))
     )
-      status = 2;
+      status = 1;
     if (existing)
       await tx.execute(
         sql`UPDATE purchase_requests SET notes=${input.notes},status=${status},submitted_at=CASE WHEN submitted_at IS NULL AND ${input.submit} THEN now() ELSE submitted_at END,updated_at=now(),version=version+1 WHERE id=${id}`,
@@ -190,6 +190,10 @@ export async function transitionRequest(
     if (r.version !== input.version) throw new AppError("conflict", 409);
     if (!transitions[r.status]?.includes(input.status) && !actor.is_owner)
       throw new AppError("transition", 409);
+    if (input.status === 2 && r.status !== 9)
+      throw new AppError("transition", 409);
+    if (input.status === 9 && r.status !== 1)
+      throw new AppError("transition", 409);
     if ([3, 4, 5].includes(input.status)) throw new AppError("transition", 409); // Derived by order/receipt services, including owner actions.
     if (input.status === 1) {
       requirePermission(actor, "requests.create");
@@ -207,6 +211,13 @@ export async function transitionRequest(
       )
         throw new AppError("referenced", 409);
     } else if (input.status === 0) requirePermission(actor, "requests.edit");
+    else if (input.status === 9 || (input.status === 7 && r.status === 1))
+      requirePermission(actor, "technical.approve");
+    else if (
+      (input.status === 2 && r.status === 9) ||
+      (input.status === 7 && r.status === 9)
+    )
+      requirePermission(actor, "finance.approve");
     else requirePermission(actor, "procurement.approve");
     if ([7, 8].includes(input.status) && !input.reason)
       throw new AppError("required");

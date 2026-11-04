@@ -1,4 +1,4 @@
-import { requireActor } from "@/server/auth";
+import { requirePageActor } from "@/server/page-auth";
 import { requirePermission } from "@/server/access";
 import { requestDetail } from "@/server/queries";
 import { uuid } from "@/lib/validation";
@@ -12,7 +12,7 @@ export default async function EditRequest({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const a = await requireActor();
+  const a = await requirePageActor();
   requirePermission(a, "requests.edit");
   const id = uuid.parse((await params).id),
     r = await requestDetail(a, id);

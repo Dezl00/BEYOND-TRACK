@@ -1,4 +1,4 @@
-import { requireActor } from "@/server/auth";
+import { requirePageActor } from "@/server/page-auth";
 import { requirePermission } from "@/server/access";
 import { listQuerySchema } from "@/lib/validation";
 import { ar } from "@/messages/ar";
@@ -9,7 +9,7 @@ export default async function NewRequest({
 }: {
   searchParams: Promise<Record<string, string>>;
 }) {
-  const a = await requireActor();
+  const a = await requirePageActor();
   requirePermission(a, "requests.create");
   const q = listQuerySchema.parse(await searchParams);
   return (

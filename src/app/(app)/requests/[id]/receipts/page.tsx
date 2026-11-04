@@ -1,5 +1,6 @@
+import { currentSettings } from "@/server/settings";
 import Link from "next/link";
-import { requireActor } from "@/server/auth";
+import { requirePageActor } from "@/server/page-auth";
 import { requireRequest } from "@/server/access";
 import { rows, one, sql } from "@/db";
 import { uuid, cursorSchema } from "@/lib/validation";
@@ -27,14 +28,12 @@ export default async function ReceiptsPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
-  const a = await requireActor(),
+  const a = await requirePageActor(),
     id = uuid.parse((await params).id),
     q = await searchParams,
     c = decodeCursor(cursorSchema.parse(q.cursor));
   await requireRequest(a, id);
-  const settings = await one<{ digits: number }>(
-      sql`SELECT digits FROM settings WHERE id=1`,
-    ),
+  const settings = await currentSettings(),
     d = settings?.digits || 0;
   const data = page(
     await rows<Receipt>(

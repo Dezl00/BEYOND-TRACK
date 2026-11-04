@@ -19,6 +19,8 @@ export async function GET(req: Request) {
         .enum([
           "requests",
           "procurement",
+          "technical",
+          "finance",
           "receipts",
           "projects",
           "boq",
@@ -40,7 +42,13 @@ export async function GET(req: Request) {
     const result =
       resource === "audit"
         ? await auditList(a, q)
-        : ["requests", "procurement", "receipts"].includes(resource)
+        : [
+              "requests",
+              "technical",
+              "finance",
+              "procurement",
+              "receipts",
+            ].includes(resource)
           ? await listRequests(a, q, resource)
           : await listResource(a, resource, q);
     const columns: Record<string, string> = {

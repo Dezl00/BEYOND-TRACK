@@ -10,6 +10,7 @@ import * as admin from "@/server/admin";
 import { processJobs } from "@/server/jobs";
 import { db, sql } from "@/db";
 import { deleteSchema, deleteRecord } from "@/server/delete";
+export const maxDuration = 60;
 export async function POST(req: Request) {
   try {
     csrf(req);
@@ -108,7 +109,7 @@ export async function POST(req: Request) {
     }
     after(async () => {
       try {
-        await processJobs(8);
+        await processJobs(50);
       } catch {
         console.error("Background queue unavailable");
       }

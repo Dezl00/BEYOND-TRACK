@@ -76,6 +76,9 @@ export async function POST(req: Request) {
       await tx.execute(
         sql`INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes) VALUES (${attachmentId},${id},${a.id},${upload.public_id},${resourceType},${type.ext},${name},${file.size})`,
       );
+      await tx.execute(
+        sql`UPDATE purchase_requests SET version=version+1,updated_at=now() WHERE id=${id}`,
+      );
       await audit(
         tx,
         a.id,

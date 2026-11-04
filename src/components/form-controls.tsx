@@ -1,5 +1,6 @@
 "use client";
 import { LoaderCircle } from "lucide-react";
+import { useState } from "react";
 import { ar } from "@/messages/ar";
 export function Button({
   children,
@@ -15,6 +16,7 @@ export function Button({
     <button
       {...props}
       disabled={props.disabled || pending}
+      aria-busy={pending || undefined}
       className={`btn ${intent} ${className}`}
     >
       {pending ? <LoaderCircle size={16} className="spin" /> : null}
@@ -40,13 +42,35 @@ export function Field({
 }
 export function Checkbox({
   label,
-  ...props
+  checked,
+  defaultChecked,
+  onChange,
+  disabled,
+  id,
 }: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) {
+  const [local, setLocal] = useState(!!defaultChecked);
+  const active = checked ?? local;
   return (
-    <label className="check">
-      <input type="checkbox" {...props} />
+    <button
+      type="button"
+      id={id}
+      role="switch"
+      aria-checked={active}
+      disabled={disabled}
+      className="toggle-control"
+      onClick={() => {
+        setLocal(!active);
+        onChange?.({
+          target: { checked: !active },
+          currentTarget: { checked: !active },
+        } as React.ChangeEvent<HTMLInputElement>);
+      }}
+    >
+      <span className="toggle-track" aria-hidden="true">
+        <span className="toggle-thumb" />
+      </span>
       <span>{label}</span>
-    </label>
+    </button>
   );
 }
 export function Message({
@@ -74,5 +98,6 @@ export async function command(name: string, data: unknown) {
   });
   const result = await r.json();
   if (!r.ok) throw new Error(result.error || ar.common.failed);
+  window.dispatchEvent(new Event("siteflow-update"));
   return result as { id?: string; requestId?: string; redirect?: string };
 }

@@ -77,7 +77,7 @@ export const requestSchema = z
 export const transitionSchema = z.object({
   id: uuid,
   version: z.number().int().positive(),
-  status: z.number().int().min(0).max(8),
+  status: z.number().int().min(0).max(9),
   reason: z.string().trim().max(1000).default(""),
 });
 export const orderSchema = z.object({
@@ -234,7 +234,7 @@ export const listQuerySchema = z.object({
   cursor: cursorSchema,
   q: z.string().trim().max(100).default(""),
   project: uuid.optional(),
-  status: z.coerce.number().int().min(0).max(8).optional(),
+  status: z.coerce.number().int().min(0).max(9).optional(),
   user: uuid.optional(),
   action: z.coerce.number().int().min(0).max(13).optional(),
   entity: z.coerce.number().int().min(0).max(11).optional(),

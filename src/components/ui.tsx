@@ -231,7 +231,11 @@ export function Lookup({
                 {ar.common.more}
               </Button>
             ) : busy ? (
-              <p className="muted">{ar.common.loading}</p>
+              <div className="lookup-skeleton" aria-busy="true">
+                <span className="skeleton" />
+                <span className="skeleton" />
+                <span className="skeleton" />
+              </div>
             ) : null}
           </div>
         </Dialog.Content>

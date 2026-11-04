@@ -18,6 +18,7 @@ import {
 import { csrf } from "@/server/security";
 import { errorResponse, AppError } from "@/server/errors";
 import { processJobs } from "@/server/jobs";
+export const maxDuration = 60;
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ action: string }> },
@@ -43,7 +44,7 @@ export async function POST(
     } else throw new AppError("notFound", 404);
     after(async () => {
       try {
-        await processJobs(8);
+        await processJobs(50);
       } catch {
         console.error("Background queue unavailable");
       }

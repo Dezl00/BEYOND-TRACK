@@ -170,6 +170,12 @@ async function main() {
     await command("transition", {
       id: request.id,
       version: 1,
+      status: 9,
+      reason: "",
+    });
+    await command("transition", {
+      id: request.id,
+      version: 2,
       status: 2,
       reason: "",
     });
@@ -228,7 +234,7 @@ async function main() {
       reason: "",
     });
     console.log(
-      "PASS: request → procurement → order → partial/excess receipt → return → receipt → closure; receipt idempotency",
+      "PASS: request → technical → finance → procurement → order → partial/excess receipt → return → receipt → closure; receipt idempotency",
     );
     const r = await response(`/requests/${request.id}`),
       html = await r.text();

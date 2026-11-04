@@ -1,3 +1,4 @@
+import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import {
   ClipboardCheck as ClipboardClock,
@@ -7,7 +8,7 @@ import {
   Plus,
   ArrowLeft,
 } from "lucide-react";
-import { requireActor } from "@/server/auth";
+import { requirePageActor } from "@/server/page-auth";
 import { dashboard } from "@/server/queries";
 import { listQuerySchema } from "@/lib/validation";
 import { can } from "@/lib/domain";
@@ -21,11 +22,11 @@ export default async function Dashboard({
 }: {
   searchParams: Promise<Record<string, string>>;
 }) {
-  const a = await requireActor(),
+  const a = await requirePageActor(),
     q = listQuerySchema.parse(await searchParams),
     [data, settings] = await Promise.all([
       dashboard(a, q.project),
-      one<{ digits: number }>(sql`SELECT digits FROM settings WHERE id=1`),
+      currentSettings(),
     ]);
   const d = settings?.digits || 0;
   return (

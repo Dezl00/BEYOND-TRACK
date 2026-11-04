@@ -151,6 +151,11 @@ svg {
   scrollbar-color: var(--thumb) var(--track);
 }
 .btn {
+  position: relative;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -162,6 +167,182 @@ svg {
   border: 1px solid var(--border);
   font-weight: 500;
   white-space: nowrap;
+}
+.btn[aria-busy="true"] > .spin {
+  position: absolute;
+  inset-inline-end: 8px;
+}
+.toggle-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+}
+.toggle-track {
+  display: block;
+  position: relative;
+  flex-shrink: 0;
+  inline-size: 38px;
+  block-size: 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--muted);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+.toggle-thumb {
+  position: absolute;
+  inline-size: 16px;
+  block-size: 16px;
+  inset-block-start: 2px;
+  inset-inline-start: 2px;
+  border-radius: 50%;
+  background: var(--secondary);
+  transition:
+    inset-inline-start 160ms ease,
+    background-color 160ms ease;
+}
+.toggle-control[aria-checked="true"] .toggle-track {
+  background: var(--blue);
+  border-color: var(--blue-text);
+}
+.toggle-control[aria-checked="true"] .toggle-thumb {
+  inset-inline-start: 18px;
+  background: var(--blue-text);
+}
+.toggle-control:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.notification-center {
+  position: relative;
+}
+.notification-bell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 40px;
+  block-size: 40px;
+  background: transparent;
+  color: var(--secondary);
+  border: 0;
+  border-radius: 50%;
+  transition: color 140ms ease;
+}
+.notification-bell:hover,
+.notification-bell[aria-expanded="true"] {
+  color: var(--brand-text);
+}
+.notification-count {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 0;
+  display: grid;
+  place-items: center;
+  min-inline-size: 17px;
+  block-size: 17px;
+  padding-inline: 3px;
+  border-radius: 20px;
+  background: var(--blue);
+  color: var(--blue-text);
+  border: 2px solid var(--surface);
+  font-size: 10px;
+  font-weight: 600;
+}
+.notification-popover {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: calc(100% + 14px);
+  inline-size: min(360px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  z-index: 35;
+  animation: popover-in 130ms ease-out;
+}
+.notification-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-block-size: 62px;
+  padding: 12px 18px;
+  border-block-end: 1px solid var(--border);
+}
+.notification-items {
+  max-block-size: min(430px, 65dvh);
+  overflow-y: auto;
+}
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border-block-end: 1px solid var(--border);
+  background: var(--surface);
+  transition: background-color 130ms ease;
+}
+.notification-item:hover {
+  background: var(--muted);
+}
+.notification-item > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.notification-item strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.notification-item time {
+  color: var(--secondary);
+  font-size: 11px;
+}
+.notification-dot {
+  inline-size: 6px;
+  block-size: 6px;
+  margin-block-start: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+.notification-item.unread .notification-dot {
+  background: var(--brand);
+}
+.notification-all {
+  display: block;
+  padding: 14px;
+  text-align: center;
+  font-weight: 500;
+  color: var(--brand-text);
+}
+.notification-placeholder,
+.lookup-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  min-block-size: 150px;
+}
+.notification-placeholder .skeleton,
+.lookup-skeleton .skeleton {
+  block-size: 30px;
+}
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .btn:hover {
   filter: brightness(0.98);
@@ -259,39 +440,6 @@ textarea.input {
   height: 1px;
   background: var(--border);
   margin-block: 4px;
-}
-.check {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 32px;
-  cursor: pointer;
-}
-.check input {
-  appearance: none;
-  inline-size: 18px;
-  block-size: 18px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: 5px;
-  margin: 0;
-  display: grid;
-  place-content: center;
-}
-.check input:checked {
-  background: var(--blue);
-  border-color: var(--blue-text);
-}
-.check input:checked:after {
-  content: "";
-  width: 8px;
-  height: 4px;
-  border-inline-start: 2px solid var(--blue-text);
-  border-block-end: 2px solid var(--blue-text);
-  transform: rotate(-45deg);
-}
-.check input:disabled {
-  opacity: 0.5;
 }
 .select-trigger {
   display: flex;
@@ -444,6 +592,9 @@ textarea.input {
   flex: 1;
 }
 .topbar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 30;
   height: 82px;
   padding-inline: 36px;
   border-block-end: 1px solid var(--border);
@@ -1019,6 +1170,7 @@ td.wrap {
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;
+    transition: none !important;
     scroll-behavior: auto !important;
   }
 }
@@ -1237,5 +1389,38 @@ td.wrap {
     --border: #ddd;
     color: var(--text);
     background: var(--bg);
+  }
+}
+@media (max-width: 540px) {
+  .topbar {
+    gap: 8px;
+    padding-inline: 12px;
+  }
+  .topbar > .row {
+    gap: 8px;
+    min-inline-size: 0;
+    flex: 1;
+  }
+  .context-select {
+    inline-size: auto;
+    min-inline-size: 0;
+    flex: 1;
+  }
+  .topbar-actions {
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .topbar .avatar {
+    inline-size: 32px;
+    block-size: 32px;
+  }
+  .notification-bell {
+    inline-size: 36px;
+    block-size: 36px;
+  }
+  .context-select .select-trigger > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }

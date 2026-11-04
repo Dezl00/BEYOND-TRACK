@@ -60,7 +60,6 @@ async function seed() {
         keys: [
           "projects.view",
           "projects.all",
-          "boq.view",
           "requests.view",
           "requests.view_all",
           "requests.export",
@@ -71,6 +70,34 @@ async function seed() {
           "suppliers.view",
           "suppliers.create",
           "suppliers.edit",
+        ],
+      },
+      {
+        name: ar.roles.technical,
+        keys: [
+          "projects.view",
+          "projects.all",
+          "boq.view",
+          "requests.view",
+          "requests.view_all",
+          "requests.export",
+          "requests.approve",
+          "technical.view",
+          "technical.approve",
+          "technical.export",
+        ],
+      },
+      {
+        name: ar.roles.finance,
+        keys: [
+          "projects.view",
+          "projects.all",
+          "requests.view",
+          "requests.view_all",
+          "requests.export",
+          "finance.view",
+          "finance.approve",
+          "finance.export",
         ],
       },
       {

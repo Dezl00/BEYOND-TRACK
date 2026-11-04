@@ -26,6 +26,7 @@ import { type Actor, can } from "@/lib/domain";
 import { date } from "@/lib/format";
 import { Brand } from "./common";
 import { Button } from "./form-controls";
+import LiveNotifications from "./live-notifications";
 import { FormatContext } from "./format-context";
 const Lookup = dynamic(() => import("./ui").then((module) => module.Lookup));
 const Modal = dynamic(() => import("./ui").then((module) => module.Modal));
@@ -34,6 +35,8 @@ const links = [
   ["projects", Building2, "projects.view"],
   ["boq", Layers3, "boq.view"],
   ["requests", ClipboardList, "requests.view"],
+  ["technical", ShieldCheck, "technical.view"],
+  ["finance", ContactRound, "finance.view"],
   ["procurement", Truck, "procurement.view"],
   ["receipts", PackageCheck, "receipts.view"],
   ["suppliers", ContactRound, "suppliers.view"],
@@ -74,6 +77,18 @@ export default function Shell({
     return () => clearInterval(timer);
   }, []);
   async function logout() {
+    try {
+      const registration = await navigator.serviceWorker?.getRegistration("/");
+      const subscription = await registration?.pushManager.getSubscription();
+      if (subscription) {
+        await fetch("/api/push", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+        await subscription.unsubscribe();
+      }
+    } catch {}
     await fetch("/api/auth/logout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,6 +102,7 @@ export default function Shell({
       <nav className="nav" aria-label={ar.common.actions}>
         {links
           .filter(([, , perm]) => !perm || can(actor, perm))
+          .filter(([key]) => !actor.force_password_change || key === "settings")
           .map(([key, Icon], i) => (
             <div key={key}>
               {key === "users" ? <div className="nav-divider" /> : null}
@@ -103,7 +119,11 @@ export default function Shell({
                     ? "active"
                     : ""
                 }
-                href={`/${key}${project && ["dashboard", "projects", "boq", "requests", "procurement", "receipts"].includes(key) ? `?project=${project}` : ""}`}
+                href={
+                  actor.force_password_change
+                    ? "/settings/security"
+                    : `/${key}${project && ["dashboard", "projects", "boq", "requests", "procurement", "receipts"].includes(key) ? `?project=${project}` : ""}`
+                }
                 onClick={() => setMobile(false)}
               >
                 <Icon size={19} strokeWidth={1.6} />
@@ -153,45 +173,41 @@ export default function Shell({
                   <aside className="sidebar mobile-nav">{navigation}</aside>
                 </Modal>
               ) : null}
-              <div className="context-select">
-                <div className="topbar-label">{ar.common.project}</div>
-                {projectPicker ? (
-                  <Lookup
-                    defaultOpen
-                    resource="projects"
-                    value={project}
-                    initialLabel={projectName || ar.common.allProjects}
-                    allowNone
-                    onChange={(value) => {
-                      const next = new URLSearchParams(params.toString());
-                      next.delete("cursor");
-                      if (value) next.set("project", value);
-                      else next.delete("project");
-                      router.push(`${path}?${next}`);
-                    }}
-                  />
-                ) : (
-                  <Button
-                    className="select-trigger"
-                    onClick={() => setProjectPicker(true)}
-                  >
-                    <span>{projectName || ar.common.allProjects}</span>
-                    <ChevronDown size={15} />
-                  </Button>
-                )}
-              </div>
+              {!actor.force_password_change && can(actor, "projects.view") ? (
+                <div className="context-select">
+                  <div className="topbar-label">{ar.common.project}</div>
+                  {projectPicker ? (
+                    <Lookup
+                      defaultOpen
+                      resource="projects"
+                      value={project}
+                      initialLabel={projectName || ar.common.allProjects}
+                      allowNone
+                      onChange={(value) => {
+                        const next = new URLSearchParams(params.toString());
+                        next.delete("cursor");
+                        if (value) next.set("project", value);
+                        else next.delete("project");
+                        router.push(`${path}?${next}`);
+                      }}
+                    />
+                  ) : (
+                    <Button
+                      className="select-trigger"
+                      onClick={() => setProjectPicker(true)}
+                    >
+                      <span>{projectName || ar.common.allProjects}</span>
+                      <ChevronDown size={15} />
+                    </Button>
+                  )}
+                </div>
+              ) : null}
             </div>
             <div className="topbar-actions">
               <span className="topbar-label topbar-date">
                 {date(new Date(), digits)}
               </span>
-              <Link
-                href="/notifications"
-                className="btn icon"
-                aria-label={ar.nav.notifications}
-              >
-                <Bell size={19} strokeWidth={1.6} />
-              </Link>
+              {!actor.force_password_change ? <LiveNotifications /> : null}
               <Link
                 href="/settings/security"
                 className="avatar"

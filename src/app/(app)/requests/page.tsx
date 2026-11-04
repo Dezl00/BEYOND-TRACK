@@ -1,6 +1,7 @@
+import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { requireActor } from "@/server/auth";
+import { requirePageActor } from "@/server/page-auth";
 import { listRequests } from "@/server/queries";
 import { listQuerySchema } from "@/lib/validation";
 import { can } from "@/lib/domain";
@@ -14,13 +15,11 @@ export default async function RequestsPage({
 }: {
   searchParams: Promise<Record<string, string>>;
 }) {
-  const a = await requireActor(),
+  const a = await requirePageActor(),
     raw = await searchParams,
     q = listQuerySchema.parse(raw),
     data = await listRequests(a, q),
-    settings = await one<{ digits: number }>(
-      sql`SELECT digits FROM settings WHERE id=1`,
-    );
+    settings = await currentSettings();
   return (
     <>
       <Heading title={ar.requests.title}>

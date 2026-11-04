@@ -1,6 +1,7 @@
+import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import { Pencil, FileText, ChevronRight } from "lucide-react";
-import { requireActor } from "@/server/auth";
+import { requirePageActor } from "@/server/page-auth";
 import { requestDetail } from "@/server/queries";
 import { uuid, cursorSchema } from "@/lib/validation";
 import { can, editable } from "@/lib/domain";
@@ -23,14 +24,12 @@ export default async function RequestPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
-  const a = await requireActor(),
+  const a = await requirePageActor(),
     id = uuid.parse((await params).id),
     raw = await searchParams,
     cursor = cursorSchema.parse(raw.cursor),
     r = await requestDetail(a, id, cursor),
-    settings = await one<{ digits: number }>(
-      sql`SELECT digits FROM settings WHERE id=1`,
-    ),
+    settings = await currentSettings(),
     d = settings?.digits || 0,
     pricing = can(a, "procurement.view");
   return (
