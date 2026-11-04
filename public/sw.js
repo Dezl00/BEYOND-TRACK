@@ -1,16 +1,133 @@
-self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
-self.addEventListener("push", event => {
-  if (!event.data) return;
-  const data = event.data.json();
-  event.waitUntil(Promise.all([
-    self.registration.showNotification(data.title, {body:data.body,tag:data.tag,data:{url:data.url},dir:"rtl",lang:"ar"}),
-    self.clients.matchAll({type:"window",includeUncontrolled:true}).then(clients => clients.forEach(client => client.postMessage({type:"siteflow-update"})))
-  ]));
+const CACHE = "bt-public-v1";
+const PUBLIC_ASSETS = [
+  "/offline",
+  "/icon.svg",
+  "/pwa-192.png",
+  "/pwa-512.png",
+  "/pwa-maskable.png",
+];
+async function trim(cache) {
+  const keys = await cache.keys();
+  const removable = keys.filter(
+    (key) =>
+      !PUBLIC_ASSETS.includes(
+        new URL(typeof key === "string" ? key : key.url).pathname,
+      ),
+  );
+  await Promise.all(
+    removable
+      .slice(0, Math.max(0, keys.length - 80))
+      .map((key) => cache.delete(key)),
+  );
+}
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches
+      .open(CACHE)
+      .then((cache) => cache.addAll(PUBLIC_ASSETS))
+      .then(() => self.skipWaiting()),
+  );
 });
-self.addEventListener("notificationclick", event => {
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith("bt-public-") && key !== CACHE)
+            .map((key) => caches.delete(key)),
+        ),
+      )
+      .then(() => self.clients.claim()),
+  );
+});
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  const url = new URL(request.url);
+  if (
+    request.method !== "GET" ||
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith("/api/")
+  )
+    return;
+  if (request.mode === "navigate") {
+    // All authenticated pages stay network-only. Offline fallback contains no account data.
+    event.respondWith(
+      fetch(request).catch(
+        async () =>
+          (await (await caches.open(CACHE)).match("/offline")) ||
+          Response.error(),
+      ),
+    );
+    return;
+  }
+  const immutable = url.pathname.startsWith("/_next/static/");
+  if (!immutable && !PUBLIC_ASSETS.includes(url.pathname)) return;
+  event.respondWith(
+    (async () => {
+      let cache;
+      try {
+        cache = await caches.open(CACHE);
+        const saved = await cache.match(request);
+        if (saved) return saved;
+      } catch {}
+      const response = await fetch(request);
+      if (cache && response.ok && response.type !== "opaque") {
+        try {
+          await cache.put(request, response.clone());
+          await trim(cache);
+        } catch {}
+      }
+      return response;
+    })(),
+  );
+});
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let data;
+  try {
+    data = event.data.json();
+  } catch {
+    return;
+  }
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(data.title, {
+        body: data.body,
+        tag: data.tag,
+        icon: "/pwa-192.png",
+        badge: "/icon.svg",
+        data: { url: data.url },
+        dir: "rtl",
+        lang: "ar",
+      }),
+      self.clients
+        .matchAll({ type: "window", includeUncontrolled: true })
+        .then((clients) =>
+          clients.forEach((client) =>
+            client.postMessage({ type: "siteflow-update" }),
+          ),
+        ),
+    ]),
+  );
+});
+self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || "/notifications", self.location.origin);
+  const target = new URL(
+    event.notification.data?.url || "/notifications",
+    self.location.origin,
+  );
   if (target.origin !== self.location.origin) return;
-  event.waitUntil(self.clients.openWindow(target.href));
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const client = windows.find((window) => window.url === target.href);
+      if (client) return client.focus();
+      return self.clients.openWindow(target.href);
+    })(),
+  );
 });

@@ -4,6 +4,7 @@ import { listQuerySchema } from "@/lib/validation";
 import { ar } from "@/messages/ar";
 import { Heading } from "@/components/common";
 import ImportForm from "@/components/import-form";
+import BoqTabs from "@/components/boq-tabs";
 export default async function ImportPage({
   searchParams,
 }: {
@@ -15,6 +16,7 @@ export default async function ImportPage({
   return (
     <>
       <Heading title={ar.boq.importTitle} />
+      <BoqTabs current="import" project={q.project} canImport />
       <section className="panel panel-body">
         <ImportForm project={q.project} />
       </section>

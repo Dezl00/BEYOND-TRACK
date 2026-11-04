@@ -12,6 +12,7 @@ import {
 import { Button, Field, Checkbox, Message } from "./form-controls";
 import { Brand } from "./common";
 import { useLoginReady } from "./login-entry";
+import { InstallApp } from "./pwa";
 function PasswordField({
   label,
   value,
@@ -215,6 +216,9 @@ export default function LoginForm() {
           <ArrowLeft size={17} />
         </Button>
       </form>
+      <div className="login-install">
+        <InstallApp />
+      </div>
       {mode !== "login" ? (
         <div className="login-bottom">
           <Button

@@ -1,4 +1,5 @@
 import ActivationSwitch from "@/components/activation-switch";
+import BoqTabs from "@/components/boq-tabs";
 import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -95,24 +96,11 @@ export default async function ResourcePage({
         audit={module === "audit"}
       />
       {["boq", "materials", "units"].includes(module) ? (
-        <div className="tabs">
-          {(["boq", "materials", "units"] as const).map((key) => (
-            <Link
-              key={key}
-              className={key === module ? "active" : ""}
-              href={`/${key}${q.project ? `?project=${q.project}` : ""}`}
-            >
-              {title(key)}
-            </Link>
-          ))}
-          {can(a, "boq.create") ? (
-            <Link
-              href={`/boq/import${q.project ? `?project=${q.project}` : ""}`}
-            >
-              {ar.common.import}
-            </Link>
-          ) : null}
-        </div>
+        <BoqTabs
+          current={module}
+          project={q.project}
+          canImport={can(a, "boq.create")}
+        />
       ) : null}
       <section className="panel table-panel">
         {["technical", "finance", "procurement", "receipts"].includes(

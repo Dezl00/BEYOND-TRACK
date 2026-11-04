@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ar } from "@/messages/ar";
 export function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
-  const csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}' 'strict-dynamic' ${process.env.NODE_ENV === "development" ? "'unsafe-eval'" : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${process.env.NODE_ENV === "development" ? "ws:" : ""}; frame-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; ${process.env.NODE_ENV === "production" ? "upgrade-insecure-requests;" : ""}`;
+  const csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}' 'strict-dynamic' ${process.env.NODE_ENV === "development" ? "'unsafe-eval'" : ""}; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${process.env.NODE_ENV === "development" ? "ws:" : ""}; frame-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; ${process.env.NODE_ENV === "production" ? "upgrade-insecure-requests;" : ""}`;
   const h = new Headers(request.headers);
   h.set("x-nonce", nonce);
   h.set("Content-Security-Policy", csp);
@@ -14,6 +14,11 @@ export function proxy(request: NextRequest) {
     "/logo-dark.svg",
     "/icon.svg",
     "/apple-touch-icon.png",
+    "/pwa-192.png",
+    "/pwa-512.png",
+    "/pwa-maskable.png",
+    "/manifest.webmanifest",
+    "/offline",
   ].includes(path);
   const publicPath =
     path === "/login" ||

@@ -8,6 +8,11 @@ describe("Public login identity assets", () => {
       "/logo-dark.svg",
       "/icon.svg",
       "/apple-touch-icon.png",
+      "/pwa-192.png",
+      "/pwa-512.png",
+      "/pwa-maskable.png",
+      "/manifest.webmanifest",
+      "/offline",
     ]) {
       const response = proxy(new NextRequest("https://example.com" + asset));
       expect(response.status).toBe(200);
@@ -15,6 +20,9 @@ describe("Public login identity assets", () => {
       expect(response.headers.get("Cache-Control")).toContain("public");
       expect(response.headers.get("Content-Security-Policy")).toContain(
         "frame-ancestors 'none'",
+      );
+      expect(response.headers.get("Content-Security-Policy")).toContain(
+        "worker-src 'self'",
       );
     }
   });

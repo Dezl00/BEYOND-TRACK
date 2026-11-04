@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import {
   IBM_Plex_Sans_Arabic,
   IBM_Plex_Sans,
@@ -7,6 +7,7 @@ import {
 import { cookies } from "next/headers";
 import { ar } from "@/messages/ar";
 import "./globals.css";
+import { PwaProvider } from "@/components/pwa";
 const arabic = IBM_Plex_Sans_Arabic({
   subsets: ["arabic"],
   weight: ["400", "500", "600", "700"],
@@ -29,12 +30,22 @@ const mono = IBM_Plex_Mono({
   adjustFontFallback: false,
 });
 export const metadata: Metadata = {
+  applicationName: ar.brand,
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: ar.brand, statusBarStyle: "default" },
+  formatDetection: { telephone: false },
   title: { default: ar.brand, template: `%s | ${ar.brand}` },
   robots: { index: false, follow: false },
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
     apple: "/apple-touch-icon.png",
   },
+};
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#ffffff",
 };
 export default async function RootLayout({
   children,
@@ -50,7 +61,9 @@ export default async function RootLayout({
       data-theme={theme}
       className={`${arabic.variable} ${latin.variable} ${mono.variable}`}
     >
-      <body>{children}</body>
+      <body>
+        <PwaProvider>{children}</PwaProvider>
+      </body>
     </html>
   );
 }

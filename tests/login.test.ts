@@ -56,7 +56,7 @@ describe("Login workflow carousel", () => {
     }) as HTMLInputElement;
     fireEvent.change(identifier, { target: { value: "engineer@example.com" } });
     act(() => identifier.focus());
-    act(() => vi.advanceTimersByTime(6500));
+    act(() => vi.advanceTimersByTime(3000));
     expect(
       screen.getByRole("group", { name: ar.loginStory.steps[1].title }),
     ).toBeTruthy();
@@ -83,17 +83,31 @@ describe("Login workflow carousel", () => {
       value: false,
     });
     fireEvent(document, new Event("visibilitychange"));
-    act(() => vi.advanceTimersByTime(6500));
+    act(() => vi.advanceTimersByTime(3000));
     expect(
       screen.getByRole("group", { name: ar.loginStory.steps[2].title }),
     ).toBeTruthy();
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("supports RTL keyboard navigation, direct selection, and explicit pause", () => {
+  it("shows one step number and supports RTL selection without arrows or playback buttons", () => {
     vi.useFakeTimers();
     render(createElement(LoginShowcase));
-    fireEvent.click(screen.getByRole("button", { name: ar.loginStory.pause }));
-    act(() => vi.advanceTimersByTime(13000));
+    expect(
+      screen.queryByRole("button", { name: ar.loginStory.pause }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: ar.loginStory.play }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: ar.common.next })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: ar.common.previous }),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("group", { name: ar.loginStory.steps[0].title })
+        .querySelector(".login-step-number")
+        ?.textContent?.trim(),
+    ).toBe("1");
     expect(
       screen.getByRole("group", { name: ar.loginStory.steps[0].title }),
     ).toBeTruthy();
@@ -109,9 +123,9 @@ describe("Login workflow carousel", () => {
         .getByRole("button", { name: ar.loginStory.steps[2].title })
         .getAttribute("aria-current"),
     ).toBe("step");
-    act(() => vi.advanceTimersByTime(13000));
+    act(() => vi.advanceTimersByTime(3000));
     expect(
-      screen.getByRole("group", { name: ar.loginStory.steps[2].title }),
+      screen.getByRole("group", { name: ar.loginStory.steps[0].title }),
     ).toBeTruthy();
   });
   it("disables automatic motion on small screens and for reduced-motion preferences", () => {
@@ -130,12 +144,8 @@ describe("Login workflow carousel", () => {
       screen.getByRole("group", { name: ar.loginStory.steps[0].title }),
     ).toBeTruthy();
     expect(
-      (
-        screen.getByRole("button", {
-          name: ar.loginStory.play,
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+      screen.queryByRole("button", { name: ar.loginStory.play }),
+    ).toBeNull();
   });
 });
 describe("Login, OTP, and recovery forms", () => {

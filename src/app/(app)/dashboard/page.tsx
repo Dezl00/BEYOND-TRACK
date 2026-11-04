@@ -55,7 +55,7 @@ export default async function Dashboard({
             <div className="stat-top">
               <span>{ar.dashboard[key]}</span>
               <span className="stat-icon">
-                <Icon size={18} strokeWidth={1.6} />
+                <Icon size={27} strokeWidth={1.6} />
               </span>
             </div>
             <div className="stat-value">{number(data.stats[key], d, 0)}</div>

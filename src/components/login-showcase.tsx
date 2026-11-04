@@ -1,12 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
 import { ar } from "@/messages/ar";
 import LoginIllustration from "./login-illustrations";
 
 export default function LoginShowcase() {
   const [active, setActive] = useState(0),
-    [playing, setPlaying] = useState(true),
     [eligible, setEligible] = useState(false),
     [visible, setVisible] = useState(true),
     [hovered, setHovered] = useState(false),
@@ -28,16 +26,15 @@ export default function LoginShowcase() {
     };
   }, []);
   useEffect(() => {
-    if (!playing || !eligible || !visible || hovered || focused) return;
+    if (!eligible || !visible || hovered || focused) return;
     const timer = setInterval(
       () => setActive((value) => (value + 1) % slides.length),
-      6500,
+      3000,
     );
     return () => clearInterval(timer);
-  }, [playing, eligible, visible, hovered, focused, slides.length]);
+  }, [active, eligible, visible, hovered, focused, slides.length]);
   function choose(next: number) {
     setActive((next + slides.length) % slides.length);
-    setPlaying(false);
   }
   return (
     <aside
@@ -76,9 +73,7 @@ export default function LoginShowcase() {
             </div>
             <div className="login-slide-caption">
               <span className="login-step-number">
-                <bdi>{String(index + 1).padStart(2, "0")}</bdi>
-                <span aria-hidden="true"> / </span>
-                <bdi>{String(slides.length).padStart(2, "0")}</bdi>
+                <bdi>{index + 1}</bdi>
               </span>
               <h2>{slide.title}</h2>
               <p>{slide.detail}</p>
@@ -87,14 +82,6 @@ export default function LoginShowcase() {
         ))}
       </div>
       <div className="login-carousel-controls">
-        <button
-          type="button"
-          className="login-carousel-arrow"
-          aria-label={ar.common.previous}
-          onClick={() => choose(active - 1)}
-        >
-          <ChevronRight size={17} />
-        </button>
         <div className="login-carousel-dots">
           {slides.map((slide, index) => (
             <button
@@ -108,25 +95,6 @@ export default function LoginShowcase() {
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          className="login-carousel-arrow"
-          aria-label={ar.common.next}
-          onClick={() => choose(active + 1)}
-        >
-          <ChevronLeft size={17} />
-        </button>
-        <button
-          type="button"
-          className="login-carousel-play"
-          disabled={!eligible}
-          aria-label={
-            playing && eligible ? ar.loginStory.pause : ar.loginStory.play
-          }
-          onClick={() => setPlaying((value) => !value)}
-        >
-          {playing && eligible ? <Pause size={14} /> : <Play size={14} />}
-        </button>
       </div>
     </aside>
   );
