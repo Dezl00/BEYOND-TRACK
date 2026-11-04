@@ -19,10 +19,12 @@ async function ownerSession(a: Actor, tx: Executor) {
 }
 export async function issueRequestPurge(a: Actor, meta: Meta) {
   if (!a.is_owner) throw new AppError("forbidden", 403);
+  if (!process.env.RESEND_API_KEY?.trim())
+    throw new AppError("mailKeyMissing", 503);
+  if (!process.env.EMAIL_FROM?.trim())
+    throw new AppError("mailSenderMissing", 503);
   await rateLimit("purge-issue", a.id, 3, 900);
   await rateLimit("purge-issue-ip", meta.ip, 6, 900);
-  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM)
-    throw new AppError("configured", 503);
   return db().transaction(async (tx) => {
     const owner = await ownerSession(a, tx);
     // One owner-level transaction prevents overlapping resends across devices.

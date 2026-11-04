@@ -1017,6 +1017,38 @@ describe("Authentication", () => {
 
 describe("Owner-only request purge", () => {
   let admin: Actor;
+  it("identifies missing mail settings without using OTP attempts", async () => {
+    const key = process.env.RESEND_API_KEY!,
+      sender = process.env.EMAIL_FROM!;
+    const before = (
+      await pg.query<{ n: number }>(
+        "SELECT count(*)::int n FROM rate_limits WHERE key LIKE 'purge-issue%'",
+      )
+    ).rows[0].n;
+    try {
+      vi.stubEnv("RESEND_API_KEY", "");
+      await expect(issueRequestPurge(owner, meta)).rejects.toMatchObject({
+        code: "mailKeyMissing",
+        status: 503,
+      });
+      vi.stubEnv("RESEND_API_KEY", key);
+      vi.stubEnv("EMAIL_FROM", " ");
+      await expect(issueRequestPurge(owner, meta)).rejects.toMatchObject({
+        code: "mailSenderMissing",
+        status: 503,
+      });
+    } finally {
+      vi.stubEnv("RESEND_API_KEY", key);
+      vi.stubEnv("EMAIL_FROM", sender);
+    }
+    expect(
+      (
+        await pg.query<{ n: number }>(
+          "SELECT count(*)::int n FROM rate_limits WHERE key LIKE 'purge-issue%'",
+        )
+      ).rows[0].n,
+    ).toBe(before);
+  });
   async function codeFor(challenge: string) {
     const mail = (
       await pg.query<{ payload: { encrypted: string } }>(

@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, LockKeyhole } from "lucide-react";
+import { ArrowLeft, LockKeyhole, UserRound, Eye, EyeOff } from "lucide-react";
 import { ar } from "@/messages/ar";
 import {
   loginSchema,
@@ -11,7 +11,56 @@ import {
 } from "@/lib/validation";
 import { Button, Field, Checkbox, Message } from "./form-controls";
 import { Brand } from "./common";
+import { useLoginReady } from "./login-entry";
+function PasswordField({
+  label,
+  value,
+  onChange,
+  autoComplete,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete: string;
+  disabled: boolean;
+}) {
+  const id = useId(),
+    [visible, setVisible] = useState(false);
+  return (
+    <div className="field login-password-field">
+      <label htmlFor={id}>{label}</label>
+      <div className="login-input-wrap">
+        <LockKeyhole
+          size={17}
+          className="login-input-icon"
+          aria-hidden="true"
+        />
+        <input
+          id={id}
+          className="input numeric"
+          type={visible ? "text" : "password"}
+          autoComplete={autoComplete}
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button
+          type="button"
+          className="login-password-toggle"
+          aria-label={visible ? ar.auth.hidePassword : ar.auth.showPassword}
+          aria-pressed={visible}
+          disabled={disabled}
+          onClick={() => setVisible((value) => !value)}
+        >
+          {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+        </button>
+      </div>
+    </div>
+  );
+}
 export default function LoginForm() {
+  useLoginReady();
   const params = useSearchParams(),
     reset = params.get("reset");
   const [mode, setMode] = useState(reset ? "reset" : "login"),
@@ -85,40 +134,43 @@ export default function LoginForm() {
         <Message error={error} success={success} />
         {["login", "forgot"].includes(mode) ? (
           <Field label={mode === "login" ? ar.auth.identifier : ar.auth.email}>
-            <input
-              autoComplete="username"
-              className="input numeric"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              type={mode === "forgot" ? "email" : "text"}
-            />
+            <div className="login-input-wrap">
+              <UserRound
+                size={17}
+                className="login-input-icon"
+                aria-hidden="true"
+              />
+              <input
+                autoComplete="username"
+                className="input numeric"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                type={mode === "forgot" ? "email" : "text"}
+                disabled={busy}
+              />
+            </div>
           </Field>
         ) : null}
         {["login", "reset"].includes(mode) ? (
-          <Field
+          <PasswordField
+            key={mode}
             label={mode === "login" ? ar.auth.password : ar.auth.newPassword}
-          >
-            <input
-              className="input numeric"
-              type="password"
-              autoComplete={
-                mode === "login" ? "current-password" : "new-password"
-              }
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </Field>
+            autoComplete={
+              mode === "login" ? "current-password" : "new-password"
+            }
+            value={password}
+            onChange={setPassword}
+            disabled={busy}
+          />
         ) : null}
         {mode === "reset" ? (
-          <Field label={ar.auth.confirmPassword}>
-            <input
-              className="input numeric"
-              type="password"
-              autoComplete="new-password"
-              value={confirmation}
-              onChange={(e) => setConfirmation(e.target.value)}
-            />
-          </Field>
+          <PasswordField
+            label={ar.auth.confirmPassword}
+            autoComplete="new-password"
+            value={confirmation}
+            onChange={setConfirmation}
+            disabled={busy}
+          />
         ) : null}
         {mode === "otp" ? (
           <Field label={ar.auth.otp}>
@@ -127,20 +179,21 @@ export default function LoginForm() {
               autoComplete="one-time-code"
               inputMode="numeric"
               maxLength={6}
+              disabled={busy}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
             />
           </Field>
         ) : null}
         {mode === "login" ? (
-          <div className="row between" style={{ marginBlockEnd: 24 }}>
+          <div className="row between login-options">
             <Checkbox
               label={ar.auth.remember}
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
             />
             <button
-              className="btn link small"
+              className="btn link small login-forgot"
               type="button"
               onClick={() => {
                 setMode("forgot");
@@ -151,7 +204,7 @@ export default function LoginForm() {
             </button>
           </div>
         ) : null}
-        <Button className="full" intent="blue" pending={busy} type="submit">
+        <Button className="full login-submit" pending={busy} type="submit">
           {mode === "login"
             ? ar.auth.login
             : mode === "otp"

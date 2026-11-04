@@ -9,8 +9,17 @@ export function proxy(request: NextRequest) {
   h.set("x-pathname", request.nextUrl.pathname);
   h.set("x-project-id", request.nextUrl.searchParams.get("project") || "");
   const path = request.nextUrl.pathname;
+  const publicAsset = [
+    "/logo.svg",
+    "/logo-dark.svg",
+    "/icon.svg",
+    "/apple-touch-icon.png",
+  ].includes(path);
   const publicPath =
-    path === "/login" || path.startsWith("/api/auth/") || path === "/api/jobs";
+    path === "/login" ||
+    path.startsWith("/api/auth/") ||
+    path === "/api/jobs" ||
+    publicAsset;
   const cookie =
     process.env.NODE_ENV === "production" ? "__Host-bt" : "bt-session";
   let response: NextResponse;
@@ -20,7 +29,10 @@ export function proxy(request: NextRequest) {
       : NextResponse.redirect(new URL("/login", request.url));
   else response = NextResponse.next({ request: { headers: h } });
   response.headers.set("Content-Security-Policy", csp);
-  response.headers.set("Cache-Control", "private, no-store");
+  response.headers.set(
+    "Cache-Control",
+    publicAsset ? "public, max-age=3600, must-revalidate" : "private, no-store",
+  );
   return response;
 }
 export const config = {
