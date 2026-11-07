@@ -1,3 +1,9 @@
+/** Remove database padding without rounding an entered fraction. */
+export function decimalText(value: unknown) {
+  const raw = String(value ?? "");
+  if (!/^\d+\.\d*$/.test(raw)) return raw;
+  return raw.replace(/0+$/, "").replace(/\.$/, "");
+}
 export function number(value: number | string, digits = 0, scale = 3) {
   return new Intl.NumberFormat(digits ? "ar-SA-u-nu-arab" : "ar-SA-u-nu-latn", {
     maximumFractionDigits: scale,

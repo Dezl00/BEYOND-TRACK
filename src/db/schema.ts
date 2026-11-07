@@ -130,10 +130,8 @@ export const boqItems = pgTable(
     name: varchar("name", { length: 250 }).notNull(),
     active: boolean("active").default(true).notNull(),
     description: text("description"),
-    unitId: uuid("unit_id")
-      .notNull()
-      .references(() => units.id),
-    quantity: numeric("quantity", { precision: 18, scale: 3 }).notNull(),
+    unitId: uuid("unit_id").references(() => units.id),
+    quantity: numeric("quantity", { precision: 18, scale: 3 }),
     createdAt: time("created_at"),
   },
   (t) => [

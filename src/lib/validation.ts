@@ -149,21 +149,27 @@ export const projectSchema = z.object({
   location: z.string().trim().max(200).default(""),
   archived: z.boolean().default(false),
 });
+const boqFields = z.object({
+  id: uuid.optional(),
+  projectId: uuid,
+  parentId: uuid.nullable(),
+  code: z.string().trim().min(1).max(60),
+  name: short,
+  description: z.string().trim().max(4000).default(""),
+  active: z.boolean().optional(),
+});
 export const boqSchema = z
-  .object({
-    id: uuid.optional(),
-    projectId: uuid,
-    parentId: uuid.nullable(),
-    level: z.number().int().min(1).max(3),
-    code: z.string().trim().min(1).max(60),
-    name: short,
-    description: z.string().trim().max(4000).default(""),
-    unitId: uuid,
-    quantity: qty,
-    active: z.boolean().optional(),
-  })
-  .refine((v) => v.level !== 3 || v.description.length > 0, ar.errors.required)
-  .refine((v) => v.level === 3 || !v.description, ar.errors.invalid);
+  .discriminatedUnion("level", [
+    boqFields.extend({ level: z.union([z.literal(1), z.literal(2)]) }),
+    boqFields.extend({ level: z.literal(3), unitId: uuid, quantity: qty }),
+  ])
+  .refine(
+    (v) => (v.level === 3 ? !!v.description : !v.description),
+    ar.errors.required,
+  )
+  .transform((v) =>
+    v.level === 3 ? v : { ...v, unitId: null, quantity: null },
+  );
 export const materialSchema = z.object({
   id: uuid.optional(),
   boqItemId: uuid,

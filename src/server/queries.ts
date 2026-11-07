@@ -130,7 +130,7 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT b.*,u.name unit_name,p.name project_name,pa.code parent_code FROM boq_items b JOIN projects p ON p.id=b.project_id JOIN units u ON u.id=b.unit_id LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${q.selectable ? sql`AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.level ? sql`AND b.level=${q.level}` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`b.id`)} ORDER BY b.id LIMIT 26`,
+        sql`SELECT b.id,b.project_id,b.parent_id,b.level,b.code,b.name,b.active,b.description,b.created_at,CASE WHEN b.level=3 THEN b.unit_id END unit_id,CASE WHEN b.level=3 THEN b.quantity END quantity,u.name unit_name,p.name project_name,pa.code parent_code FROM boq_items b JOIN projects p ON p.id=b.project_id LEFT JOIN units u ON b.level=3 AND u.id=b.unit_id LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${q.selectable ? sql`AND b.active=true AND (b.level<3 OR u.active=true) AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.level ? sql`AND b.level=${q.level}` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`b.id`)} ORDER BY b.id LIMIT 26`,
       ),
     );
   }

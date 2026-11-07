@@ -1,3 +1,4 @@
+import { decimalText } from "@/lib/format";
 import { z } from "zod";
 import { requireActor } from "@/server/auth";
 import { requirePermission } from "@/server/access";
@@ -89,17 +90,21 @@ export async function GET(req: Request) {
           keys
             .map((k) =>
               csv(
-                k === "status"
-                  ? ar.statuses[Number(row[k])]
-                  : k === "action"
-                    ? ar.auditActions[Number(row[k])]
-                    : k === "entity"
-                      ? ar.auditEntities[Number(row[k])]
-                      : typeof row[k] === "boolean"
-                        ? row[k]
-                          ? ar.common.yes
-                          : ar.common.no
-                        : row[k],
+                k === "quantity"
+                  ? decimalText(row[k])
+                  : k === "unit_name"
+                    ? (row[k] ?? "")
+                    : k === "status"
+                      ? ar.statuses[Number(row[k])]
+                      : k === "action"
+                        ? ar.auditActions[Number(row[k])]
+                        : k === "entity"
+                          ? ar.auditEntities[Number(row[k])]
+                          : typeof row[k] === "boolean"
+                            ? row[k]
+                              ? ar.common.yes
+                              : ar.common.no
+                            : row[k],
               ),
             )
             .join(","),

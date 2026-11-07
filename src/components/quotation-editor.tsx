@@ -1,10 +1,11 @@
 "use client";
+import { NumberField } from "./number-field";
 import { useEffect, useState } from "react";
 import Decimal from "decimal.js";
 import { ar } from "@/messages/ar";
 import { quotationsSchema } from "@/lib/validation";
 import type { Quote } from "@/lib/quotations";
-import { number } from "@/lib/format";
+import { decimalText, number } from "@/lib/format";
 import { useDigits } from "./format-context";
 import {
   Button,
@@ -132,7 +133,7 @@ export function QuotationEditor({
           expectedAt: q.expected_at,
           prices: lines.map((l) => ({
             id: l.id,
-            price: q.prices.find((p) => p.id === l.id)?.price || "",
+            price: decimalText(q.prices.find((p) => p.id === l.id)?.price),
           })),
         }))
       : [blank()],
@@ -257,24 +258,20 @@ export function QuotationEditor({
                         {number(l.quantity, digits)} {l.unit_name}
                       </td>
                       <td>
-                        <input
-                          className="input numeric quote-price"
-                          aria-label={
+                        <NumberField
+                          className="quote-price"
+                          ariaLabel={
                             "سعر " +
                             l.material_name +
                             " في العرض " +
                             (index + 1)
                           }
-                          type="number"
-                          min="0"
-                          step="0.01"
+                          precision={2}
                           value={offer.prices[lineIndex].price}
-                          onChange={(e) =>
+                          onChange={(price) =>
                             update(index, {
                               prices: offer.prices.map((p, i) =>
-                                i === lineIndex
-                                  ? { ...p, price: e.target.value }
-                                  : p,
+                                i === lineIndex ? { ...p, price } : p,
                               ),
                             })
                           }

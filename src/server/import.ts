@@ -110,7 +110,7 @@ export async function importBoq(
     )) {
       const r = item.values,
         unit = unitRows.find((u) => u.name === r[4] || u.symbol === r[4]);
-      if (!unit) throw new AppError("import");
+      if (Number(r[2]) === 3 && !unit) throw new AppError("import");
       const parent = r[3] ? items.get(r[3]) : undefined;
       if (r[3] && !parent) throw new AppError("hierarchy");
       const v = boqSchema.parse({
@@ -119,7 +119,7 @@ export async function importBoq(
         name: r[1],
         level: Number(r[2]),
         parentId: parent?.id || null,
-        unitId: unit.id,
+        unitId: unit?.id,
         quantity: r[5],
         description: r[6],
       });
@@ -179,18 +179,8 @@ export async function importBoq(
 export async function importTemplate() {
   const data: (string | number)[][] = [
     [...ar.boq.headers],
-    ["01", ar.seed.sampleMain, 1, "", ar.seed.units[2][0], 100, "", "", ""],
-    [
-      "01.01",
-      ar.seed.sampleSecondary,
-      2,
-      "01",
-      ar.seed.units[2][0],
-      100,
-      "",
-      "",
-      "",
-    ],
+    ["01", ar.seed.sampleMain, 1, "", "", "", "", "", ""],
+    ["01.01", ar.seed.sampleSecondary, 2, "01", "", "", "", "", ""],
     [
       "01.01.01",
       ar.seed.sampleSub,

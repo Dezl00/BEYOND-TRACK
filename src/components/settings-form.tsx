@@ -1,4 +1,5 @@
 "use client";
+import { NumberField } from "./number-field";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAutosave } from "./use-autosave";
@@ -186,7 +187,7 @@ export function SystemSettings({
       otpRequired: settings.otp_required,
       defaultTheme: settings.default_theme,
       digits: settings.digits,
-      readNotificationDays: settings.read_notification_days,
+      readNotificationDays: String(settings.read_notification_days),
       policies: policies.map((p) => ({
         type: p.type,
         inApp: p.in_app,
@@ -200,7 +201,13 @@ export function SystemSettings({
   const autoError = useAutosave(
     state,
     async (value) => {
-      await command("settings", settingsSchema.parse(value));
+      await command(
+        "settings",
+        settingsSchema.parse({
+          ...value,
+          readNotificationDays: Number(value.readNotificationDays),
+        }),
+      );
       router.refresh();
     },
     setState,
@@ -213,7 +220,13 @@ export function SystemSettings({
         setBusy(true);
         setError("");
         try {
-          await command("settings", settingsSchema.parse(state));
+          await command(
+            "settings",
+            settingsSchema.parse({
+              ...state,
+              readNotificationDays: Number(state.readNotificationDays),
+            }),
+          );
           setSuccess(ar.common.saved);
           router.refresh();
         } catch (e) {
@@ -251,19 +264,16 @@ export function SystemSettings({
             ]}
           />
         </Field>
-        <Field label={ar.settings.notificationDays}>
-          <input
-            className="input numeric"
-            inputMode="numeric"
-            value={state.readNotificationDays}
-            onChange={(e) =>
-              setState((s) => ({
-                ...s,
-                readNotificationDays: Number(e.target.value),
-              }))
-            }
-          />
-        </Field>
+        <NumberField
+          label={ar.settings.notificationDays}
+          min={1}
+          max={365}
+          precision={0}
+          value={state.readNotificationDays}
+          onChange={(value) =>
+            setState((s) => ({ ...s, readNotificationDays: value }))
+          }
+        />
         <Checkbox
           label={ar.auth.globalOtp}
           disabled={!owner}

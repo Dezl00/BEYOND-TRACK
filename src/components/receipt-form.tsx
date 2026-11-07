@@ -1,4 +1,5 @@
 "use client";
+import { NumberField } from "./number-field";
 import { useEffect, useRef, useState } from "react";
 import { Camera, Images, X, Check, RotateCw } from "lucide-react";
 import { ar } from "@/messages/ar";
@@ -187,36 +188,23 @@ export default function ReceiptForm({
               <div className="receipt-quantities">
                 {(["accepted", "damaged", "rejected", "returned"] as const).map(
                   (field) => (
-                    <Field key={field} label={ar.fields[field]}>
-                      <input
-                        className="input numeric"
-                        aria-label={l.material_name + " · " + ar.fields[field]}
-                        type="number"
-                        min="0"
-                        step="0.001"
-                        value={value[field]}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) =>
-                          setQuantities((prev) => ({
-                            ...prev,
-                            [l.id]: changeReceiptQuantity(
-                              prev[l.id],
-                              field,
-                              e.target.value,
-                            ),
-                          }))
-                        }
-                        onBlur={() =>
-                          setQuantities((prev) => ({
-                            ...prev,
-                            [l.id]: {
-                              ...prev[l.id],
-                              [field]: prev[l.id][field] || "0",
-                            },
-                          }))
-                        }
-                      />
-                    </Field>
+                    <NumberField
+                      key={field}
+                      label={ar.fields[field]}
+                      ariaLabel={l.material_name + " · " + ar.fields[field]}
+                      value={value[field]}
+                      emptyOnBlur="0"
+                      onChange={(quantity) =>
+                        setQuantities((prev) => ({
+                          ...prev,
+                          [l.id]: changeReceiptQuantity(
+                            prev[l.id],
+                            field,
+                            quantity,
+                          ),
+                        }))
+                      }
+                    />
                   ),
                 )}
               </div>

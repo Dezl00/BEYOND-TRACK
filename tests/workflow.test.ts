@@ -58,7 +58,7 @@ import {
   submitQuotations,
   receive,
 } from "@/server/requests";
-import { saveUser, saveRole } from "@/server/admin";
+import { saveBoq, saveUser, saveRole } from "@/server/admin";
 import { setActive } from "@/server/activation";
 import { issueRequestPurge, purgeRequests } from "@/server/request-purge";
 import { deleteRecord } from "@/server/delete";
@@ -178,12 +178,14 @@ beforeAll(async () => {
     "drizzle/generated/0002_resource_activation.sql",
     "drizzle/generated/0003_request_purge.sql",
     "drizzle/generated/0004_military_onslaught.sql",
+    "drizzle/generated/0005_boq_leaf_measurements.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
     "drizzle/custom/0004_request_purge.sql",
     "drizzle/custom/0005_reports.sql",
     "drizzle/custom/0006_pricing_and_receipts.sql",
+    "drizzle/custom/0007_boq_leaf_measurements.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -538,9 +540,17 @@ describe("Request to receipt", () => {
     await expect(
       transitionRequest(buyer, { id, version: 1, status: 9, reason: "" }, meta),
     ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      transitionRequest(
+        technical,
+        { id, version: 1, status: 9, reason: "" },
+        meta,
+      ),
+    ).rejects.toMatchObject({ code: "overage" });
+    await approveOverage(technical, id, meta);
     await transitionRequest(
       technical,
-      { id, version: 1, status: 9, reason: "" },
+      { id, version: 2, status: 9, reason: "" },
       meta,
     );
     expect(
@@ -552,18 +562,10 @@ describe("Request to receipt", () => {
     await expect(
       transitionRequest(
         technical,
-        { id, version: 2, status: 2, reason: "" },
+        { id, version: 3, status: 2, reason: "" },
         meta,
       ),
     ).rejects.toMatchObject({ status: 403 });
-    await expect(
-      transitionRequest(
-        finance,
-        { id, version: 2, status: 2, reason: "" },
-        meta,
-      ),
-    ).rejects.toMatchObject({ code: "overage" });
-    await approveOverage(technical, id, meta);
     await transitionRequest(
       finance,
       { id, version: 3, status: 2, reason: "" },
@@ -900,6 +902,10 @@ describe("Arabic BOQ import", () => {
       }),
     );
     expect(data).toHaveLength(3);
+    expect(data.slice(0, 2).map((row) => row.slice(4, 6))).toEqual([
+      ["", ""],
+      ["", ""],
+    ]);
     const imported = await importBoq(owner, ids.p2, data, meta);
     expect(imported).toEqual({ rows: 3, materials: 1 });
     await expect(importBoq(owner, ids.p2, data, meta)).rejects.toThrow();
@@ -911,6 +917,72 @@ describe("Arabic BOQ import", () => {
         )
       ).rows[0].n,
     ).toBe(3);
+  });
+  it("saves and lists unmeasured parent items, including parents from older records", async () => {
+    const fields = { projectId: ids.p1, code: "TEST-MAIN", name: "بند رئيسي" };
+    const main = await saveBoq(
+      owner,
+      boqSchema.parse({ ...fields, level: 1, parentId: null }),
+      meta,
+    );
+    const secondary = await saveBoq(
+      owner,
+      boqSchema.parse({
+        ...fields,
+        code: "TEST-SECOND",
+        level: 2,
+        parentId: main.id,
+      }),
+      meta,
+    );
+    const leaf = {
+      ...fields,
+      code: "TEST-LEAF",
+      level: 3,
+      parentId: secondary.id,
+      description: "وصف",
+    };
+    expect(boqSchema.safeParse({ ...leaf, quantity: "1" }).success).toBe(false);
+    expect(boqSchema.safeParse({ ...leaf, unitId: ids.unit }).success).toBe(
+      false,
+    );
+    await saveBoq(
+      owner,
+      boqSchema.parse({ ...leaf, unitId: ids.unit, quantity: "1.25" }),
+      meta,
+    );
+    expect(
+      (
+        await pg.query(
+          "SELECT unit_id,quantity FROM boq_items WHERE id IN ($1,$2)",
+          [main.id, secondary.id],
+        )
+      ).rows,
+    ).toEqual([
+      { unit_id: null, quantity: null },
+      { unit_id: null, quantity: null },
+    ]);
+    const parents = await listResource(owner, "boq", {
+      q: "",
+      project: ids.p1,
+      level: 2,
+      selectable: "1",
+    });
+    for (const id of [ids.secondary, secondary.id])
+      expect(parents.items).toContainEqual(
+        expect.objectContaining({
+          id,
+          unit_name: null,
+          unit_id: null,
+          quantity: null,
+        }),
+      );
+    await expect(
+      pg.query(
+        "UPDATE boq_items SET quantity=NULL WHERE code='TEST-LEAF' AND project_id=$1",
+        [ids.p1],
+      ),
+    ).rejects.toThrow();
   });
   it("rejects an unauthorized importer and mismatched Arabic headers", async () => {
     await expect(importBoq(engineer, ids.p1, [], meta)).rejects.toMatchObject({

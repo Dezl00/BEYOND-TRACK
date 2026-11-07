@@ -240,9 +240,13 @@ export default async function ResourcePage({
                         ) : null}
                         {["boq", "materials"].includes(module) ? (
                           <>
-                            <td>{String(row.unit_name)}</td>
+                            <td>{String(row.unit_name ?? "—")}</td>
                             <td>
-                              <bdi>{number(String(row.quantity), digits)}</bdi>
+                              <bdi>
+                                {row.quantity == null
+                                  ? "—"
+                                  : number(String(row.quantity), digits)}
+                              </bdi>
                             </td>
                           </>
                         ) : null}

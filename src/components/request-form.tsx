@@ -1,4 +1,6 @@
 "use client";
+import { NumberField } from "./number-field";
+import { decimalText } from "@/lib/format";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Send } from "lucide-react";
@@ -34,7 +36,7 @@ export default function RequestForm({
       initial?.lines.map((l, i) => ({
         key: String(i),
         materialId: String(l.material_id),
-        quantity: String(l.quantity),
+        quantity: decimalText(l.quantity),
         notes: String(l.notes),
         label: String(l.material_name),
       })) || [{ key: "first", materialId: "", quantity: "", notes: "" }],
@@ -148,14 +150,11 @@ export default function RequestForm({
                   }}
                 />
               </Field>
-              <Field label={ar.fields.quantity}>
-                <input
-                  className="input numeric"
-                  inputMode="decimal"
-                  value={line.quantity}
-                  onChange={(e) => update(line.key, "quantity", e.target.value)}
-                />
-              </Field>
+              <NumberField
+                label={ar.fields.quantity}
+                value={line.quantity}
+                onChange={(value) => update(line.key, "quantity", value)}
+              />
               <div className="line-note">
                 <Field label={ar.fields.notes}>
                   <input

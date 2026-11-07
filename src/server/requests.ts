@@ -244,7 +244,10 @@ export async function transitionRequest(
         sql`UPDATE request_quotes SET approved_by=${actor.id},approved_at=now() WHERE id=${quote.id}`,
       );
     }
-    if (input.status === 2 || input.status === 6 || input.status === 11)
+    if (
+      [6, 9, 11].includes(input.status) ||
+      (input.status === 2 && r.status === 9)
+    )
       await ensureOverageApproved(r.id, tx);
     await tx.execute(
       sql`UPDATE purchase_requests SET status=${input.status},version=version+1,updated_at=now(),submitted_at=CASE WHEN ${input.status}=1 THEN now() WHEN ${input.status}=0 THEN null ELSE submitted_at END WHERE id=${r.id}`,
@@ -272,6 +275,8 @@ export async function approveOverage(actor: Actor, id: string, meta: Meta) {
   return db().transaction(async (tx) => {
     const r = await requireRequest(actor, id, tx, true);
     await requireProject(actor, r.project_id, tx, true);
+    if (![1, 2, 5, 9, 10, 11].includes(r.status))
+      throw new AppError("transition", 409);
     const lines = (await overages(id, tx)).filter((l) => l.over && !l.approved);
     if (!lines.length) throw new AppError("conflict", 409);
     await tx.execute(

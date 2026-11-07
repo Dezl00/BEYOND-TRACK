@@ -1,4 +1,6 @@
 "use client";
+import { NumberField } from "./number-field";
+import { decimalText } from "@/lib/format";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Pencil } from "lucide-react";
@@ -56,7 +58,7 @@ export default function ResourceForm({
     level: initial?.level || 1,
     description: initial?.description || "",
     unitId: initial?.unit_id || "",
-    quantity: initial?.quantity || "",
+    quantity: decimalText(initial?.quantity),
     boqItemId: initial?.boq_item_id || "",
     email: initial?.email || "",
     username: initial?.username || "",
@@ -207,24 +209,30 @@ export default function ResourceForm({
                   />
                 </Field>
               ) : null}
-              <Field label={ar.fields.unit}>
-                <Lookup
-                  resource="units"
-                  value={String(state.unitId)}
-                  initialLabel={String(initial?.unit_name || "")}
-                  onChange={(value) => set("unitId", value)}
-                />
-              </Field>
-              {text("quantity", ar.fields.quantity, { inputMode: "decimal" })}
               {Number(state.level) === 3 ? (
-                <Field wide label={ar.fields.description}>
-                  <textarea
-                    className="input"
-                    value={String(state.description)}
-                    onChange={(e) => set("description", e.target.value)}
-                    maxLength={4000}
+                <>
+                  <Field label={ar.fields.unit}>
+                    <Lookup
+                      resource="units"
+                      value={String(state.unitId)}
+                      initialLabel={String(initial?.unit_name || "")}
+                      onChange={(value) => set("unitId", value)}
+                    />
+                  </Field>
+                  <NumberField
+                    label={ar.fields.quantity}
+                    value={String(state.quantity)}
+                    onChange={(value) => set("quantity", value)}
                   />
-                </Field>
+                  <Field wide label={ar.fields.description}>
+                    <textarea
+                      className="input"
+                      value={String(state.description)}
+                      onChange={(e) => set("description", e.target.value)}
+                      maxLength={4000}
+                    />
+                  </Field>
+                </>
               ) : null}
             </>
           ) : null}
@@ -240,9 +248,11 @@ export default function ResourceForm({
                   onChange={(value) => set("boqItemId", value)}
                 />
               </Field>
-              {text("quantity", ar.fields.materialLimit, {
-                inputMode: "decimal",
-              })}
+              <NumberField
+                label={ar.fields.materialLimit}
+                value={String(state.quantity)}
+                onChange={(value) => set("quantity", value)}
+              />
               {check("active", ar.common.active)}
             </>
           ) : null}

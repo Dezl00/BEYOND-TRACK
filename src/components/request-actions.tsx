@@ -17,11 +17,13 @@ export function RequestActions({
   request,
   lines,
   quotes,
+  pendingOverage,
 }: {
   actor: Actor;
   request: { id: string; status: number; version: number };
   lines: RequestLine[];
   quotes: Quote[];
+  pendingOverage: boolean;
 }) {
   const router = useRouter(),
     [mode, setMode] = useState(""),
@@ -81,17 +83,22 @@ export function RequestActions({
             {ar.common.submit}
           </Button>
         ) : null}
-        {request.status === 1 && can(actor, "technical.approve") ? (
+        {!pendingOverage &&
+        request.status === 1 &&
+        can(actor, "technical.approve") ? (
           <Button intent="blue" onClick={() => open("9")}>
             {ar.common.approve}
           </Button>
         ) : null}
-        {request.status === 9 && can(actor, "finance.approve") ? (
+        {!pendingOverage &&
+        request.status === 9 &&
+        can(actor, "finance.approve") ? (
           <Button intent="green" onClick={() => open("2")}>
             {ar.common.approve}
           </Button>
         ) : null}
-        {[2, 10, 11].includes(request.status) &&
+        {!pendingOverage &&
+        [2, 10, 11].includes(request.status) &&
         can(actor, "procurement.approve") &&
         can(actor, "procurement.edit") ? (
           <Button intent="blue" onClick={() => open("quotes")}>
@@ -100,15 +107,18 @@ export function RequestActions({
         ) : null}
         {request.status === 10 && can(actor, "finance.approve") ? (
           <>
-            <Button intent="green" onClick={() => open("11")}>
-              اعتماد التسعير
-            </Button>
+            {!pendingOverage && (
+              <Button intent="green" onClick={() => open("11")}>
+                اعتماد التسعير
+              </Button>
+            )}
             <Button onClick={() => open("returnPricing")}>
               إرجاع التسعير للمشتريات
             </Button>
           </>
         ) : null}
-        {request.status === 11 &&
+        {!pendingOverage &&
+        request.status === 11 &&
         can(actor, "procurement.approve") &&
         can(actor, "procurement.edit") ? (
           <Button intent="blue" onClick={() => open("order")}>
@@ -120,12 +130,15 @@ export function RequestActions({
             {ar.common.receive}
           </Button>
         ) : null}
-        {request.status === 5 && can(actor, "procurement.approve") ? (
+        {!pendingOverage &&
+        request.status === 5 &&
+        can(actor, "procurement.approve") ? (
           <Button intent="green" onClick={() => open("6")}>
             {ar.common.finish}
           </Button>
         ) : null}
-        {[1, 2, 9, 10, 11].includes(request.status) &&
+        {pendingOverage &&
+        [1, 2, 5, 9, 10, 11].includes(request.status) &&
         can(actor, "requests.approve") ? (
           <Button intent="green" onClick={() => open("overage")}>
             {ar.common.approveOverage}

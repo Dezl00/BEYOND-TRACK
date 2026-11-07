@@ -89,6 +89,9 @@ export default async function RequestPage({
             actor={a}
             request={r}
             quotes={r.quotes}
+            pendingOverage={r.lines.some(
+              (l) => l.over === true && !l.overage_approved_by,
+            )}
             lines={r.lines.map((l) => ({
               id: l.id,
               material_name: String(l.material_name),

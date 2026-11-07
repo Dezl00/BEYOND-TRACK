@@ -82,6 +82,7 @@ export async function saveBoq(a: Actor, v: z.infer<typeof boqSchema>, m: Meta) {
         throw new AppError("hierarchy");
     } else if (v.level !== 1) throw new AppError("hierarchy");
     if (
+      v.level === 3 &&
       !(await one(
         sql`SELECT id FROM units WHERE id=${v.unitId} AND active=true`,
         tx,
