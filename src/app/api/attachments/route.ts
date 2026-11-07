@@ -17,14 +17,22 @@ export async function POST(req: Request) {
     const a = await requireActor();
     if (!can(a, "receipts.create") && !can(a, "requests.edit"))
       throw new AppError("forbidden", 403);
-    await rateLimit("uploads", a.id, 10, 60);
+    await rateLimit("uploads", a.id, 40, 60);
     if (Number(req.headers.get("content-length") || 0) > 4.2 * 1024 * 1024)
       throw new AppError("file", 413);
     const form = await req.formData(),
       id = uuid.parse(form.get("requestId")),
-      file = form.get("file");
+      file = form.get("file"),
+      receiptKey = form.get("receiptKey")
+        ? uuid.parse(form.get("receiptKey"))
+        : null;
     const r = await requireRequest(a, id);
     await requireProject(a, r.project_id, db(), true);
+    if (
+      receiptKey &&
+      (!can(a, "receipts.create") || ![3, 4, 5].includes(r.status))
+    )
+      throw new AppError("transition", 409);
     if (
       !(file instanceof File) ||
       file.size > 4 * 1024 * 1024 ||
@@ -66,19 +74,22 @@ export async function POST(req: Request) {
     const upload = uploaded,
       meta = await metadata();
     const attachmentId = await db().transaction(async (tx) => {
-      await requireRequest(a, id, tx, true);
+      const current = await requireRequest(a, id, tx, true);
+      if (receiptKey && ![3, 4, 5].includes(current.status))
+        throw new AppError("transition", 409);
       const count = await one<{ n: number }>(
-        sql`SELECT COUNT(*)::int n FROM attachments WHERE request_id=${id}`,
+        sql`SELECT COUNT(*)::int n FROM attachments WHERE request_id=${id} AND ${receiptKey ? sql`receipt_key=${receiptKey} AND uploaded_by=${a.id}` : sql`receipt_key IS NULL`}`,
         tx,
       );
       if ((count?.n || 0) >= 100) throw new AppError("file");
       const attachmentId = randomUUID();
       await tx.execute(
-        sql`INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes) VALUES (${attachmentId},${id},${a.id},${upload.public_id},${resourceType},${type.ext},${name},${file.size})`,
+        sql`INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes,receipt_key) VALUES (${attachmentId},${id},${a.id},${upload.public_id},${resourceType},${type.ext},${name},${file.size},${receiptKey})`,
       );
-      await tx.execute(
-        sql`UPDATE purchase_requests SET version=version+1,updated_at=now() WHERE id=${id}`,
-      );
+      if (!receiptKey)
+        await tx.execute(
+          sql`UPDATE purchase_requests SET version=version+1,updated_at=now() WHERE id=${id}`,
+        );
       await audit(
         tx,
         a.id,

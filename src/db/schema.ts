@@ -181,6 +181,7 @@ export const requests = pgTable(
     expectedAt: varchar("expected_at", { length: 10 }),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     version: integer("version").default(1).notNull(),
+    pricingRevision: integer("pricing_revision").default(0).notNull(),
     createdAt: time("created_at"),
     updatedAt: time("updated_at"),
   },
@@ -232,6 +233,35 @@ export const receipts = pgTable(
     uniqueIndex("receipt_key").on(t.key),
   ],
 );
+export const requestQuotes = pgTable(
+  "request_quotes",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => suppliers.id),
+    expectedAt: varchar("expected_at", { length: 10 }).notNull(),
+    prices: jsonb("prices").notNull(),
+    selected: boolean("selected").default(false).notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    approvedBy: uuid("approved_by").references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    createdAt: time("created_at"),
+  },
+  (t) => [
+    uniqueIndex("quote_supplier_revision").on(
+      t.requestId,
+      t.revision,
+      t.supplierId,
+    ),
+  ],
+);
 export const receiptLines = pgTable(
   "receipt_lines",
   {
@@ -277,6 +307,7 @@ export const attachments = pgTable(
       .notNull()
       .references(() => requests.id),
     receiptId: uuid("receipt_id").references(() => receipts.id),
+    receiptKey: uuid("receipt_key"),
     uploadedBy: uuid("uploaded_by")
       .notNull()
       .references(() => users.id),

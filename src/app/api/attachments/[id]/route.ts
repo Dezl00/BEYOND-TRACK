@@ -18,7 +18,7 @@ export async function GET(
       format: string;
       name: string;
     }>(
-      sql`SELECT request_id,public_id,resource_type,format,name FROM attachments WHERE id=${id}`,
+      sql`SELECT request_id,public_id,resource_type,format,name FROM attachments WHERE id=${id} AND (receipt_key IS NULL OR receipt_id IS NOT NULL)`,
     );
     if (!file) throw new AppError("notFound", 404);
     await requireRequest(a, file.request_id);

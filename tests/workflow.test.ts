@@ -55,6 +55,7 @@ import {
   transitionRequest,
   approveOverage,
   placeOrder,
+  submitQuotations,
   receive,
 } from "@/server/requests";
 import { saveUser, saveRole } from "@/server/admin";
@@ -69,7 +70,7 @@ import {
   notifications,
 } from "@/server/queries";
 import { liveSnapshot } from "@/server/live";
-import { processJobs } from "@/server/jobs";
+import { processJobs, maintain } from "@/server/jobs";
 import { deliverPush } from "@/server/push";
 import {
   login,
@@ -176,11 +177,13 @@ beforeAll(async () => {
     "drizzle/generated/0001_approvals_push.sql",
     "drizzle/generated/0002_resource_activation.sql",
     "drizzle/generated/0003_request_purge.sql",
+    "drizzle/generated/0004_military_onslaught.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
     "drizzle/custom/0004_request_purge.sql",
     "drizzle/custom/0005_reports.sql",
+    "drizzle/custom/0006_pricing_and_receipts.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -295,17 +298,28 @@ async function order(id: string) {
       [id],
     )
   ).rows;
-  await placeOrder(
+  await submitQuotations(
     buyer,
     {
       id,
       version: r.version,
-      supplierId: ids.supplier,
-      expectedAt: "2026-12-10",
-      prices: lines.map((l) => ({ id: l.id, price: "5.25" })),
+      selectedIndex: 0,
+      offers: [
+        {
+          supplierId: ids.supplier,
+          expectedAt: "2026-12-10",
+          prices: lines.map((l) => ({ id: l.id, price: "5.25" })),
+        },
+      ],
     },
     meta,
   );
+  await transitionRequest(
+    finance,
+    { id, version: (await request(id)).version, status: 11, reason: "" },
+    meta,
+  );
+  await placeOrder(buyer, { id, version: (await request(id)).version }, meta);
   return lines;
 }
 describe("Authorization and database invariants", () => {
@@ -578,93 +592,238 @@ describe("Request to receipt", () => {
       (await listRequests(engineer, { q: "" })).items.map((row) => row.id),
     ).toContain(id);
   });
-  it("supports partial, excess, damaged/rejected receipts and returns without duplicate receipts", async () => {
+  it("requires new receipt evidence, caps all receipt quantities, and supports replacements and idempotency", async () => {
     await pg.query("UPDATE materials SET quantity=10000 WHERE id=$1", [
       ids.material,
     ]);
     const { id } = await create("10"),
       [line] = await order(id);
-    const key = randomUUID();
-    const first = {
-      requestId: id,
-      key,
-      notes: "",
-      lines: [
-        {
-          lineId: line.id,
-          accepted: "4",
-          damaged: "1",
-          rejected: "2",
-          returned: "0",
-        },
-      ],
-    };
-    await receive(receiver, first, meta);
-    expect((await request(id)).status).toBe(4);
-    await receive(receiver, first, meta);
+    async function receipt(
+      accepted: string,
+      damaged = "0",
+      rejected = "0",
+      returned = "0",
+    ) {
+      const key = randomUUID();
+      const file = randomUUID();
+      await pg.query(
+        "INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes,receipt_key) VALUES($1,$2,$3,$4,'image','png','receipt.png',100,$5)",
+        [file, id, ids.receiver, randomUUID(), key],
+      );
+      return {
+        requestId: id,
+        key,
+        notes: "",
+        attachmentIds: [file],
+        lines: [{ lineId: line.id, accepted, damaged, rejected, returned }],
+      };
+    }
+    const abandoned = await receipt("1");
+    await pg.query(
+      "UPDATE attachments SET created_at=now()-interval '2 days' WHERE id=$1",
+      abandoned.attachmentIds,
+    );
+    const first = await receipt("4", "1", "2");
+    expect((await requestDetail(receiver, id)).files).toHaveLength(0);
+    await maintain();
     expect(
       (
-        await pg.query<{ n: number }>(
-          "SELECT COUNT(*)::int n FROM receipts WHERE request_id=$1",
-          [id],
+        await pg.query(
+          "SELECT id FROM attachments WHERE id=$1",
+          abandoned.attachmentIds,
         )
-      ).rows[0].n,
-    ).toBe(1);
-    await receive(
-      receiver,
-      {
-        ...first,
-        key: randomUUID(),
-        lines: [
-          {
-            lineId: line.id,
-            accepted: "8",
-            damaged: "0",
-            rejected: "0",
-            returned: "0",
-          },
-        ],
-      },
-      meta,
-    );
-    expect((await request(id)).status).toBe(5);
-    await receive(
-      receiver,
-      {
-        ...first,
-        key: randomUUID(),
-        lines: [
-          {
-            lineId: line.id,
-            accepted: "0",
-            damaged: "0",
-            rejected: "0",
-            returned: "5",
-          },
-        ],
-      },
-      meta,
-    );
-    expect((await request(id)).status).toBe(4);
+      ).rows,
+    ).toHaveLength(0);
+    expect(
+      (
+        await pg.query(
+          "SELECT id FROM attachments WHERE id=$1",
+          first.attachmentIds,
+        )
+      ).rows,
+    ).toHaveLength(1);
     await expect(
-      receive(
-        receiver,
-        {
-          ...first,
-          key: randomUUID(),
-          lines: [
-            {
-              lineId: line.id,
-              accepted: "0",
-              damaged: "0",
-              rejected: "0",
-              returned: "8",
-            },
-          ],
-        },
+      receive(receiver, { ...first, attachmentIds: [] }, meta),
+    ).rejects.toMatchObject({ code: "receiptAttachments" });
+    await expect(
+      receive(receiver, { ...first, key: randomUUID() }, meta),
+    ).rejects.toMatchObject({ code: "receiptAttachments" });
+    await receive(receiver, first, meta);
+    expect((await requestDetail(receiver, id)).files.map((f) => f.id)).toEqual(
+      first.attachmentIds,
+    );
+    await receive(receiver, first, meta);
+    expect((await request(id)).status).toBe(4);
+    expect(
+      (await pg.query("SELECT id FROM receipts WHERE request_id=$1", [id]))
+        .rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await pg.query<{ receipt_id: string }>(
+          "SELECT receipt_id FROM attachments WHERE id=$1",
+          first.attachmentIds,
+        )
+      ).rows[0].receipt_id,
+    ).toBeTruthy();
+    await expect(
+      receive(receiver, await receipt("7"), meta),
+    ).rejects.toMatchObject({ code: "receiptLimit" });
+    await expect(
+      receive(receiver, await receipt("6", "1"), meta),
+    ).rejects.toMatchObject({ code: "receiptLimit" });
+    await expect(
+      receive(receiver, await receipt("11", "0", "0", "5"), meta),
+    ).rejects.toMatchObject({ code: "returned" });
+    await receive(receiver, await receipt("6"), meta);
+    expect((await request(id)).status).toBe(5);
+    await expect(
+      receive(receiver, await receipt("1"), meta),
+    ).rejects.toMatchObject({ code: "receiptLimit" });
+    await receive(receiver, await receipt("0", "0", "0", "2"), meta);
+    expect((await request(id)).status).toBe(4);
+    await receive(receiver, await receipt("2"), meta);
+    expect((await request(id)).status).toBe(5);
+    const rawReceipt = randomUUID();
+    await pg.query(
+      "INSERT INTO receipts(id,request_id,created_by,idempotency_key) VALUES($1,$2,$3,$4)",
+      [rawReceipt, id, ids.receiver, randomUUID()],
+    );
+    await expect(
+      pg.query(
+        "INSERT INTO receipt_lines(receipt_id,request_line_id,accepted,damaged,rejected,returned) VALUES($1,$2,1,0,0,0)",
+        [rawReceipt, line.id],
+      ),
+    ).rejects.toThrow();
+  });
+  it("compares multiple supplier quotes, restricts financial approval and invalidates changed pricing", async () => {
+    const { id } = await create("1");
+    await transitionRequest(
+      technical,
+      { id, version: 1, status: 9, reason: "" },
+      meta,
+    );
+    await transitionRequest(
+      finance,
+      { id, version: 2, status: 2, reason: "" },
+      meta,
+    );
+    const line = (
+      await pg.query<{ id: string }>(
+        "SELECT id FROM request_lines WHERE request_id=$1",
+        [id],
+      )
+    ).rows[0];
+    const supplier = randomUUID();
+    await pg.query("INSERT INTO suppliers(id,name) VALUES($1,$2)", [
+      supplier,
+      "مورد بديل " + supplier,
+    ]);
+    const offers = [
+      {
+        supplierId: ids.supplier,
+        expectedAt: "2026-12-10",
+        prices: [{ id: line.id, price: "5.25" }],
+      },
+      {
+        supplierId: supplier,
+        expectedAt: "2026-12-11",
+        prices: [{ id: line.id, price: "4.00" }],
+      },
+    ];
+    await expect(
+      placeOrder(buyer, { id, version: 3 }, meta),
+    ).rejects.toMatchObject({ code: "pricingRequired" });
+    await expect(
+      transitionRequest(owner, { id, version: 3, status: 3, reason: "" }, meta),
+    ).rejects.toMatchObject({ code: "transition" });
+    await submitQuotations(
+      buyer,
+      { id, version: 3, offers, selectedIndex: 1 },
+      meta,
+    );
+    const financeOnly = {
+      ...finance,
+      permissions: [
+        "requests.view",
+        "requests.view_all",
+        "projects.all",
+        "finance.view",
+        "finance.approve",
+      ],
+    };
+    const detail = await requestDetail(financeOnly, id);
+    expect(detail.quotes).toHaveLength(2);
+    expect(detail.quotes.find((q) => q.selected)?.supplier_id).toBe(supplier);
+    expect((await requestDetail(engineer, id)).quotes).toHaveLength(0);
+    expect(
+      (await listRequests(financeOnly, { q: "" }, "finance")).items.map(
+        (x) => x.id,
+      ),
+    ).toContain(id);
+    await expect(
+      transitionRequest(
+        buyer,
+        { id, version: 4, status: 11, reason: "" },
         meta,
       ),
-    ).rejects.toMatchObject({ code: "returned" });
+    ).rejects.toMatchObject({ status: 403 });
+    await transitionRequest(
+      financeOnly,
+      { id, version: 4, status: 2, reason: "مراجعة السعر" },
+      meta,
+    );
+    await submitQuotations(
+      buyer,
+      { id, version: 5, offers, selectedIndex: 1 },
+      meta,
+    );
+    await transitionRequest(
+      financeOnly,
+      { id, version: 6, status: 11, reason: "" },
+      meta,
+    );
+    await submitQuotations(
+      buyer,
+      { id, version: 7, offers, selectedIndex: 0 },
+      meta,
+    );
+    expect((await request(id)).status).toBe(10);
+    await expect(
+      placeOrder(buyer, { id, version: 8 }, meta),
+    ).rejects.toMatchObject({ code: "pricingRequired" });
+    await transitionRequest(
+      financeOnly,
+      { id, version: 8, status: 11, reason: "" },
+      meta,
+    );
+    await placeOrder(buyer, { id, version: 9 }, meta);
+    expect((await requestDetail(financeOnly, id)).lines[0].price).toBe("5.25");
+    expect(
+      (
+        await pg.query<{ supplier_id: string }>(
+          "SELECT supplier_id FROM purchase_requests WHERE id=$1",
+          [id],
+        )
+      ).rows[0].supplier_id,
+    ).toBe(ids.supplier);
+    await saveRequest(
+      engineer,
+      {
+        id,
+        version: (await request(id)).version,
+        projectId: ids.p1,
+        notes: "",
+        submit: true,
+        lines: [{ materialId: ids.material, quantity: "2", notes: "" }],
+      },
+      meta,
+    );
+    expect((await request(id)).status).toBe(1);
+    expect((await requestDetail(owner, id)).quotes).toHaveLength(0);
+    await expect(
+      placeOrder(owner, { id, version: (await request(id)).version }, meta),
+    ).rejects.toMatchObject({ code: "pricingRequired" });
   });
   it("writes durable audit events in the transaction and exposes pending events to owner", async () => {
     const { id } = await create();

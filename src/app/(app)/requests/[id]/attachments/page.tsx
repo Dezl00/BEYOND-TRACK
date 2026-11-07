@@ -21,7 +21,7 @@ export default async function FilesPage({
   await requireRequest(a, id);
   const data = page(
     await rows<{ id: string; name: string; created_at: Date }>(
-      sql`SELECT id,name,created_at FROM attachments WHERE request_id=${id} ${c ? sql`AND(created_at,id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY created_at DESC,id DESC LIMIT 26`,
+      sql`SELECT id,name,created_at FROM attachments WHERE request_id=${id} AND (receipt_key IS NULL OR receipt_id IS NOT NULL) ${c ? sql`AND(created_at,id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY created_at DESC,id DESC LIMIT 26`,
     ),
     true,
   );

@@ -4,7 +4,7 @@ import { Pencil, FileText, ChevronRight } from "lucide-react";
 import { requirePageActor } from "@/server/page-auth";
 import { requestDetail } from "@/server/queries";
 import { uuid, cursorSchema } from "@/lib/validation";
-import { can, editable } from "@/lib/domain";
+import { canViewPrices, can, editable } from "@/lib/domain";
 import { date, number, requestCode } from "@/lib/format";
 import { ar } from "@/messages/ar";
 import { one, sql } from "@/db";
@@ -15,7 +15,8 @@ import {
   Pagination,
   Riyal,
 } from "@/components/common";
-import { RequestActions, AttachmentUpload } from "@/components/request-actions";
+import { RequestActions } from "@/components/request-actions";
+import { QuoteSummary } from "@/components/quotation-editor";
 import RequestPrintOptions from "@/components/request-print-options";
 export default async function RequestPage({
   params,
@@ -31,7 +32,7 @@ export default async function RequestPage({
     r = await requestDetail(a, id, cursor),
     settings = await currentSettings(),
     d = settings?.digits || 0,
-    pricing = can(a, "procurement.view");
+    pricing = canViewPrices(a);
   return (
     <>
       <Heading
@@ -87,16 +88,30 @@ export default async function RequestPage({
           <RequestActions
             actor={a}
             request={r}
-            lines={
-              r.lines as {
-                id: string;
-                material_name: unknown;
-                quantity: unknown;
-                price: unknown;
-              }[]
-            }
+            quotes={r.quotes}
+            lines={r.lines.map((l) => ({
+              id: l.id,
+              material_name: String(l.material_name),
+              quantity: String(l.quantity),
+              accepted: String(l.accepted),
+              returned: String(l.returned),
+              unit_name: String(l.unit_name),
+            }))}
           />
         </div>
+        {pricing ? (
+          <QuoteSummary
+            quotes={r.quotes}
+            lines={r.lines.map((l) => ({
+              id: l.id,
+              material_name: String(l.material_name),
+              quantity: String(l.quantity),
+              accepted: String(l.accepted),
+              returned: String(l.returned),
+              unit_name: String(l.unit_name),
+            }))}
+          />
+        ) : null}
         <div className="details-grid">
           <div className="stack">
             <section className="panel">
@@ -220,9 +235,6 @@ export default async function RequestPage({
                 >
                   {ar.common.all}
                 </Link>
-                {can(a, "receipts.create") || can(a, "requests.edit") ? (
-                  <AttachmentUpload requestId={id} />
-                ) : null}
               </div>
               <div className="panel-body stack">
                 {r.files.length ? (

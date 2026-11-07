@@ -77,12 +77,13 @@ export const requestSchema = z
 export const transitionSchema = z.object({
   id: uuid,
   version: z.number().int().positive(),
-  status: z.number().int().min(0).max(9),
+  status: z.number().int().min(0).max(11),
   reason: z.string().trim().max(1000).default(""),
 });
-export const orderSchema = z.object({
-  id: uuid,
-  version: z.number().int().positive(),
+export const orderSchema = z
+  .object({ id: uuid, version: z.number().int().positive() })
+  .strict();
+const offerSchema = z.object({
   supplierId: uuid,
   expectedAt: dateOnly,
   prices: z
@@ -90,10 +91,28 @@ export const orderSchema = z.object({
     .min(1)
     .max(100),
 });
+export const quotationsSchema = z
+  .object({
+    id: uuid,
+    version: z.number().int().positive(),
+    selectedIndex: z.number().int().min(0),
+    offers: z.array(offerSchema).min(1).max(10),
+  })
+  .refine(
+    (v) =>
+      v.selectedIndex < v.offers.length &&
+      new Set(v.offers.map((o) => o.supplierId)).size === v.offers.length,
+    ar.errors.quoteSuppliers,
+  );
 export const receiptSchema = z
   .object({
     requestId: uuid,
     key: uuid,
+    attachmentIds: z
+      .array(uuid)
+      .min(1, ar.errors.receiptAttachments)
+      .max(20)
+      .refine((v) => new Set(v).size === v.length),
     notes: z.string().trim().max(1000).default(""),
     lines: z
       .array(
@@ -238,7 +257,7 @@ export const listQuerySchema = z.object({
   project: uuid.optional(),
   level: z.coerce.number().int().min(1).max(3).optional(),
   selectable: z.enum(["1"]).optional(),
-  status: z.coerce.number().int().min(0).max(9).optional(),
+  status: z.coerce.number().int().min(0).max(11).optional(),
   user: uuid.optional(),
   action: z.coerce.number().int().min(0).max(13).optional(),
   entity: z.coerce.number().int().min(0).max(11).optional(),

@@ -10,13 +10,17 @@ export const Status = {
   rejected: 7,
   cancelled: 8,
   finance: 9,
+  pricingFinance: 10,
+  pricingApproved: 11,
 } as const;
 export type RequestStatus = (typeof Status)[keyof typeof Status];
 export const transitions: Record<number, number[]> = {
   0: [1, 8],
   1: [9, 7, 8],
   9: [2, 7, 8],
-  2: [3, 7, 8],
+  2: [10, 7, 8],
+  10: [2, 11, 7, 8],
+  11: [10, 3, 8],
   3: [8],
   4: [],
   5: [6],
@@ -32,7 +36,7 @@ export function editable(
   return (
     status === 0 ||
     (status >= 1 &&
-      (status <= 5 || status === 9) &&
+      (status <= 5 || [9, 10, 11].includes(status)) &&
       !!submittedAt &&
       now - new Date(submittedAt).getTime() <= 15 * 60_000)
   );
@@ -106,6 +110,9 @@ export type Actor = {
   expires_at: Date;
   remember: boolean;
 };
+export const canViewPrices = (actor: Pick<Actor, "is_owner" | "permissions">) =>
+  can(actor, "procurement.view") || can(actor, "finance.view");
+
 export const can = (
   actor: Pick<Actor, "is_owner" | "permissions">,
   permission: string,

@@ -1,3 +1,5 @@
+import { receiptQuantityError } from "@/lib/receiving";
+import type { QuotePrice } from "@/lib/quotations";
 import { randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
 import type { z } from "zod";
@@ -13,6 +15,7 @@ import {
   requestSchema,
   transitionSchema,
   orderSchema,
+  quotationsSchema,
   receiptSchema,
 } from "@/lib/validation";
 import {
@@ -36,7 +39,7 @@ export async function overages(id: string, conn: Executor = db()) {
     approved: boolean;
     over: boolean;
   }>(
-    sql`SELECT l.id,l.quantity,l.overage_approved_by IS NOT NULL approved,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests r ON r.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (r.status BETWEEN 1 AND 6 OR r.status=9)),0)>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id WHERE l.request_id=${id}`,
+    sql`SELECT l.id,l.quantity,l.overage_approved_by IS NOT NULL approved,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests r ON r.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (r.status BETWEEN 1 AND 6 OR r.status IN(9,10,11))),0)>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id WHERE l.request_id=${id}`,
     conn,
   );
 }
@@ -130,6 +133,14 @@ export async function saveRequest(
         ))
     )
       status = 1;
+    if (existing && status === 1 && existing.status !== 0) {
+      await tx.execute(
+        sql`UPDATE purchase_requests SET pricing_revision=pricing_revision+1,supplier_id=null,expected_at=null WHERE id=${id}`,
+      );
+      await tx.execute(
+        sql`UPDATE request_lines SET price=null WHERE request_id=${id}`,
+      );
+    }
     if (existing)
       await tx.execute(
         sql`UPDATE purchase_requests SET notes=${input.notes},status=${status},submitted_at=CASE WHEN submitted_at IS NULL AND ${input.submit} THEN now() ELSE submitted_at END,updated_at=now(),version=version+1 WHERE id=${id}`,
@@ -188,13 +199,14 @@ export async function transitionRequest(
     const r = await requireRequest(actor, input.id, tx, true);
     await requireProject(actor, r.project_id, tx, true);
     if (r.version !== input.version) throw new AppError("conflict", 409);
-    if (!transitions[r.status]?.includes(input.status) && !actor.is_owner)
+    if (!transitions[r.status]?.includes(input.status))
       throw new AppError("transition", 409);
-    if (input.status === 2 && r.status !== 9)
+    if (input.status === 2 && ![9, 10].includes(r.status))
       throw new AppError("transition", 409);
     if (input.status === 9 && r.status !== 1)
       throw new AppError("transition", 409);
-    if ([3, 4, 5].includes(input.status)) throw new AppError("transition", 409); // Derived by order/receipt services, including owner actions.
+    if ([3, 4, 5, 10].includes(input.status))
+      throw new AppError("transition", 409); // Derived by order/receipt services, including owner actions.
     if (input.status === 1) {
       requirePermission(actor, "requests.create");
       if (r.created_by !== actor.id && !actor.is_owner)
@@ -214,14 +226,25 @@ export async function transitionRequest(
     else if (input.status === 9 || (input.status === 7 && r.status === 1))
       requirePermission(actor, "technical.approve");
     else if (
-      (input.status === 2 && r.status === 9) ||
-      (input.status === 7 && r.status === 9)
+      (input.status === 2 && [9, 10].includes(r.status)) ||
+      (input.status === 11 && r.status === 10) ||
+      (input.status === 7 && [9, 10].includes(r.status))
     )
       requirePermission(actor, "finance.approve");
     else requirePermission(actor, "procurement.approve");
-    if ([7, 8].includes(input.status) && !input.reason)
+    if (
+      ([7, 8].includes(input.status) ||
+        (r.status === 10 && input.status === 2)) &&
+      !input.reason
+    )
       throw new AppError("required");
-    if (input.status === 2 || input.status === 6)
+    if (input.status === 11) {
+      const quote = await selectedQuote(r, tx);
+      await tx.execute(
+        sql`UPDATE request_quotes SET approved_by=${actor.id},approved_at=now() WHERE id=${quote.id}`,
+      );
+    }
+    if (input.status === 2 || input.status === 6 || input.status === 11)
       await ensureOverageApproved(r.id, tx);
     await tx.execute(
       sql`UPDATE purchase_requests SET status=${input.status},version=version+1,updated_at=now(),submitted_at=CASE WHEN ${input.status}=1 THEN now() WHEN ${input.status}=0 THEN null ELSE submitted_at END WHERE id=${r.id}`,
@@ -273,6 +296,104 @@ export async function approveOverage(actor: Actor, id: string, meta: Meta) {
     return { id };
   });
 }
+async function selectedQuote(r: RequestRow, tx: Executor) {
+  const quote = await one<{
+    id: string;
+    supplier_id: string;
+    expected_at: string;
+    prices: QuotePrice[];
+    approved_by: string | null;
+  }>(
+    sql`SELECT q.* FROM request_quotes q JOIN suppliers s ON s.id=q.supplier_id AND s.active=true WHERE q.request_id=${r.id} AND q.revision=${r.pricing_revision} AND q.selected=true`,
+    tx,
+  );
+  if (!quote) throw new AppError("pricingRequired", 409);
+  const lines = await rows<{ id: string; quantity: string }>(
+    sql`SELECT id,quantity FROM request_lines WHERE request_id=${r.id}`,
+    tx,
+  );
+  if (
+    lines.length !== quote.prices.length ||
+    lines.some(
+      (l) =>
+        !quote.prices.some(
+          (p) => p.id === l.id && new Decimal(p.quantity).eq(l.quantity),
+        ),
+    )
+  )
+    throw new AppError("pricingRequired", 409);
+  return quote;
+}
+export async function submitQuotations(
+  actor: Actor,
+  input: z.infer<typeof quotationsSchema>,
+  meta: Meta,
+) {
+  requirePermission(actor, "procurement.edit");
+  requirePermission(actor, "procurement.approve");
+  return db().transaction(async (tx) => {
+    const r = await requireRequest(actor, input.id, tx, true);
+    await requireProject(actor, r.project_id, tx, true);
+    if (r.version !== input.version) throw new AppError("conflict", 409);
+    if (![2, 10, 11].includes(r.status)) throw new AppError("transition", 409);
+    if (
+      input.selectedIndex < 0 ||
+      input.selectedIndex >= input.offers.length ||
+      new Set(input.offers.map((o) => o.supplierId)).size !==
+        input.offers.length
+    )
+      throw new AppError("quoteSuppliers");
+    await ensureOverageApproved(r.id, tx);
+    const lines = await rows<{ id: string; quantity: string }>(
+      sql`SELECT id,quantity FROM request_lines WHERE request_id=${r.id}`,
+      tx,
+    );
+    const revision = r.pricing_revision + 1;
+    for (const [index, offer] of input.offers.entries()) {
+      if (
+        offer.prices.length !== lines.length ||
+        new Set(offer.prices.map((p) => p.id)).size !== lines.length ||
+        offer.prices.some((p) => !lines.some((l) => l.id === p.id))
+      )
+        throw new AppError("invalid");
+      if (
+        !(await one(
+          sql`SELECT id FROM suppliers WHERE id=${offer.supplierId} AND active=true`,
+          tx,
+        ))
+      )
+        throw new AppError("invalid");
+      const prices = offer.prices.map((p) => ({
+        ...p,
+        quantity: String(lines.find((l) => l.id === p.id)!.quantity),
+      }));
+      await tx.execute(
+        sql`INSERT INTO request_quotes(request_id,revision,supplier_id,expected_at,prices,selected,created_by) VALUES(${r.id},${revision},${offer.supplierId},${offer.expectedAt},${JSON.stringify(prices)}::jsonb,${index === input.selectedIndex},${actor.id})`,
+      );
+    }
+    await tx.execute(
+      sql`UPDATE purchase_requests SET status=10,pricing_revision=${revision},version=version+1,updated_at=now() WHERE id=${r.id}`,
+    );
+    await history(tx, r, actor, 10);
+    await audit(
+      tx,
+      actor.id,
+      meta,
+      3,
+      4,
+      r.id,
+      {
+        status: { before: r.status, after: 10 },
+        revision,
+        offers: input.offers,
+        selectedIndex: input.selectedIndex,
+      },
+      r.project_id,
+    );
+    await notify(tx, r.id, 1, actor.id);
+    return { id: r.id };
+  });
+}
 export async function placeOrder(
   actor: Actor,
   input: z.infer<typeof orderSchema>,
@@ -284,26 +405,11 @@ export async function placeOrder(
     const r = await requireRequest(actor, input.id, tx, true);
     await requireProject(actor, r.project_id, tx, true);
     if (r.version !== input.version) throw new AppError("conflict", 409);
-    if (r.status !== 2) throw new AppError("transition", 409);
-    if (
-      !(await one(
-        sql`SELECT id FROM suppliers WHERE id=${input.supplierId} AND active=true`,
-        tx,
-      ))
-    )
-      throw new AppError("invalid");
-    const lines = await rows<{ id: string; price: string | null }>(
-      sql`SELECT id,price FROM request_lines WHERE request_id=${r.id}`,
-      tx,
-    );
-    if (
-      new Set(input.prices.map((p) => p.id)).size !== lines.length ||
-      input.prices.length !== lines.length ||
-      input.prices.some((p) => !lines.some((l) => l.id === p.id))
-    )
-      throw new AppError("invalid");
+    if (r.status !== 11) throw new AppError("pricingRequired", 409);
+    const quote = await selectedQuote(r, tx);
+    if (!quote.approved_by) throw new AppError("pricingRequired", 409);
     await ensureOverageApproved(r.id, tx);
-    for (const p of input.prices)
+    for (const p of quote.prices)
       await tx.execute(
         sql`UPDATE request_lines SET price=${p.price} WHERE id=${p.id}`,
       );
@@ -317,7 +423,7 @@ export async function placeOrder(
     );
     const status = receiptStatus(quantities);
     await tx.execute(
-      sql`UPDATE purchase_requests SET supplier_id=${input.supplierId},expected_at=${input.expectedAt},status=${status},version=version+1,updated_at=now() WHERE id=${r.id}`,
+      sql`UPDATE purchase_requests SET supplier_id=${quote.supplier_id},expected_at=${quote.expected_at},status=${status},version=version+1,updated_at=now() WHERE id=${r.id}`,
     );
     await history(tx, r, actor, status);
     await audit(
@@ -327,20 +433,7 @@ export async function placeOrder(
       3,
       4,
       r.id,
-      changes(
-        {
-          supplierId: r.supplier_id,
-          expectedAt: r.expected_at,
-          status: r.status,
-          prices: lines,
-        },
-        {
-          supplierId: input.supplierId,
-          expectedAt: input.expectedAt,
-          status,
-          prices: input.prices,
-        },
-      ),
+      { status: { before: r.status, after: status }, quoteId: quote.id },
       r.project_id,
     );
     await notify(tx, r.id, 1, actor.id);
@@ -382,14 +475,13 @@ export async function receive(
     for (const l of input.lines) {
       const previous = lines.find((p) => p.id === l.lineId);
       if (!previous) throw new AppError("invalid");
-      if (
-        new Decimal(l.returned).gt(
-          new Decimal(previous.accepted)
-            .minus(previous.returned)
-            .plus(l.accepted),
-        )
-      )
-        throw new AppError("returned");
+      const quantityError = receiptQuantityError(
+        previous.quantity,
+        previous.accepted,
+        previous.returned,
+        l,
+      );
+      if (quantityError) throw new AppError(quantityError, 409);
       previous.accepted = new Decimal(previous.accepted)
         .plus(l.accepted)
         .toString();
@@ -397,6 +489,20 @@ export async function receive(
         .plus(l.returned)
         .toString();
     }
+    if (
+      !input.attachmentIds?.length ||
+      new Set(input.attachmentIds).size !== input.attachmentIds.length
+    )
+      throw new AppError("receiptAttachments");
+    const files = await rows<{ id: string }>(
+      sql`SELECT id FROM attachments WHERE id IN (${sql.join(
+        input.attachmentIds.map((id) => sql`${id}::uuid`),
+        sql`,`,
+      )}) AND request_id=${r.id} AND uploaded_by=${actor.id} AND receipt_key=${input.key} AND receipt_id IS NULL FOR UPDATE`,
+      tx,
+    );
+    if (files.length !== input.attachmentIds.length)
+      throw new AppError("receiptAttachments");
     const id = randomUUID();
     await tx.execute(
       sql`INSERT INTO receipts(id,request_id,created_by,idempotency_key,notes) VALUES (${id},${r.id},${actor.id},${input.key},${input.notes})`,
@@ -405,6 +511,12 @@ export async function receive(
       await tx.execute(
         sql`INSERT INTO receipt_lines(receipt_id,request_line_id,accepted,damaged,rejected,returned) VALUES (${id},${l.lineId},${l.accepted},${l.damaged},${l.rejected},${l.returned})`,
       );
+    await tx.execute(
+      sql`UPDATE attachments SET receipt_id=${id} WHERE id IN (${sql.join(
+        input.attachmentIds.map((fileId) => sql`${fileId}::uuid`),
+        sql`,`,
+      )})`,
+    );
     const status = receiptStatus(lines);
     await tx.execute(
       sql`UPDATE purchase_requests SET status=${status},version=version+1,updated_at=now() WHERE id=${r.id}`,

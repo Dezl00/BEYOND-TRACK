@@ -147,7 +147,10 @@ beforeAll(async () => {
   state.database = drizzle(pg);
   for (const folder of ["drizzle/generated", "drizzle/custom"])
     for (const file of (await readdir(folder))
-      .filter((file) => file.endsWith(".sql"))
+      .filter(
+        (file) =>
+          file.endsWith(".sql") && file !== "0006_pricing_and_receipts.sql",
+      )
       .sort())
       await pg.exec(await readFile(`${folder}/${file}`, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -258,6 +261,10 @@ beforeAll(async () => {
   await receipt("2026-01-20T10:00:00Z", "0", "10");
   await receipt("2026-01-31T21:30:00Z", "40", "5");
   await receipt("2026-03-01T10:00:00Z", "1000", "0");
+  // Existing over-receipts remain reportable after installing the new limit.
+  await pg.exec(
+    await readFile("drizzle/custom/0006_pricing_and_receipts.sql", "utf8"),
+  );
 });
 afterAll(async () => {
   await pg.close();
@@ -415,7 +422,7 @@ describe("Authorized complete print and export data", () => {
   it("paginates all receipts, attachments, and timeline entries beyond the screen's latest 25", async () => {
     for (let i = 0; i < 31; i++) {
       const at = new Date(Date.UTC(2026, 2, 2, 12, 0, i)).toISOString();
-      await receipt(at, "0.001", "0");
+      await receipt(at, "0", "0.001");
       await pg.query(
         "INSERT INTO request_timeline(request_id,user_id,from_status,to_status,note,created_at) VALUES($1,$2,3,4,$3,$4)",
         [ids.old, ids.owner, `ملاحظة ${i}`, at],

@@ -201,7 +201,7 @@ export default function Filters({
         >
           {[
             { value: "all", label: ar.common.all },
-            ...[0, 1, 9, 2, 3, 4, 5, 6, 7, 8].map((status) => ({
+            ...[0, 1, 9, 2, 10, 11, 3, 4, 5, 6, 7, 8].map((status) => ({
               value: String(status),
               label: ar.statuses[status],
             })),

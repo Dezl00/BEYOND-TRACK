@@ -17,9 +17,9 @@ export function requestScope(actor: Actor) {
     !can(actor, "technical.view")
   ) {
     if (can(actor, "finance.view"))
-      stage = sql`(r.status IN(2,3,4,5,6,9) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=r.id AND st.from_status=9))`;
+      stage = sql`(r.status IN(2,3,4,5,6,9,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=r.id AND st.from_status=9))`;
     else if (can(actor, "procurement.view"))
-      stage = sql`(r.status IN(2,3,4,5,6) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=r.id AND st.from_status=2))`;
+      stage = sql`(r.status IN(2,3,4,5,6,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=r.id AND st.from_status=2))`;
   }
   return sql`${projectScope(actor, sql`r.project_id`)} AND ${can(actor, "requests.view_all") ? sql`true` : sql`r.created_by=${actor.id}::uuid`} AND ${actor.is_owner ? sql`true` : sql`(r.status<>0 OR r.created_by=${actor.id}::uuid)`} AND ${stage}`;
 }
@@ -48,6 +48,7 @@ export type RequestRow = {
   expected_at: string | null;
   submitted_at: Date | null;
   version: number;
+  pricing_revision: number;
   created_at: Date;
 };
 export async function requireRequest(

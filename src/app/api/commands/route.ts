@@ -49,6 +49,13 @@ export async function POST(req: Request) {
           m,
         );
         break;
+      case "quotations":
+        result = await requests.submitQuotations(
+          a,
+          v.quotationsSchema.parse(data),
+          m,
+        );
+        break;
       case "order":
         result = await requests.placeOrder(a, v.orderSchema.parse(data), m);
         break;

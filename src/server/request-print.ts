@@ -1,5 +1,5 @@
 import { sql, rows, one } from "@/db";
-import { can, type Actor } from "@/lib/domain";
+import { canViewPrices, can, type Actor } from "@/lib/domain";
 import { requireRequest } from "./access";
 import { page, decodeCursor } from "./queries";
 
@@ -35,7 +35,7 @@ export async function printRequestLines(
 ) {
   await requireRequest(actor, id);
   return rows<RequestPrintLine>(sql`SELECT l.id,b.code,b.name boq_name,m.name material_name,un.name unit_name,
-    l.quantity::text,l.notes,${prices && can(actor, "procurement.view") ? sql`l.price::text` : sql`null`} price,
+    l.quantity::text,l.notes,${prices && canViewPrices(actor) ? sql`l.price::text` : sql`null`} price,
     COALESCE(rec.received,0)::text received
     FROM request_lines l JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id
     JOIN units un ON un.id=b.unit_id LEFT JOIN LATERAL (
@@ -112,7 +112,7 @@ export async function printAttachments(
   await requireRequest(actor, id);
   const c = decodeCursor(cursor);
   return page(
-    await rows<AttachmentPrintRow>(sql`SELECT id,name,format,created_at,receipt_id FROM attachments WHERE request_id=${id}::uuid
+    await rows<AttachmentPrintRow>(sql`SELECT id,name,format,created_at,receipt_id FROM attachments WHERE request_id=${id}::uuid AND (receipt_key IS NULL OR receipt_id IS NOT NULL)
     ${c ? sql`AND(created_at,id)>(${c.at}::timestamptz,${c.id}::uuid)` : sql``}
     ORDER BY created_at,id LIMIT 26`),
     true,

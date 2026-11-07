@@ -10,7 +10,7 @@ import {
 } from "@/server/request-print";
 import { requestPrintSchema, printSectionKeys } from "@/lib/reporting";
 import { uuid } from "@/lib/validation";
-import { type Actor, can } from "@/lib/domain";
+import { type Actor, can, canViewPrices } from "@/lib/domain";
 import { date, number, requestCode } from "@/lib/format";
 import { ar } from "@/messages/ar";
 import { Riyal } from "@/components/common";
@@ -341,7 +341,7 @@ export default async function RequestPrintPage({
     currentSettings(),
   ]);
   const digits = settings?.digits || 0,
-    prices = options.prices === "1" && can(actor, "procurement.view"),
+    prices = options.prices === "1" && canViewPrices(actor),
     at = new Date().toISOString();
   const sections = printSectionKeys.filter((key) => options[key] === "1");
   return (
