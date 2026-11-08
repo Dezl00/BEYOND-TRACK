@@ -42,8 +42,13 @@ export function editable(
   );
 }
 export function effectivePreference(
-  policy: { in_app: boolean; email: boolean; forced: boolean },
-  pref?: { in_app: boolean; email: boolean },
+  policy: {
+    in_app: boolean;
+    email: boolean;
+    whatsapp?: boolean;
+    forced: boolean;
+  },
+  pref?: { in_app: boolean; email: boolean; whatsapp?: boolean },
 ) {
   return policy.forced || !pref ? policy : pref;
 }

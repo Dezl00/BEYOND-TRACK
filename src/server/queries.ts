@@ -162,7 +162,7 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "users.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.role_id,u.locked,u.otp_enabled,u.otp_exempt,u.force_password_change,u.is_owner,r.active role_active,r.name role_name,COALESCE((SELECT json_agg(project_id) FROM project_users WHERE user_id=u.id),'[]'::json) project_ids,COALESCE((SELECT json_agg(json_build_object('id',p.id,'name',p.name,'code',p.code)) FROM project_users pu JOIN projects p ON p.id=pu.project_id WHERE pu.user_id=u.id),'[]'::json) projects FROM users u JOIN roles r ON r.id=u.role_id WHERE u.deleted_at IS NULL ${q.selectable ? sql`AND u.locked=false AND r.active=true` : sql``} AND (${q.q}='' OR u.name ILIKE ${"%" + q.q + "%"} OR u.email ILIKE ${"%" + q.q + "%"}) ${after(sql`u.id`)} ORDER BY u.id LIMIT 26`,
+        sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.whatsapp_country_code,u.whatsapp_number,u.whatsapp_enabled,u.role_id,u.locked,u.otp_enabled,u.otp_exempt,u.force_password_change,u.is_owner,r.active role_active,r.name role_name,COALESCE((SELECT json_agg(project_id) FROM project_users WHERE user_id=u.id),'[]'::json) project_ids,COALESCE((SELECT json_agg(json_build_object('id',p.id,'name',p.name,'code',p.code)) FROM project_users pu JOIN projects p ON p.id=pu.project_id WHERE pu.user_id=u.id),'[]'::json) projects FROM users u JOIN roles r ON r.id=u.role_id WHERE u.deleted_at IS NULL ${q.selectable ? sql`AND u.locked=false AND r.active=true` : sql``} AND (${q.q}='' OR u.name ILIKE ${"%" + q.q + "%"} OR u.email ILIKE ${"%" + q.q + "%"}) ${after(sql`u.id`)} ORDER BY u.id LIMIT 26`,
       ),
     );
   }

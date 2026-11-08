@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeLocalPhone, whatsappRecipient } from "./whatsapp-phone";
 import { ar } from "@/messages/ar";
 z.config({ customError: () => ar.errors.invalid });
 export const uuid = z.uuid();
@@ -204,6 +205,13 @@ export const userSchema = z
       .regex(/^[a-zA-Z0-9._-]+$/)
       .transform((v) => v.toLowerCase()),
     jobTitle: z.string().trim().min(1).max(150),
+    whatsappCountryCode: z.enum(["+20", "+966"]).default("+966"),
+    whatsappNumber: z
+      .string()
+      .max(30)
+      .transform(normalizeLocalPhone)
+      .default(""),
+    whatsappEnabled: z.boolean().default(false),
     roleId: uuid,
     projectIds: z.array(uuid).max(100),
     password: password.optional(),
@@ -212,7 +220,17 @@ export const userSchema = z
     otpEnabled: z.boolean().default(false),
     otpExempt: z.boolean().default(false),
   })
-  .refine((v) => !!v.id || !!v.password, ar.errors.required);
+  .refine((v) => !!v.id || !!v.password, ar.errors.required)
+  .refine(
+    (v) =>
+      !v.whatsappNumber ||
+      !!whatsappRecipient(v.whatsappCountryCode, v.whatsappNumber),
+    { message: ar.errors.whatsappNumber, path: ["whatsappNumber"] },
+  )
+  .refine((v) => !v.whatsappEnabled || !!v.whatsappNumber, {
+    message: ar.errors.whatsappRequired,
+    path: ["whatsappNumber"],
+  });
 export const roleSchema = z.object({
   id: uuid.optional(),
   name: z.string().trim().min(1).max(100),
@@ -225,12 +243,14 @@ export const settingsSchema = z
     defaultTheme: z.number().int().min(0).max(1),
     digits: z.number().int().min(0).max(1),
     readNotificationDays: z.number().int().min(1).max(365),
+    whatsappEnabled: z.boolean().default(true),
     policies: z
       .array(
         z.object({
           type: z.number().int().min(0).max(2),
           inApp: z.boolean(),
           email: z.boolean(),
+          whatsapp: z.boolean().default(true),
           forced: z.boolean(),
         }),
       )
@@ -247,6 +267,7 @@ export const preferencesSchema = z
           type: z.number().int().min(0).max(2),
           inApp: z.boolean(),
           email: z.boolean(),
+          whatsapp: z.boolean().default(true),
         }),
       )
       .length(3),

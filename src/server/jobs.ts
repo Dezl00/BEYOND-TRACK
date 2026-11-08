@@ -6,6 +6,8 @@ import { ar } from "@/messages/ar";
 import { requestCode, effectivePreference } from "@/lib/domain-email";
 import { deliverPush, pushConfigured } from "./push";
 import { cloud } from "./cloudinary";
+import { queueWhatsApp, deliverWhatsApp } from "./whatsapp";
+import { whatsappRecipient } from "@/lib/whatsapp-phone";
 type Job = {
   id: string;
   kind: number;
@@ -18,7 +20,7 @@ export async function processJobs(limit = 20) {
   for (let n = 0; n < limit; n++) {
     if (Date.now() > deadline) break;
     const job = await one<Job>(
-      sql`UPDATE outbox SET locked_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=(SELECT id FROM outbox WHERE available_at<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY CASE kind WHEN 2 THEN 0 WHEN 3 THEN 1 WHEN 1 THEN 2 ELSE 3 END,created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`,
+      sql`UPDATE outbox SET locked_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=(SELECT id FROM outbox WHERE available_at<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY CASE kind WHEN 2 THEN 0 WHEN 3 THEN 1 WHEN 5 THEN 1 WHEN 1 THEN 2 ELSE 3 END,created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`,
     );
     if (!job) break;
     try {
@@ -51,23 +53,41 @@ export async function processJobs(limit = 20) {
             const policy = await one<{
               in_app: boolean;
               email: boolean;
+              whatsapp: boolean;
               forced: boolean;
             }>(sql`SELECT * FROM notification_policy WHERE type=${type}`, tx);
+            const whatsappSystem = await one<{ whatsapp_enabled: boolean }>(
+              sql`SELECT whatsapp_enabled FROM settings WHERE id=1`,
+              tx,
+            );
             const users = await rows<{
               id: string;
               email: string;
               in_app: boolean | null;
               email_enabled: boolean | null;
+              whatsapp_preference: boolean | null;
+              whatsapp_enabled: boolean;
+              whatsapp_country_code: string;
+              whatsapp_number: string | null;
             }>(
-              sql`SELECT u.id,u.email,np.in_app,np.email email_enabled FROM users u LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.deleted_at IS NULL AND EXISTS(SELECT 1 FROM roles enabled_role WHERE enabled_role.id=u.role_id AND enabled_role.active=true) AND u.locked=false AND u.id<>${actorId} AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) AND (u.is_owner OR u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='technical.view') OR (EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND (${request.status} IN(2,3,4,5,6,9,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=${requestId} AND st.from_status=9))) OR (EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='procurement.view') AND NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND (${request.status} IN(2,3,4,5,6,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=${requestId} AND st.from_status=2))) OR (NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='procurement.view'))) ORDER BY u.id LIMIT 1000`,
+              sql`SELECT u.id,u.email,u.whatsapp_country_code,u.whatsapp_number,u.whatsapp_enabled,np.in_app,np.email email_enabled,np.whatsapp whatsapp_preference FROM users u LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.deleted_at IS NULL AND EXISTS(SELECT 1 FROM roles enabled_role WHERE enabled_role.id=u.role_id AND enabled_role.active=true) AND u.locked=false AND u.id<>${actorId} AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) AND (u.is_owner OR u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='technical.view') OR (EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND (${request.status} IN(2,3,4,5,6,9,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=${requestId} AND st.from_status=9))) OR (EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='procurement.view') AND NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND (${request.status} IN(2,3,4,5,6,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=${requestId} AND st.from_status=2))) OR (NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='procurement.view'))) ORDER BY u.id LIMIT 1000`,
               tx,
             );
             for (const u of users) {
               const pref = effectivePreference(
-                policy || { in_app: true, email: true, forced: false },
+                policy || {
+                  in_app: true,
+                  email: true,
+                  whatsapp: true,
+                  forced: false,
+                },
                 u.in_app === null
                   ? undefined
-                  : { in_app: u.in_app, email: !!u.email_enabled },
+                  : {
+                      in_app: u.in_app,
+                      email: !!u.email_enabled,
+                      whatsapp: u.whatsapp_preference ?? true,
+                    },
               );
               if (pref.in_app) {
                 const notification = await one<{ id: string }>(
@@ -78,6 +98,29 @@ export async function processJobs(limit = 20) {
                   await tx.execute(
                     sql`INSERT INTO outbox(kind,payload) VALUES(3,${JSON.stringify({ notificationId: notification.id })}::jsonb)`,
                   );
+              }
+              const to = whatsappRecipient(
+                u.whatsapp_country_code,
+                u.whatsapp_number || "",
+              );
+              if (
+                whatsappSystem?.whatsapp_enabled &&
+                u.whatsapp_enabled &&
+                pref.whatsapp &&
+                to
+              ) {
+                const link = new URL(
+                  `/requests/${requestId}`,
+                  process.env.APP_URL || "http://localhost:3000",
+                );
+                await queueWhatsApp(tx, {
+                  userId: u.id,
+                  requestId,
+                  type,
+                  to,
+                  text: `${ar.brand}\n${ar.notificationTypes[type]} · ${requestCode(request.number)}\n${ar.email.viewRequest}: ${link}`,
+                  key: `whatsapp:${job.id}:${u.id}`,
+                });
               }
               if (pref.email) {
                 const link = new URL(
@@ -106,6 +149,9 @@ export async function processJobs(limit = 20) {
             deliverPush(target.id, String(job.payload.notificationId)),
           ),
         );
+        await db().execute(sql`DELETE FROM outbox WHERE id=${job.id}`);
+      } else if (job.kind === 5) {
+        await deliverWhatsApp(job.payload);
         await db().execute(sql`DELETE FROM outbox WHERE id=${job.id}`);
       } else if (job.kind === 4) {
         const result = await cloud().uploader.destroy(

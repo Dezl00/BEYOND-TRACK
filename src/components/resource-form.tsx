@@ -63,6 +63,9 @@ export default function ResourceForm({
     email: initial?.email || "",
     username: initial?.username || "",
     jobTitle: initial?.job_title || "",
+    whatsappCountryCode: initial?.whatsapp_country_code || "+966",
+    whatsappNumber: initial?.whatsapp_number || "",
+    whatsappEnabled: initial?.whatsapp_enabled || false,
     roleId: initial?.role_id || "",
     projectIds: initial?.project_ids || [],
     password: "",
@@ -264,6 +267,38 @@ export default function ResourceForm({
               })}
               {text("username", ar.auth.username, { autoComplete: "off" })}
               {text("jobTitle", ar.auth.jobTitle)}
+              <Field label={ar.whatsapp.countryCode}>
+                <SelectBox
+                  value={String(state.whatsappCountryCode)}
+                  onChange={(value) => set("whatsappCountryCode", value)}
+                  options={[
+                    { value: "+966", label: ar.whatsapp.saudi },
+                    { value: "+20", label: ar.whatsapp.egypt },
+                  ]}
+                />
+              </Field>
+              <Field label={ar.whatsapp.number}>
+                <input
+                  className="input numeric"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel-national"
+                  dir="ltr"
+                  maxLength={30}
+                  placeholder={
+                    state.whatsappCountryCode === "+20"
+                      ? "01xxxxxxxxx"
+                      : "05xxxxxxxx"
+                  }
+                  value={String(state.whatsappNumber)}
+                  onChange={(e) => set("whatsappNumber", e.target.value)}
+                  aria-describedby="whatsapp-number-hint"
+                />
+                <span className="muted" id="whatsapp-number-hint">
+                  {ar.whatsapp.numberHint}
+                </span>
+              </Field>
+              {check("whatsappEnabled", ar.whatsapp.enableAccount)}
               <Field label={ar.fields.role}>
                 <Lookup
                   resource="roles"

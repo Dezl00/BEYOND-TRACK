@@ -59,6 +59,10 @@ export const ar = {
     financeApproval: "اعتماد المالية",
   },
   auditFields: {
+    whatsapp_country_code: "مفتاح دولة واتساب",
+    whatsapp_number: "رقم واتساب",
+    whatsapp_enabled: "تفعيل إشعارات واتساب",
+    whatsapp: "واتساب",
     request_purge: "تصفية الطلبات",
     requested: "طلب التأكيد",
     confirmed: "التأكيد",
@@ -449,6 +453,7 @@ export const ar = {
     ],
   },
   settings: {
+    whatsapp: "واتساب",
     purge: "تصفية الطلبات",
     purgeConfirm: "حذف جميع الطلبات والتوريدات والاستلامات والمرفقات نهائيًا",
     purgeSend: "إرسال رمز التأكيد",
@@ -476,6 +481,26 @@ export const ar = {
     profile: "الحساب",
     system: "إعدادات النظام",
     retention: "سجل التدقيق: احتفاظ دائم",
+  },
+  whatsapp: {
+    title: "إشعارات واتساب",
+    number: "رقم واتساب",
+    countryCode: "مفتاح الدولة",
+    egypt: "مصر (+20)",
+    saudi: "السعودية (+966)",
+    numberHint:
+      "أدخل الرقم فقط بدون مفتاح الدولة، ويمكن كتابته بصفر البداية أو بدونه.",
+    enableAccount: "تفعيل إشعارات واتساب للحساب",
+    enableSystem: "تفعيل إشعارات واتساب للنظام",
+    managedByAdmin:
+      "يُضاف الرقم ويُعدّل من إدارة المستخدمين. اختر أنواع إشعارات واتساب من الجدول أدناه.",
+    noNumber: "لم يُضف رقم واتساب لهذا الحساب بعد",
+    accountDisabled: "إشعارات واتساب موقوفة لهذا الحساب من الإدارة",
+    systemDisabled: "إشعارات واتساب موقوفة على مستوى النظام",
+    unavailable: "خدمة واتساب غير مُعدّة بعد",
+    ready: "إشعارات واتساب مفعّلة للحساب",
+    testMessage:
+      "رسالة اختبار من BEYOND TRACK: تم إعداد خدمة إشعارات واتساب بنجاح.",
   },
   statuses: [
     "مسودة",
@@ -546,6 +571,8 @@ export const ar = {
     "وحدة",
   ],
   errors: {
+    whatsappNumber: "أدخل رقم جوال صحيحًا للدولة المختارة بدون مفتاح الدولة",
+    whatsappRequired: "أضف رقم واتساب قبل تفعيل الإشعارات للحساب",
     mailKeyMissing: "مفتاح إرسال البريد غير مُعدّ (RESEND_API_KEY)",
     mailSenderMissing: "عنوان إرسال البريد غير مُعدّ (EMAIL_FROM)",
     purge: "رمز التأكيد غير صالح أو منتهي الصلاحية",

@@ -152,6 +152,7 @@ export default async function ResourcePage({
                       {module === "users" ? (
                         <>
                           <th>{ar.fields.email}</th>
+                          <th>{ar.whatsapp.number}</th>
                           <th>{ar.fields.role}</th>
                           <th>{ar.fields.status}</th>
                         </>
@@ -268,6 +269,23 @@ export default async function ResourcePage({
                           <>
                             <td>
                               <bdi>{String(row.email)}</bdi>
+                            </td>
+                            <td>
+                              {row.whatsapp_number ? (
+                                <>
+                                  <bdi dir="ltr" className="code">
+                                    {String(row.whatsapp_country_code)}
+                                    {String(row.whatsapp_number)}
+                                  </bdi>
+                                  <span className="cell-sub">
+                                    {row.whatsapp_enabled
+                                      ? ar.whatsapp.ready
+                                      : ar.whatsapp.accountDisabled}
+                                  </span>
+                                </>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                             <td>
                               {row.is_owner

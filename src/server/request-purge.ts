@@ -108,7 +108,7 @@ export async function purgeRequests(
       sql`INSERT INTO outbox(kind,payload) SELECT 4,jsonb_build_object('publicId',public_id,'resourceType',resource_type) FROM attachments`,
     );
     await tx.execute(
-      sql`DELETE FROM outbox WHERE kind IN(1,3) OR (kind=2 AND (payload ? 'requestId' OR payload->>'key' ~ '^[0-9a-f-]{36}:[0-9a-f-]{36}$' OR payload->>'key'=${`purge:${challenge.id}`}))`,
+      sql`DELETE FROM outbox WHERE kind IN(1,3,5) OR (kind=2 AND (payload ? 'requestId' OR payload->>'key' ~ '^[0-9a-f-]{36}:[0-9a-f-]{36}$' OR payload->>'key'=${`purge:${challenge.id}`}))`,
     );
     for (const table of [
       "notifications",

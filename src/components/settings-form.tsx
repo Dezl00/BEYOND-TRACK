@@ -14,6 +14,7 @@ type Policy = {
   type: number;
   in_app: boolean;
   email: boolean;
+  whatsapp: boolean;
   forced: boolean;
 };
 export function PreferencesForm({
@@ -28,7 +29,7 @@ export function PreferencesForm({
   otpEnabled: boolean;
   otpRequired: boolean;
   policies: Policy[];
-  prefs: { type: number; in_app: boolean; email: boolean }[];
+  prefs: { type: number; in_app: boolean; email: boolean; whatsapp: boolean }[];
   tab: string;
 }) {
   const router = useRouter(),
@@ -44,6 +45,10 @@ export function PreferencesForm({
         email:
           (p.forced ? p.email : prefs.find((x) => x.type === p.type)?.email) ??
           p.email,
+        whatsapp:
+          (p.forced
+            ? p.whatsapp
+            : prefs.find((x) => x.type === p.type)?.whatsapp) ?? p.whatsapp,
       })),
     ),
     [busy, setBusy] = useState(false),
@@ -118,6 +123,7 @@ export function PreferencesForm({
                 <th>{ar.fields.type}</th>
                 <th>{ar.settings.inApp}</th>
                 <th>{ar.settings.email}</th>
+                <th>{ar.settings.whatsapp}</th>
                 <th>{ar.settings.forced}</th>
               </tr>
             </thead>
@@ -125,14 +131,11 @@ export function PreferencesForm({
               {preferences.map((p) => (
                 <tr key={p.type}>
                   <td>{ar.notificationTypes[p.type]}</td>
-                  {(["inApp", "email"] as const).map((channel) => (
+                  {(["inApp", "email", "whatsapp"] as const).map((channel) => (
                     <td key={channel}>
                       <Checkbox
-                        label={
-                          channel === "inApp"
-                            ? ar.settings.inApp
-                            : ar.settings.email
-                        }
+                        hideLabel
+                        label={`${ar.settings[channel]} · ${ar.notificationTypes[p.type]}`}
                         checked={p[channel]}
                         disabled={
                           policies.find((x) => x.type === p.type)?.forced
@@ -178,6 +181,7 @@ export function SystemSettings({
     default_theme: number;
     digits: number;
     read_notification_days: number;
+    whatsapp_enabled: boolean;
   };
   policies: Policy[];
   owner: boolean;
@@ -188,10 +192,12 @@ export function SystemSettings({
       defaultTheme: settings.default_theme,
       digits: settings.digits,
       readNotificationDays: String(settings.read_notification_days),
+      whatsappEnabled: settings.whatsapp_enabled,
       policies: policies.map((p) => ({
         type: p.type,
         inApp: p.in_app,
         email: p.email,
+        whatsapp: p.whatsapp,
         forced: p.forced,
       })),
     }),
@@ -240,7 +246,7 @@ export function SystemSettings({
         }
       }}
     >
-      <Message error={error} success={success} />
+      <Message error={error || autoError} success={success} />
       <div className="fields">
         <Field label={ar.settings.defaultTheme}>
           <SelectBox
@@ -284,6 +290,13 @@ export function SystemSettings({
         />
       </div>
       <h2>{ar.settings.notificationDefaults}</h2>
+      <Checkbox
+        label={ar.whatsapp.enableSystem}
+        checked={state.whatsappEnabled}
+        onChange={(e) =>
+          setState((s) => ({ ...s, whatsappEnabled: e.target.checked }))
+        }
+      />
       <div className="table-wrap">
         <table>
           <thead>
@@ -291,6 +304,7 @@ export function SystemSettings({
               <th>{ar.fields.type}</th>
               <th>{ar.settings.inApp}</th>
               <th>{ar.settings.email}</th>
+              <th>{ar.settings.whatsapp}</th>
               <th>{ar.settings.forced}</th>
             </tr>
           </thead>
@@ -298,24 +312,27 @@ export function SystemSettings({
             {state.policies.map((p) => (
               <tr key={p.type}>
                 <td>{ar.notificationTypes[p.type]}</td>
-                {(["inApp", "email", "forced"] as const).map((key) => (
-                  <td key={key}>
-                    <Checkbox
-                      label={ar.settings[key]}
-                      checked={p[key]}
-                      onChange={(e) =>
-                        setState((s) => ({
-                          ...s,
-                          policies: s.policies.map((x) =>
-                            x.type === p.type
-                              ? { ...x, [key]: e.target.checked }
-                              : x,
-                          ),
-                        }))
-                      }
-                    />
-                  </td>
-                ))}
+                {(["inApp", "email", "whatsapp", "forced"] as const).map(
+                  (key) => (
+                    <td key={key}>
+                      <Checkbox
+                        hideLabel
+                        label={`${ar.settings[key]} · ${ar.notificationTypes[p.type]}`}
+                        checked={p[key]}
+                        onChange={(e) =>
+                          setState((s) => ({
+                            ...s,
+                            policies: s.policies.map((x) =>
+                              x.type === p.type
+                                ? { ...x, [key]: e.target.checked }
+                                : x,
+                            ),
+                          }))
+                        }
+                      />
+                    </td>
+                  ),
+                )}
               </tr>
             ))}
           </tbody>

@@ -179,6 +179,7 @@ beforeAll(async () => {
     "drizzle/generated/0003_request_purge.sql",
     "drizzle/generated/0004_military_onslaught.sql",
     "drizzle/generated/0005_boq_leaf_measurements.sql",
+    "drizzle/generated/0006_fixed_fixer.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
@@ -186,6 +187,7 @@ beforeAll(async () => {
     "drizzle/custom/0005_reports.sql",
     "drizzle/custom/0006_pricing_and_receipts.sql",
     "drizzle/custom/0007_boq_leaf_measurements.sql",
+    "drizzle/custom/0008_whatsapp.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -1026,6 +1028,9 @@ describe("Authentication", () => {
         email: `${identifier}@test.invalid`,
         username: identifier,
         jobTitle: "مهندس",
+        whatsappCountryCode: "+966",
+        whatsappNumber: "",
+        whatsappEnabled: false,
         roleId: role.id,
         projectIds: [ids.p1, ids.p2],
         password: "Temporary-test-12345",

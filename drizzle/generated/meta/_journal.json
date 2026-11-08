@@ -43,6 +43,13 @@
       "when": 1794040502541,
       "tag": "0005_boq_leaf_measurements",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794126571256,
+      "tag": "0006_fixed_fixer",
+      "breakpoints": true
     }
   ]
 }

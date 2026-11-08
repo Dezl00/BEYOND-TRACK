@@ -57,6 +57,11 @@ export const users = pgTable(
     email: varchar("email", { length: 254 }).notNull(),
     username: varchar("username", { length: 80 }).notNull(),
     jobTitle: varchar("job_title", { length: 150 }).notNull(),
+    whatsappCountryCode: varchar("whatsapp_country_code", { length: 4 })
+      .default("+966")
+      .notNull(),
+    whatsappNumber: varchar("whatsapp_number", { length: 10 }),
+    whatsappEnabled: boolean("whatsapp_enabled").default(false).notNull(),
     passwordHash: text("password_hash").notNull(),
     roleId: uuid("role_id")
       .notNull()
@@ -380,11 +385,13 @@ export const settings = pgTable("settings", {
   defaultTheme: smallint("default_theme").default(0).notNull(),
   digits: smallint("digits").default(0).notNull(),
   readNotificationDays: integer("read_notification_days").default(30).notNull(),
+  whatsappEnabled: boolean("whatsapp_enabled").default(true).notNull(),
 });
 export const notificationPolicy = pgTable("notification_policy", {
   type: smallint("type").primaryKey(),
   inApp: boolean("in_app").default(true).notNull(),
   email: boolean("email").default(true).notNull(),
+  whatsapp: boolean("whatsapp").default(true).notNull(),
   forced: boolean("forced").default(false).notNull(),
 });
 export const notificationPreferences = pgTable(
@@ -396,6 +403,7 @@ export const notificationPreferences = pgTable(
     type: smallint("type").notNull(),
     inApp: boolean("in_app").notNull(),
     email: boolean("email").notNull(),
+    whatsapp: boolean("whatsapp").default(true).notNull(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.type] })],
 );

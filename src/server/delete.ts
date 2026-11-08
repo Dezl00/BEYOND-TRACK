@@ -51,7 +51,10 @@ export async function deleteRecord(
       // Preserve historical actors referenced by immutable requests/receipts.
       // Tombstoning also frees the unique login identifiers for replacement accounts.
       await tx.execute(
-        sql`UPDATE users SET deleted_at=now(),locked=true,email=${`deleted-${v.id}@internal.invalid`},username=${`deleted-${v.id}`} WHERE id=${v.id}`,
+        sql`UPDATE users SET deleted_at=now(),locked=true,whatsapp_enabled=false,whatsapp_number=null,email=${`deleted-${v.id}@internal.invalid`},username=${`deleted-${v.id}`} WHERE id=${v.id}`,
+      );
+      await tx.execute(
+        sql`DELETE FROM outbox WHERE kind=5 AND payload->>'userId'=${v.id}`,
       );
       for (const table of [
         "sessions",

@@ -244,7 +244,7 @@ export async function saveUser(
     const id = v.id || randomUUID(),
       old = v.id
         ? await one<Record<string, unknown>>(
-            sql`SELECT name,email,username,job_title,role_id,locked,otp_enabled,otp_exempt,force_password_change,is_owner FROM users WHERE id=${id} AND deleted_at IS NULL FOR UPDATE`,
+            sql`SELECT name,email,username,job_title,whatsapp_country_code,whatsapp_number,whatsapp_enabled,role_id,locked,otp_enabled,otp_exempt,force_password_change,is_owner FROM users WHERE id=${id} AND deleted_at IS NULL FOR UPDATE`,
             tx,
           )
         : {};
@@ -275,6 +275,9 @@ export async function saveUser(
       email: v.email,
       username: v.username,
       job_title: v.jobTitle,
+      whatsapp_country_code: v.whatsappCountryCode,
+      whatsapp_number: v.whatsappNumber || null,
+      whatsapp_enabled: v.whatsappEnabled,
       role_id: v.roleId,
       locked: v.locked,
       otp_enabled: v.otpEnabled,
@@ -283,11 +286,11 @@ export async function saveUser(
     };
     if (v.id)
       await tx.execute(
-        sql`UPDATE users SET name=${v.name},email=${v.email},username=${v.username},job_title=${v.jobTitle},role_id=${v.roleId},locked=${v.locked},otp_enabled=${v.otpEnabled},otp_exempt=${v.otpExempt},force_password_change=${v.forcePasswordChange},password_hash=COALESCE(${passwordHash},password_hash),failed_attempts=0,locked_until=null WHERE id=${id}`,
+        sql`UPDATE users SET name=${v.name},email=${v.email},username=${v.username},job_title=${v.jobTitle},whatsapp_country_code=${v.whatsappCountryCode},whatsapp_number=${v.whatsappNumber || null},whatsapp_enabled=${v.whatsappEnabled},role_id=${v.roleId},locked=${v.locked},otp_enabled=${v.otpEnabled},otp_exempt=${v.otpExempt},force_password_change=${v.forcePasswordChange},password_hash=COALESCE(${passwordHash},password_hash),failed_attempts=0,locked_until=null WHERE id=${id}`,
       );
     else
       await tx.execute(
-        sql`INSERT INTO users(id,name,email,username,job_title,role_id,password_hash,otp_enabled,otp_exempt,force_password_change,locked,theme) VALUES (${id},${v.name},${v.email},${v.username},${v.jobTitle},${v.roleId},${passwordHash!},${v.otpEnabled},${v.otpExempt},${v.forcePasswordChange},${v.locked},(SELECT default_theme FROM settings WHERE id=1))`,
+        sql`INSERT INTO users(id,name,email,username,job_title,whatsapp_country_code,whatsapp_number,whatsapp_enabled,role_id,password_hash,otp_enabled,otp_exempt,force_password_change,locked,theme) VALUES (${id},${v.name},${v.email},${v.username},${v.jobTitle},${v.whatsappCountryCode},${v.whatsappNumber || null},${v.whatsappEnabled},${v.roleId},${passwordHash!},${v.otpEnabled},${v.otpExempt},${v.forcePasswordChange},${v.locked},(SELECT default_theme FROM settings WHERE id=1))`,
       );
     const prior = await rows<{ project_id: string }>(
       sql`SELECT project_id FROM project_users WHERE user_id=${id}`,
@@ -411,7 +414,7 @@ export async function saveSettings(
     if (!a.is_owner && v.otpRequired !== old.otp_required)
       throw new AppError("forbidden", 403);
     await tx.execute(
-      sql`UPDATE settings SET otp_required=${v.otpRequired},default_theme=${v.defaultTheme},digits=${v.digits},read_notification_days=${v.readNotificationDays} WHERE id=1`,
+      sql`UPDATE settings SET otp_required=${v.otpRequired},default_theme=${v.defaultTheme},digits=${v.digits},read_notification_days=${v.readNotificationDays},whatsapp_enabled=${v.whatsappEnabled} WHERE id=1`,
     );
     const policies = await rows(
       sql`SELECT * FROM notification_policy ORDER BY type`,
@@ -419,7 +422,7 @@ export async function saveSettings(
     );
     for (const p of v.policies)
       await tx.execute(
-        sql`UPDATE notification_policy SET in_app=${p.inApp},email=${p.email},forced=${p.forced} WHERE type=${p.type}`,
+        sql`UPDATE notification_policy SET in_app=${p.inApp},email=${p.email},whatsapp=${p.whatsapp},forced=${p.forced} WHERE type=${p.type}`,
       );
     await audit(
       tx,
@@ -435,10 +438,12 @@ export async function saveSettings(
           default_theme: v.defaultTheme,
           digits: v.digits,
           read_notification_days: v.readNotificationDays,
+          whatsapp_enabled: v.whatsappEnabled,
           policies: v.policies.map((p) => ({
             type: p.type,
             in_app: p.inApp,
             email: p.email,
+            whatsapp: p.whatsapp,
             forced: p.forced,
           })),
         },
@@ -460,7 +465,7 @@ export async function savePreferences(
       in_app: boolean;
       email: boolean;
     }>(
-      sql`SELECT type,in_app,email FROM notification_preferences WHERE user_id=${a.id} ORDER BY type`,
+      sql`SELECT type,in_app,email,whatsapp FROM notification_preferences WHERE user_id=${a.id} ORDER BY type`,
       tx,
     );
     const global = await one<{ otp_required: boolean }>(
@@ -477,14 +482,17 @@ export async function savePreferences(
         forced: boolean;
         in_app: boolean;
         email: boolean;
+        whatsapp: boolean;
       }>(sql`SELECT * FROM notification_policy WHERE type=${p.type}`, tx);
       if (
         policy?.forced &&
-        (p.inApp !== policy.in_app || p.email !== policy.email)
+        (p.inApp !== policy.in_app ||
+          p.email !== policy.email ||
+          p.whatsapp !== policy.whatsapp)
       )
         throw new AppError("forbidden", 403);
       await tx.execute(
-        sql`INSERT INTO notification_preferences(user_id,type,in_app,email) VALUES (${a.id},${p.type},${p.inApp},${p.email}) ON CONFLICT(user_id,type) DO UPDATE SET in_app=EXCLUDED.in_app,email=EXCLUDED.email`,
+        sql`INSERT INTO notification_preferences(user_id,type,in_app,email,whatsapp) VALUES (${a.id},${p.type},${p.inApp},${p.email},${p.whatsapp}) ON CONFLICT(user_id,type) DO UPDATE SET in_app=EXCLUDED.in_app,email=EXCLUDED.email,whatsapp=EXCLUDED.whatsapp`,
       );
     }
     await audit(
@@ -504,7 +512,12 @@ export async function savePreferences(
           theme: v.theme,
           otp_enabled: v.otpEnabled,
           preferences: v.preferences
-            .map((p) => ({ type: p.type, in_app: p.inApp, email: p.email }))
+            .map((p) => ({
+              type: p.type,
+              in_app: p.inApp,
+              email: p.email,
+              whatsapp: p.whatsapp,
+            }))
             .sort((x, y) => x.type - y.type),
         },
       ),
