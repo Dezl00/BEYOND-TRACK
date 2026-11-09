@@ -1,5 +1,6 @@
 import {
   pgTable,
+  date,
   uuid,
   text,
   varchar,
@@ -23,6 +24,7 @@ export const roles = pgTable(
   {
     id: id(),
     name: varchar("name", { length: 100 }).notNull(),
+    unitSupervisor: boolean("unit_supervisor").notNull().default(false),
     system: boolean("system").default(false).notNull(),
     active: boolean("active").default(true).notNull(),
   },
@@ -92,6 +94,10 @@ export const projects = pgTable(
     code: varchar("code", { length: 30 }).notNull(),
     name: varchar("name", { length: 200 }).notNull(),
     location: varchar("location", { length: 200 }).default("").notNull(),
+    client: varchar("client", { length: 200 }),
+    details: text("details"),
+    startDate: date("start_date"),
+    endDate: date("end_date"),
     archived: boolean("archived").default(false).notNull(),
     createdAt: time("created_at"),
   },
@@ -445,6 +451,7 @@ export const outbox = pgTable(
 export const requestPurgeChallenges = pgTable(
   "request_purge_challenges",
   {
+    projectId: uuid("project_id"),
     id: id(),
     userId: uuid("user_id")
       .notNull()

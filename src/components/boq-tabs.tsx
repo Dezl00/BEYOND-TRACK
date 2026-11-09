@@ -4,26 +4,43 @@ export default function BoqTabs({
   current,
   project,
   canImport,
+  canUnits,
+  mains,
+  seconds,
 }: {
   current: string;
   project?: string;
   canImport: boolean;
+  canUnits: boolean;
+  mains?: string[];
+  seconds?: string[];
 }) {
   const tabs = [
     { key: "boq", label: ar.nav.boq, path: "/boq" },
     { key: "materials", label: ar.boq.materials, path: "/materials" },
-    { key: "units", label: ar.boq.units, path: "/units" },
+    ...(canUnits
+      ? [{ key: "units", label: ar.boq.units, path: "/units" }]
+      : []),
     ...(canImport
       ? [{ key: "import", label: ar.common.import, path: "/boq/import" }]
       : []),
   ];
+  function href(tab: (typeof tabs)[number]) {
+    const params = new URLSearchParams();
+    if (project) params.set("project", project);
+    if (["boq", "materials"].includes(tab.key)) {
+      if (mains?.length) params.set("mains", mains.join(","));
+      if (seconds?.length) params.set("seconds", seconds.join(","));
+    }
+    return params.size ? tab.path + "?" + params : tab.path;
+  }
   return (
     <nav className="resource-tabs" aria-label={ar.nav.boq}>
       {tabs.map((tab) => (
         <Link
           key={tab.key}
           prefetch
-          href={tab.path + (project ? `?project=${project}` : "")}
+          href={href(tab)}
           className={current === tab.key ? "active" : ""}
           aria-current={current === tab.key ? "page" : undefined}
         >

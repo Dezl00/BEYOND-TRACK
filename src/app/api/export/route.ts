@@ -1,3 +1,4 @@
+import { canManageUnits } from "@/lib/domain";
 import { decimalText } from "@/lib/format";
 import { z } from "zod";
 import { requireActor } from "@/server/auth";
@@ -5,10 +6,14 @@ import { requirePermission } from "@/server/access";
 import { listResource, listRequests, auditList } from "@/server/queries";
 import { listQuerySchema } from "@/lib/validation";
 import { ar } from "@/messages/ar";
-import { errorResponse } from "@/server/errors";
+import { AppError, errorResponse } from "@/server/errors";
 function csv(value: unknown) {
   let text =
-    typeof value === "object" ? JSON.stringify(value) : String(value ?? "");
+    value == null
+      ? ""
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value);
   if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
   return '"' + text.replaceAll('"', '""') + '"';
 }
@@ -40,6 +45,8 @@ export async function GET(req: Request) {
       a,
       `${["materials", "units"].includes(resource) ? "boq" : resource}.export`,
     );
+    if (resource === "units" && !canManageUnits(a))
+      throw new AppError("forbidden", 403);
     const result =
       resource === "audit"
         ? await auditList(a, q)
@@ -59,6 +66,10 @@ export async function GET(req: Request) {
       description: ar.fields.description,
       unit_name: ar.fields.unit,
       quantity: ar.fields.quantity,
+      client: "العميل",
+      details: "تفاصيل المشروع",
+      start_date: "تاريخ البدء",
+      end_date: "تاريخ الانتهاء",
       project_name: ar.common.project,
       number: ar.fields.requestNumber,
       status: ar.fields.status,

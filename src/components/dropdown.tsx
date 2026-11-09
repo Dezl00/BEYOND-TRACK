@@ -256,6 +256,8 @@ type Item = {
 type Page = { items: Item[]; next: string | null };
 const cache = new Map<string, { page: Page; at: number }>();
 type RemoteProps = {
+  mains?: string;
+  seconds?: string;
   resource: string;
   values: string[];
   onChange: (values: string[], labels: Record<string, string>) => void;
@@ -280,6 +282,8 @@ function RemoteDropdown({
   allowNone = false,
   allLabel = ar.common.all,
   onlyLevel,
+  mains,
+  seconds,
   defaultOpen = false,
   multiple = false,
   includeInactive = false,
@@ -297,6 +301,8 @@ function RemoteDropdown({
     resource,
     q,
     ...(project ? { project } : {}),
+    ...(mains ? { mains } : {}),
+    ...(seconds ? { seconds } : {}),
     ...(onlyLevel ? { level: String(onlyLevel) } : {}),
     ...(!includeInactive ? { selectable: "1" } : {}),
   });

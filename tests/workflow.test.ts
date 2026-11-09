@@ -58,7 +58,7 @@ import {
   submitQuotations,
   receive,
 } from "@/server/requests";
-import { saveBoq, saveUser, saveRole } from "@/server/admin";
+import { saveBoq, saveProject, saveUser, saveRole } from "@/server/admin";
 import { setActive } from "@/server/activation";
 import { issueRequestPurge, purgeRequests } from "@/server/request-purge";
 import { deleteRecord } from "@/server/delete";
@@ -181,6 +181,7 @@ beforeAll(async () => {
     "drizzle/generated/0005_boq_leaf_measurements.sql",
     "drizzle/generated/0006_fixed_fixer.sql",
     "drizzle/generated/0007_catalog_materials.sql",
+    "drizzle/generated/0008_project_details.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
@@ -190,6 +191,7 @@ beforeAll(async () => {
     "drizzle/custom/0007_boq_leaf_measurements.sql",
     "drizzle/custom/0008_whatsapp.sql",
     "drizzle/custom/0009_catalog_codes.sql",
+    "drizzle/custom/0010_project_management.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -1575,5 +1577,139 @@ describe("Owner-only request purge", () => {
     expect(
       (await pg.query("SELECT id FROM outbox WHERE kind=4")).rows,
     ).toHaveLength(0);
+  });
+  it("saves and reads the project profile and restricts the unit management list", async () => {
+    const profile = {
+      id: ids.p1,
+      name: "مشروع اختبار",
+      location: "الرياض",
+      archived: false,
+      client: "عميل",
+      details: "تفاصيل العقد",
+      startDate: "2026-01-01",
+      endDate: "2026-12-31",
+    };
+    await saveProject(owner, profile, meta);
+    expect(
+      (await listResource(owner, "projects", { q: profile.name })).items,
+    ).toContainEqual(
+      expect.objectContaining({
+        id: ids.p1,
+        client: profile.client,
+        details: profile.details,
+        start_date: profile.startDate,
+        end_date: profile.endDate,
+      }),
+    );
+    await expect(
+      listResource(engineer, "units", { q: "" }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(
+      (
+        await listResource({ ...engineer, unit_supervisor: true }, "units", {
+          q: "",
+        })
+      ).items.length,
+    ).toBeGreaterThan(0);
+    expect(
+      (await listResource(engineer, "units", { q: "", selectable: "1" })).items
+        .length,
+    ).toBeGreaterThan(0);
+  });
+  it("binds deletion to the chosen project and leaves the other project's requests intact", async () => {
+    await pg.query("DELETE FROM rate_limits WHERE key LIKE 'purge-%'");
+    const ownerDevice = await session();
+    const request = randomUUID(),
+      otherRequest = randomUUID(),
+      receipt = randomUUID(),
+      line = randomUUID();
+    await pg.query(
+      "INSERT INTO purchase_requests(id,project_id,created_by,status) VALUES($1,$2,$3,3),($4,$5,$3,1)",
+      [request, ids.p1, ids.owner, otherRequest, ids.p2],
+    );
+    await pg.query(
+      "INSERT INTO request_lines(id,request_id,material_id,quantity) VALUES($1,$2,$3,1)",
+      [line, request, ids.material],
+    );
+    await pg.query(
+      "INSERT INTO receipts(id,request_id,created_by,idempotency_key) VALUES($1,$2,$3,$4)",
+      [receipt, request, ids.owner, randomUUID()],
+    );
+    await pg.query(
+      "INSERT INTO receipt_lines(receipt_id,request_line_id,accepted,damaged,rejected,returned) VALUES($1,$2,1,0,0,0)",
+      [receipt, line],
+    );
+    await pg.query(
+      "INSERT INTO request_timeline(request_id,user_id,from_status,to_status) VALUES($1,$2,3,5)",
+      [request, ids.owner],
+    );
+    await pg.query(
+      "INSERT INTO attachments(request_id,receipt_id,uploaded_by,public_id,resource_type,format,name,bytes) VALUES ($1,$2,$3,'project-file','image','png','file',12)",
+      [request, receipt, ids.owner],
+    );
+    await expect(
+      issueRequestPurge(engineer, meta, ids.p1),
+    ).rejects.toMatchObject({ status: 403 });
+    const { challenge } = await issueRequestPurge(ownerDevice, meta, ids.p1);
+    const confirmation = { challenge, code: await codeFor(challenge) };
+    await expect(
+      purgeRequests(ownerDevice, confirmation, meta),
+    ).rejects.toMatchObject({ code: "purge" });
+    await expect(
+      purgeRequests(ownerDevice, confirmation, meta, ids.p2),
+    ).rejects.toMatchObject({ code: "purge" });
+    await expect(
+      purgeRequests(engineer, confirmation, meta, ids.p1),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(
+      (
+        await listResource(owner, "materials", {
+          q: "",
+          mains: [ids.main],
+          seconds: [ids.secondary],
+          leaves: [ids.leaf],
+        })
+      ).items.map((x) => x.id),
+    ).toContain(ids.material);
+    expect(
+      (await listResource(owner, "materials", { q: "", mains: [randomUUID()] }))
+        .items,
+    ).toHaveLength(0);
+    expect(
+      (
+        await listResource(owner, "materials", {
+          q: "",
+          mains: [randomUUID(), ids.main],
+        })
+      ).items.map((x) => x.id),
+    ).toContain(ids.material);
+    await purgeRequests(ownerDevice, confirmation, meta, ids.p1);
+    expect(
+      (await pg.query("SELECT id FROM projects WHERE id=$1", [ids.p1])).rows,
+    ).toHaveLength(0);
+    expect(
+      (
+        await pg.query("SELECT id FROM purchase_requests WHERE id=$1", [
+          otherRequest,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await pg.query("SELECT id FROM attachments WHERE request_id=$1", [
+          request,
+        ])
+      ).rows,
+    ).toHaveLength(0);
+    expect(
+      (
+        await pg.query(
+          "SELECT id FROM outbox WHERE kind=4 AND payload->>'publicId'='project-file'",
+        )
+      ).rows,
+    ).toHaveLength(1);
+    await expect(
+      purgeRequests(ownerDevice, confirmation, meta, ids.p1),
+    ).rejects.toMatchObject({ code: "purge" });
   });
 });

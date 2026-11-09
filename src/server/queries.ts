@@ -1,3 +1,4 @@
+import { canManageUnits } from "@/lib/domain";
 import type { Quote } from "@/lib/quotations";
 import { z } from "zod";
 import { db, rows, one, sql } from "@/db";
@@ -53,7 +54,7 @@ export async function projectOptions(
   const c = decodeCursor(cursor);
   return page(
     await rows<RecordRow>(
-      sql`SELECT p.id,p.name,p.code,p.location,p.archived FROM projects p WHERE ${projectScope(a)} ${selectable ? sql`AND p.archived=false` : sql``} AND (${q}='' OR p.name ILIKE ${"%" + q + "%"} OR p.code ILIKE ${"%" + q + "%"}) ${c ? sql`AND p.id>${c.id}::uuid` : sql``} ORDER BY p.id LIMIT 26`,
+      sql`SELECT p.id,p.name,p.code,p.location,p.archived,p.client,p.details,p.start_date::text,p.end_date::text FROM projects p WHERE ${projectScope(a)} ${selectable ? sql`AND p.archived=false` : sql``} AND (${q}='' OR p.name ILIKE ${"%" + q + "%"} OR p.code ILIKE ${"%" + q + "%"}) ${c ? sql`AND p.id>${c.id}::uuid` : sql``} ORDER BY p.id LIMIT 26`,
     ),
   );
 }
@@ -121,6 +122,31 @@ export async function requestDetail(a: Actor, id: string, cursor?: string) {
     receipts,
   };
 }
+function catalogScope(q: Query) {
+  const matches = (
+    ids: string[] | undefined,
+    column: ReturnType<typeof sql>,
+  ) =>
+    ids?.length
+      ? sql`AND ${column} IN (${sql.join(
+          ids.map((id) => sql`${id}::uuid`),
+          sql`,`,
+        )})`
+      : sql``;
+  return sql`${matches(q.mains, sql`CASE b.level WHEN 1 THEN b.id WHEN 2 THEN b.parent_id ELSE pa.parent_id END`)} ${matches(q.seconds, sql`CASE b.level WHEN 2 THEN b.id WHEN 3 THEN b.parent_id END`)} ${matches(q.leaves, sql`CASE WHEN b.level=3 THEN b.id END`)}`;
+}
+export async function sectionLabels(a: Actor, q: Query) {
+  const ids = [...(q.mains ?? []), ...(q.seconds ?? []), ...(q.leaves ?? [])];
+  if (!ids.length) return {};
+  requirePermission(a, "boq.view");
+  const items = await rows<{ id: string; label: string }>(
+    sql`SELECT b.id,b.code||' · '||b.name label FROM boq_items b WHERE ${projectScope(a, sql`b.project_id`)} AND b.id IN (${sql.join(
+      ids.map((id) => sql`${id}::uuid`),
+      sql`,`,
+    )})`,
+  );
+  return Object.fromEntries(items.map((v) => [v.id, v.label]));
+}
 export async function listResource(a: Actor, resource: string, q: Query) {
   const c = decodeCursor(q.cursor),
     after = (col = sql`id`) => (c ? sql`AND ${col}>${c.id}::uuid` : sql``);
@@ -130,7 +156,7 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT b.id,b.project_id,b.parent_id,b.level,b.code,b.name,b.active,b.description,b.created_at,CASE WHEN b.level=3 THEN b.unit_id END unit_id,CASE WHEN b.level=3 THEN b.quantity END quantity,u.name unit_name,p.name project_name,pa.code parent_code FROM boq_items b JOIN projects p ON p.id=b.project_id LEFT JOIN units u ON b.level=3 AND u.id=b.unit_id LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${q.selectable ? sql`AND b.active=true AND (b.level<3 OR b.unit_id IS NULL OR u.active=true) AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.level ? sql`AND b.level=${q.level}` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`b.id`)} ORDER BY b.id LIMIT 26`,
+        sql`SELECT b.id,b.project_id,b.parent_id,b.level,b.code,b.name,b.active,b.description,b.created_at,CASE WHEN b.level=3 THEN b.unit_id END unit_id,CASE WHEN b.level=3 THEN b.quantity END quantity,u.name unit_name,p.name project_name,pa.code parent_code FROM boq_items b JOIN projects p ON p.id=b.project_id LEFT JOIN units u ON b.level=3 AND u.id=b.unit_id LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND b.active=true AND (b.level<3 OR b.unit_id IS NULL OR u.active=true) AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.level ? sql`AND b.level=${q.level}` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`b.id`)} ORDER BY b.id LIMIT 26`,
       ),
     );
   }
@@ -138,7 +164,7 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT m.*,b.project_id,b.name boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${q.selectable ? sql`AND m.active=true AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR m.code ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`m.id`)} ORDER BY m.id LIMIT 26`,
+        sql`SELECT m.*,b.project_id,b.name boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND m.active=true AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR m.code ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`m.id`)} ORDER BY m.id LIMIT 26`,
       ),
     );
   }
@@ -151,6 +177,8 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     );
   }
   if (resource === "units") {
+    if (!q.selectable && !canManageUnits(a))
+      throw new AppError("forbidden", 403);
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(

@@ -1,3 +1,4 @@
+import { canManageUnits } from "@/lib/domain";
 import { z } from "zod";
 import { db, sql, one } from "@/db";
 import type { Actor } from "@/lib/domain";
@@ -23,6 +24,8 @@ export async function deleteRecord(
     role: { table: "roles", module: "roles", entity: 7 },
   };
   const config = map[v.resource];
+  if (v.resource === "unit" && !canManageUnits(a))
+    throw new AppError("forbidden", 403);
   requirePermission(a, `${config.module}.delete`);
   return db().transaction(async (tx) => {
     const row = await one<{

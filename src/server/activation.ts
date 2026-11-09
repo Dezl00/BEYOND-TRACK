@@ -1,3 +1,4 @@
+import { canManageUnits } from "@/lib/domain";
 import { z } from "zod";
 import { db, one, rows, sql } from "@/db";
 import type { Actor } from "@/lib/domain";
@@ -55,6 +56,8 @@ export async function setActive(
       invert: true,
     },
   }[input.resource];
+  if (input.resource === "unit" && !canManageUnits(actor))
+    throw new AppError("forbidden", 403);
   requirePermission(actor, `${config.module}.edit`);
   return db().transaction(async (tx) => {
     const row = await one<Record<string, unknown>>(

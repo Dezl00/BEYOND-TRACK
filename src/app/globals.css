@@ -436,6 +436,15 @@ textarea.input {
   font-size: 13px;
   font-weight: 500;
 }
+.catalog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.catalog-filters > .field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
 .number-control {
   position: relative;
   min-inline-size: 0;

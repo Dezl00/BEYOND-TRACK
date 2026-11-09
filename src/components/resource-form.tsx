@@ -8,6 +8,7 @@ import { ar } from "@/messages/ar";
 import { modules, actionsForModule, type Actor } from "@/lib/domain";
 import * as v from "@/lib/validation";
 import {
+  DateInput,
   Button,
   Modal,
   Field,
@@ -48,6 +49,10 @@ export default function ResourceForm({
   const initialState = (): Data => ({
     id: initial?.id,
     name: initial?.name || "",
+    client: initial?.client || "",
+    details: initial?.details || "",
+    startDate: initial?.start_date || "",
+    endDate: initial?.end_date || "",
     location: initial?.location || "",
     archived: initial?.archived || false,
     active: initial?.active ?? true,
@@ -162,6 +167,27 @@ export default function ResourceForm({
           {resource === "project" ? (
             <>
               {text("location", ar.fields.location)}
+              {text("client", "العميل", { maxLength: 200 })}
+              <Field label="تاريخ البدء">
+                <DateInput
+                  value={String(state.startDate)}
+                  onChange={(value) => set("startDate", value)}
+                />
+              </Field>
+              <Field label="تاريخ الانتهاء">
+                <DateInput
+                  value={String(state.endDate)}
+                  onChange={(value) => set("endDate", value)}
+                />
+              </Field>
+              <Field wide label="تفاصيل المشروع">
+                <textarea
+                  className="input"
+                  value={String(state.details)}
+                  maxLength={4000}
+                  onChange={(e) => set("details", e.target.value)}
+                />
+              </Field>
               {initial ? check("archived", ar.common.archive) : null}
             </>
           ) : null}

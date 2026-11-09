@@ -6,7 +6,14 @@ import { ar } from "@/messages/ar";
 import { purgeConfirmSchema } from "@/lib/validation";
 import { Button, Checkbox, Field, Message, Modal, command } from "./ui";
 
-export default function RequestPurge({ email }: { email: string }) {
+export default function RequestPurge({
+  email,
+  project,
+}: {
+  email: string;
+  project?: { id: string; name: string };
+}) {
+  const title = project ? "حذف مشروع " + project.name : ar.settings.purge;
   const router = useRouter();
   const [open, setOpen] = useState(false),
     [ack, setAck] = useState(false),
@@ -33,20 +40,32 @@ export default function RequestPurge({ email }: { email: string }) {
     setSuccess("");
     try {
       if (!challenge) {
-        const result = (await command("request-purge-code", {})) as {
+        const result = (await command(
+          project ? "project-delete-code" : "request-purge-code",
+          project ? { projectId: project.id } : {},
+        )) as {
           challenge: string;
         };
         setChallenge(result.challenge);
       } else {
         await command(
-          "request-purge-confirm",
-          purgeConfirmSchema.parse({ challenge, code }),
+          project ? "project-delete-confirm" : "request-purge-confirm",
+          {
+            ...purgeConfirmSchema.parse({ challenge, code }),
+            ...(project ? { projectId: project.id } : {}),
+          },
         );
         setOpen(false);
         setChallenge("");
         setCode("");
         setAck(false);
-        setSuccess(ar.settings.purgeDone);
+        setSuccess(project ? "تم حذف المشروع" : ar.settings.purgeDone);
+        if (
+          project &&
+          new URLSearchParams(window.location.search).get("project") ===
+            project.id
+        )
+          router.replace("/projects");
         router.refresh();
       }
     } catch (e) {
@@ -58,20 +77,34 @@ export default function RequestPurge({ email }: { email: string }) {
     }
   }
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <h2>{ar.settings.purge}</h2>
-      </div>
-      <div className="panel-body stack">
-        <Message success={success} />
-        <div>
-          <Button intent="red" onClick={() => close(true)}>
-            <Trash2 size={16} />
-            {ar.settings.purge}
-          </Button>
-        </div>
-      </div>
-      <Modal title={ar.settings.purge} open={open} onOpenChange={close}>
+    <>
+      {project ? (
+        <Button
+          className="icon small"
+          intent="red"
+          aria-label={title}
+          title={title}
+          onClick={() => close(true)}
+        >
+          <Trash2 size={16} />
+        </Button>
+      ) : (
+        <section className="panel">
+          <div className="panel-heading">
+            <h2>{ar.settings.purge}</h2>
+          </div>
+          <div className="panel-body stack">
+            <Message success={success} />
+            <div>
+              <Button intent="red" onClick={() => close(true)}>
+                <Trash2 size={16} />
+                {ar.settings.purge}
+              </Button>
+            </div>
+          </div>
+        </section>
+      )}
+      <Modal title={title} open={open} onOpenChange={close}>
         <form className="stack" onSubmit={submit} noValidate>
           <div className="confirmation-icon">
             <Trash2 size={25} />
@@ -84,7 +117,13 @@ export default function RequestPurge({ email }: { email: string }) {
           </Field>
           <Message error={error} />
           <Checkbox
-            label={ar.settings.purgeConfirm}
+            label={
+              project
+                ? "أؤكد حذف مشروع «" +
+                  project.name +
+                  "» نهائيًا مع بنوده ومواده وطلباته واستلاماته ومرفقاته."
+                : ar.settings.purgeConfirm
+            }
             checked={ack}
             disabled={!!challenge || busy}
             onChange={(event) => setAck(event.target.checked)}
@@ -119,6 +158,6 @@ export default function RequestPurge({ email }: { email: string }) {
           </div>
         </form>
       </Modal>
-    </section>
+    </>
   );
 }

@@ -57,6 +57,13 @@
       "when": 1794229768273,
       "tag": "0007_catalog_materials",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794230961759,
+      "tag": "0008_project_details",
+      "breakpoints": true
     }
   ]
 }

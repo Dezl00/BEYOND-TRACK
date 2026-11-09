@@ -158,6 +158,7 @@ describe("Permission-scoped mobile navigation", () => {
         current: "import",
         project: "p1",
         canImport: true,
+        canUnits: true,
       }),
     );
     expect(
@@ -168,7 +169,15 @@ describe("Permission-scoped mobile navigation", () => {
     expect(
       screen.getByRole("link", { name: ar.boq.materials }).getAttribute("href"),
     ).toBe("/materials?project=p1");
-    view.rerender(createElement(BoqTabs, { current: "boq", canImport: false }));
+    expect(screen.getByRole("link", { name: ar.boq.units })).toBeTruthy();
+    view.rerender(
+      createElement(BoqTabs, {
+        current: "boq",
+        canImport: false,
+        canUnits: false,
+      }),
+    );
+    expect(screen.queryByRole("link", { name: ar.boq.units })).toBeNull();
     expect(screen.queryByRole("link", { name: ar.common.import })).toBeNull();
   });
 });

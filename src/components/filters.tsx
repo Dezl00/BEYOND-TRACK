@@ -3,9 +3,12 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search, Download } from "lucide-react";
 import { ar } from "@/messages/ar";
-import { SelectBox, DateInput, Field, Lookup } from "./ui";
+import { SelectBox, DateInput, Field, MultiLookup, Lookup } from "./ui";
 import { Heading } from "./common";
 type Values = {
+  mains: string;
+  seconds: string;
+  leaves: string;
   q: string;
   status: string;
   from: string;
@@ -16,6 +19,9 @@ type Values = {
 };
 function valuesFrom(params: URLSearchParams): Values {
   return {
+    mains: params.get("mains") || "",
+    seconds: params.get("seconds") || "",
+    leaves: params.get("leaves") || "",
     q: params.get("q") || "",
     status: params.get("status") || "all",
     from: params.get("from") || "",
@@ -31,12 +37,18 @@ export default function Filters({
   statuses = false,
   exportable = false,
   audit = false,
+  catalog,
+  project,
+  sectionLabels = {},
 }: {
   title?: string;
   actions?: React.ReactNode;
   statuses?: boolean;
   exportable?: boolean;
   audit?: boolean;
+  catalog?: "boq" | "materials";
+  project?: string;
+  sectionLabels?: Record<string, string>;
 }) {
   const router = useRouter(),
     path = usePathname(),
@@ -53,6 +65,13 @@ export default function Filters({
     next.delete("cursor");
     const fields = {
       q: nextValues.q,
+      ...(catalog
+        ? {
+            mains: nextValues.mains,
+            seconds: nextValues.seconds,
+            leaves: nextValues.leaves,
+          }
+        : {}),
       ...(statuses
         ? { status: nextValues.status === "all" ? "" : nextValues.status }
         : {}),
@@ -76,6 +95,8 @@ export default function Filters({
   }
   function change(key: keyof Values, value: string) {
     const next = { ...values, [key]: value };
+    if (key === "mains") next.seconds = "";
+    if (key === "mains" || key === "seconds") next.leaves = "";
     setValues(next);
     if (timer.current) clearTimeout(timer.current);
     if (key === "q") timer.current = setTimeout(() => navigate(next), 180);
@@ -192,6 +213,34 @@ export default function Filters({
       {title && audit ? (
         <div className="toolbar audit-toolbar">{form}</div>
       ) : null}
+      {catalog && (
+        <div className="toolbar catalog-filters">
+          {(["mains", "seconds", "leaves"] as const).map(
+            (key, index) =>
+              (index < 2 || catalog === "materials") && (
+                <Field
+                  key={key}
+                  label={
+                    ["القسم الرئيسي", "القسم الثانوي", "القسم الفرعي"][index]
+                  }
+                >
+                  <MultiLookup
+                    resource="boq"
+                    onlyLevel={index + 1}
+                    project={project}
+                    includeInactive
+                    initialLabels={sectionLabels}
+                    mains={index > 0 ? values.mains : undefined}
+                    seconds={index > 1 ? values.seconds : undefined}
+                    values={values[key] ? values[key].split(",") : []}
+                    placeholder={ar.common.all}
+                    onChange={(ids) => change(key, ids.join(","))}
+                  />
+                </Field>
+              ),
+          )}
+        </div>
+      )}
       {statuses ? (
         <div
           className="request-status-tabs"

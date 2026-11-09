@@ -26,6 +26,20 @@ export async function POST(req: Request) {
     await rateLimit("commands", a.id, 120, 60);
     let result: unknown;
     switch (command) {
+      case "project-delete-code":
+        result = await issueRequestPurge(
+          a,
+          m,
+          z.object({ projectId: v.uuid }).parse(data).projectId,
+        );
+        break;
+      case "project-delete-confirm": {
+        const input = v.purgeConfirmSchema
+          .extend({ projectId: v.uuid })
+          .parse(data);
+        result = await purgeRequests(a, input, m, input.projectId);
+        break;
+      }
       case "request-purge-code":
         z.object({}).strict().parse(data);
         result = await issueRequestPurge(a, m);

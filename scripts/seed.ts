@@ -128,7 +128,7 @@ async function seed() {
       const id = existing?.id || randomUUID();
       if (!existing) {
         await tx.execute(
-          sql`INSERT INTO roles(id,name,system) VALUES (${id},${role.name},true)`,
+          sql`INSERT INTO roles(id,name,system,unit_supervisor) VALUES (${id},${role.name},true,${role.name === ar.roles.admin})`,
         );
         for (const key of role.keys)
           await tx.execute(

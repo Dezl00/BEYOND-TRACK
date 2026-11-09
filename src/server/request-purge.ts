@@ -8,6 +8,18 @@ import { AppError } from "./errors";
 import { purgeConfirmSchema } from "@/lib/validation";
 import type { z } from "zod";
 
+function purgeHash(
+  challenge: string,
+  session: string,
+  code: string,
+  projectId?: string,
+) {
+  return keyedHash(
+    projectId
+      ? `project-delete:${projectId}:${challenge}:${session}:${code}`
+      : `purge:${challenge}:${session}:${code}`,
+  );
+}
 async function ownerSession(a: Actor, tx: Executor) {
   if (!a.is_owner) throw new AppError("forbidden", 403);
   const owner = await one<{ email: string }>(
@@ -17,7 +29,11 @@ async function ownerSession(a: Actor, tx: Executor) {
   if (!owner) throw new AppError("forbidden", 403);
   return owner;
 }
-export async function issueRequestPurge(a: Actor, meta: Meta) {
+export async function issueRequestPurge(
+  a: Actor,
+  meta: Meta,
+  projectId?: string,
+) {
   if (!a.is_owner) throw new AppError("forbidden", 403);
   if (!process.env.RESEND_API_KEY?.trim())
     throw new AppError("mailKeyMissing", 503);
@@ -27,6 +43,13 @@ export async function issueRequestPurge(a: Actor, meta: Meta) {
   await rateLimit("purge-issue-ip", meta.ip, 6, 900);
   return db().transaction(async (tx) => {
     const owner = await ownerSession(a, tx);
+    const project = projectId
+      ? await one<{ name: string }>(
+          sql`SELECT name FROM projects WHERE id=${projectId}`,
+          tx,
+        )
+      : null;
+    if (projectId && !project) throw new AppError("notFound", 404);
     // One owner-level transaction prevents overlapping resends across devices.
     await tx.execute(sql`SELECT id FROM users WHERE id=${a.id} FOR UPDATE`);
     await tx.execute(
@@ -38,40 +61,90 @@ export async function issueRequestPurge(a: Actor, meta: Meta) {
     const challenge = randomUUID(),
       code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     await tx.execute(
-      sql`INSERT INTO request_purge_challenges(id,user_id,session_id,token_hash,expires_at) VALUES(${challenge},${a.id},${a.session_id},${keyedHash(`purge:${challenge}:${a.session_id}:${code}`)},now()+interval '5 minutes')`,
+      sql`INSERT INTO request_purge_challenges(id,user_id,session_id,project_id,token_hash,expires_at) VALUES(${challenge},${a.id},${a.session_id},${projectId ?? null},${purgeHash(challenge, a.session_id, code, projectId)},now()+interval '5 minutes')`,
     );
     await queueEmail(
       tx,
       owner.email,
-      ar.settings.purgeSubject,
-      `<html lang="ar" dir="rtl"><body><p>${ar.settings.purgeBody}</p><p dir="ltr">${code}</p><p>${ar.email.otpExpiry}</p></body></html>`,
+      project ? "تأكيد حذف المشروع" : ar.settings.purgeSubject,
+      `<html lang="ar" dir="rtl"><body><p>${project ? "رمز حذف المشروع " + project.name.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;") : ar.settings.purgeBody}</p><p dir="ltr">${code}</p><p>${ar.email.otpExpiry}</p></body></html>`,
       `purge:${challenge}`,
     );
     await audit(tx, a.id, meta, 1, 8, "1", {
-      request_purge: { requested: true },
+      request_purge: { requested: true, projectId },
     });
     return { challenge, email: owner.email };
   });
+}
+async function deleteProjectData(tx: Executor, projectId: string) {
+  const requests = sql`SELECT id FROM purchase_requests WHERE project_id=${projectId}`;
+  const sections = sql`SELECT id FROM boq_items WHERE project_id=${projectId}`;
+  const project = await one<{ name: string }>(
+    sql`SELECT name FROM projects WHERE id=${projectId} FOR UPDATE`,
+    tx,
+  );
+  if (!project) throw new AppError("notFound", 404);
+  await tx.execute(
+    sql`SELECT id FROM purchase_requests WHERE project_id=${projectId} ORDER BY id FOR UPDATE`,
+  );
+  await tx.execute(
+    sql`INSERT INTO outbox(kind,payload) SELECT 4,jsonb_build_object('publicId',public_id,'resourceType',resource_type) FROM attachments WHERE request_id IN (${requests})`,
+  );
+  await tx.execute(
+    sql`DELETE FROM outbox WHERE (kind IN(1,2,5) AND payload->>'requestId' IN (SELECT id::text FROM purchase_requests WHERE project_id=${projectId})) OR (kind=3 AND payload->>'notificationId' IN (SELECT id::text FROM notifications WHERE request_id IN (${requests})))`,
+  );
+  await tx.execute(
+    sql`DELETE FROM receipt_lines WHERE receipt_id IN (SELECT id FROM receipts WHERE request_id IN (${requests}))`,
+  );
+  for (const table of [
+    "attachments",
+    "notifications",
+    "receipts",
+    "request_timeline",
+    "request_lines",
+  ])
+    await tx.execute(
+      sql`DELETE FROM ${sql.identifier(table)} WHERE request_id IN (${requests})`,
+    );
+  await tx.execute(
+    sql`DELETE FROM purchase_requests WHERE project_id=${projectId}`,
+  );
+  await tx.execute(
+    sql`DELETE FROM catalog_counters WHERE scope=${projectId} OR scope IN (${sections})`,
+  );
+  await tx.execute(
+    sql`DELETE FROM materials WHERE boq_item_id IN (${sections})`,
+  );
+  await tx.execute(sql`DELETE FROM boq_items WHERE project_id=${projectId}`);
+  await tx.execute(
+    sql`DELETE FROM project_users WHERE project_id=${projectId}`,
+  );
+  await tx.execute(sql`DELETE FROM projects WHERE id=${projectId}`);
+  return project;
 }
 export async function purgeRequests(
   a: Actor,
   input: z.infer<typeof purgeConfirmSchema>,
   meta: Meta,
+  projectId?: string,
 ) {
   if (!a.is_owner) throw new AppError("forbidden", 403);
   await rateLimit("purge-confirm", a.id, 10, 900);
   const result = await db().transaction(async (tx) => {
     await ownerSession(a, tx);
     const challenge = await one<{ id: string; token_hash: string }>(
-      sql`SELECT id,token_hash FROM request_purge_challenges WHERE id=${input.challenge} AND user_id=${a.id} AND session_id=${a.session_id} AND expires_at>now() AND attempts<5 AND verified_at IS NULL FOR UPDATE`,
+      sql`SELECT id,token_hash FROM request_purge_challenges WHERE id=${input.challenge} AND user_id=${a.id} AND session_id=${a.session_id} AND project_id IS NOT DISTINCT FROM ${projectId ?? null}::uuid AND expires_at>now() AND attempts<5 AND verified_at IS NULL FOR UPDATE`,
       tx,
     );
     if (!challenge) return null;
     await tx.execute(
       sql`UPDATE request_purge_challenges SET attempts=attempts+1 WHERE id=${challenge.id}`,
     );
-    const candidate = keyedHash(
-      `purge:${challenge.id}:${a.session_id}:${input.code}`,
+    const candidate = purgeHash(
+      challenge.id,
+      a.session_id,
+      input.code,
+      projectId,
     );
     if (
       candidate.length !== challenge.token_hash.length ||
@@ -84,6 +157,32 @@ export async function purgeRequests(
         request_purge: { confirmed: false },
       });
       return null;
+    }
+    if (projectId) {
+      await tx.execute(
+        sql`UPDATE request_purge_challenges SET verified_at=now() WHERE id=${challenge.id}`,
+      );
+      await tx.execute(
+        sql`SELECT set_config('siteflow.purge_challenge',${challenge.id},true)`,
+      );
+      const project = await deleteProjectData(tx, projectId);
+      await audit(
+        tx,
+        a.id,
+        meta,
+        2,
+        1,
+        projectId,
+        { name: { before: project.name, after: null } },
+        projectId,
+      );
+      await tx.execute(
+        sql`DELETE FROM outbox WHERE kind=2 AND payload->>'key'=${"purge:" + challenge.id}`,
+      );
+      await tx.execute(
+        sql`DELETE FROM request_purge_challenges WHERE id=${challenge.id}`,
+      );
+      return { deleted: 1 };
     }
     // Serialize all request writes, including concurrent creation and receipt entry.
     await tx.execute(

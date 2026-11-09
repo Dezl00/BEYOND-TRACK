@@ -1,3 +1,4 @@
+import { canManageUnits } from "@/lib/domain";
 import { requirePageActor } from "@/server/page-auth";
 import { requirePermission } from "@/server/access";
 import { listQuerySchema } from "@/lib/validation";
@@ -16,7 +17,12 @@ export default async function ImportPage({
   return (
     <>
       <Heading title={ar.boq.importTitle} />
-      <BoqTabs current="import" project={q.project} canImport />
+      <BoqTabs
+        current="import"
+        project={q.project}
+        canImport
+        canUnits={canManageUnits(a)}
+      />
       <section className="panel panel-body">
         <ImportForm project={q.project} />
       </section>

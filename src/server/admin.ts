@@ -1,3 +1,4 @@
+import { canManageUnits } from "@/lib/domain";
 import { randomUUID } from "node:crypto";
 import { hash as hashPassword } from "bcryptjs";
 import type { z } from "zod";
@@ -29,15 +30,15 @@ export async function saveProject(
     if (v.id) {
       await requireProject(a, id, tx);
       old = (await one<Record<string, unknown>>(
-        sql`SELECT code,name,location,archived FROM projects WHERE id=${id} FOR UPDATE`,
+        sql`SELECT code,name,location,archived,client,details,start_date::text,end_date::text FROM projects WHERE id=${id} FOR UPDATE`,
         tx,
       ))!;
       await tx.execute(
-        sql`UPDATE projects SET name=${v.name},location=${v.location},archived=${v.archived} WHERE id=${id}`,
+        sql`UPDATE projects SET name=${v.name},location=${v.location},client=${v.client ?? old.client ?? null},details=${v.details ?? old.details ?? null},start_date=NULLIF(${v.startDate ?? old.start_date ?? ""},'')::date,end_date=NULLIF(${v.endDate ?? old.end_date ?? ""},'')::date,archived=${v.archived} WHERE id=${id}`,
       );
     } else {
       await tx.execute(
-        sql`INSERT INTO projects(id,name,location) VALUES (${id},${v.name},${v.location})`,
+        sql`INSERT INTO projects(id,name,location,client,details,start_date,end_date) VALUES (${id},${v.name},${v.location},${v.client ?? null},${v.details ?? null},${v.startDate || null},${v.endDate || null})`,
       );
       await tx.execute(
         sql`INSERT INTO project_users(project_id,user_id) VALUES (${id},${a.id})`,
@@ -53,6 +54,10 @@ export async function saveProject(
       changes(old, {
         name: v.name,
         location: v.location,
+        client: v.client ?? old.client,
+        details: v.details ?? old.details,
+        start_date: v.startDate ?? old.start_date,
+        end_date: v.endDate ?? old.end_date,
         archived: v.archived,
       }),
       id,
@@ -226,6 +231,7 @@ export async function saveUnit(
   v: z.infer<typeof unitSchema>,
   m: Meta,
 ) {
+  if (!canManageUnits(a)) throw new AppError("forbidden", 403);
   requirePermission(a, "boq.edit");
   return db().transaction(async (tx) => {
     const id = v.id || randomUUID(),

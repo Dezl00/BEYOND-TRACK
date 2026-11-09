@@ -6,13 +6,15 @@ import { notFound } from "next/navigation";
 import { requirePageActor } from "@/server/page-auth";
 import {
   listResource,
+  sectionLabels,
   listRequests,
   auditList,
   notifications,
 } from "@/server/queries";
 import { listQuerySchema } from "@/lib/validation";
 import { ar } from "@/messages/ar";
-import { can } from "@/lib/domain";
+import RequestPurge from "@/components/request-purge";
+import { can, canManageUnits } from "@/lib/domain";
 import { number, date, requestCode } from "@/lib/format";
 import { one, sql } from "@/db";
 import { Empty, Pagination } from "@/components/common";
@@ -64,6 +66,9 @@ export default async function ResourcePage({
     q = listQuerySchema.parse(raw),
     settings = await currentSettings(),
     digits = settings?.digits || 0;
+  if (module === "units" && !canManageUnits(a)) notFound();
+  const catalog =
+    module === "boq" || module === "materials" ? module : undefined;
   const permission = ["materials", "units"].includes(module) ? "boq" : module;
   const data =
     module === "audit"
@@ -76,7 +81,10 @@ export default async function ResourcePage({
   return (
     <>
       <Filters
-        key={module}
+        key={module + (q.project ?? "")}
+        catalog={catalog}
+        project={q.project}
+        sectionLabels={catalog ? await sectionLabels(a, q) : undefined}
         title={title(module)}
         actions={
           <>
@@ -99,6 +107,9 @@ export default async function ResourcePage({
       {["boq", "materials", "units"].includes(module) ? (
         <BoqTabs
           current={module}
+          mains={q.mains}
+          seconds={q.seconds}
+          canUnits={canManageUnits(a)}
           project={q.project}
           canImport={can(a, "boq.create")}
         />
@@ -134,6 +145,14 @@ export default async function ResourcePage({
                   ) : (
                     <>
                       <th>{ar.fields.name}</th>
+                      {module === "projects" && (
+                        <>
+                          <th>العميل</th>
+                          <th>تاريخ البدء</th>
+                          <th>تاريخ الانتهاء</th>
+                          <th>تفاصيل المشروع</th>
+                        </>
+                      )}
                       {["projects", "boq", "materials"].includes(module) ? (
                         <th>{ar.fields.code}</th>
                       ) : null}
@@ -234,6 +253,31 @@ export default async function ResourcePage({
                             </span>
                           ) : null}
                         </td>
+                        {module === "projects" && (
+                          <>
+                            <td>{String(row.client || "—")}</td>
+                            <td>
+                              {row.start_date
+                                ? date(String(row.start_date), digits)
+                                : "—"}
+                            </td>
+                            <td>
+                              {row.end_date
+                                ? date(String(row.end_date), digits)
+                                : "—"}
+                            </td>
+                            <td className="wrap">
+                              {row.details ? (
+                                <details>
+                                  <summary>{ar.common.details}</summary>
+                                  <p className="break">{String(row.details)}</p>
+                                </details>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </>
+                        )}
                         {["projects", "boq", "materials"].includes(module) ? (
                           <td>
                             <bdi className="code">{String(row.code)}</bdi>
@@ -337,6 +381,12 @@ export default async function ResourcePage({
                         ) : null}
                         <td>
                           <div className="table-actions">
+                            {module === "projects" && a.is_owner && (
+                              <RequestPurge
+                                email={a.email}
+                                project={{ id: row.id, name: String(row.name) }}
+                              />
+                            )}
                             {module === "projects" && can(a, "reports.view") ? (
                               <Link
                                 className="btn icon small export-button"

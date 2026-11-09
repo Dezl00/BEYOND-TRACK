@@ -138,12 +138,21 @@ export const receiptSchema = z
       ),
     ar.errors.receipt,
   );
-export const projectSchema = z.object({
-  id: uuid.optional(),
-  name: short,
-  location: z.string().trim().max(200).default(""),
-  archived: z.boolean().default(false),
-});
+export const projectSchema = z
+  .object({
+    id: uuid.optional(),
+    name: short,
+    location: z.string().trim().max(200).default(""),
+    client: z.string().trim().max(200).optional(),
+    details: z.string().trim().max(4000).optional(),
+    startDate: dateOnly.or(z.literal("")).optional(),
+    endDate: dateOnly.or(z.literal("")).optional(),
+    archived: z.boolean().default(false),
+  })
+  .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
+    message: "تاريخ الانتهاء يسبق تاريخ البدء",
+    path: ["endDate"],
+  });
 const boqFields = z.object({
   id: uuid.optional(),
   projectId: uuid,
@@ -276,11 +285,20 @@ export const passwordChangeSchema = z.object({
   password,
 });
 export const cursorSchema = z.string().max(256).optional();
+const sectionIds = z
+  .string()
+  .max(12000)
+  .transform((v) => v.split(","))
+  .pipe(z.array(uuid).max(300))
+  .optional();
 export const listQuerySchema = z.object({
   cursor: cursorSchema,
   q: z.string().trim().max(100).default(""),
   project: uuid.optional(),
   level: z.coerce.number().int().min(1).max(3).optional(),
+  mains: sectionIds,
+  seconds: sectionIds,
+  leaves: sectionIds,
   selectable: z.enum(["1"]).optional(),
   status: z.coerce.number().int().min(0).max(11).optional(),
   user: uuid.optional(),

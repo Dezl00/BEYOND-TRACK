@@ -27,7 +27,8 @@ export default function ProjectSelector() {
         allLabel={ar.common.allProjects}
         onChange={(value) => {
           const next = new URLSearchParams(params.toString());
-          next.delete("cursor");
+          for (const key of ["cursor", "mains", "seconds", "leaves"])
+            next.delete(key);
           if (path.startsWith("/reports")) next.delete("items");
           if (value) next.set("project", value);
           else next.delete("project");

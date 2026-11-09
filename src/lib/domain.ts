@@ -105,6 +105,7 @@ export type Actor = {
   job_title: string;
   role_id: string;
   role_name: string;
+  unit_supervisor?: boolean;
   is_owner: boolean;
   force_password_change: boolean;
   theme: number;
@@ -115,6 +116,8 @@ export type Actor = {
   expires_at: Date;
   remember: boolean;
 };
+export const canManageUnits = (actor: Actor) =>
+  actor.is_owner || actor.unit_supervisor === true;
 export const canViewPrices = (actor: Pick<Actor, "is_owner" | "permissions">) =>
   can(actor, "procurement.view") || can(actor, "finance.view");
 
