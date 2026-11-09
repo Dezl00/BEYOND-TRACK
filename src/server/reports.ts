@@ -50,7 +50,7 @@ function reportCte(actor: Actor, q: ProjectReportQuery) {
     SELECT m.id,m.name,m.quantity allocated,b.id boq_id,b.code,b.name boq_name,
       un.name unit_name
     FROM materials m JOIN boq_items b ON b.id=m.boq_item_id
-    JOIN units un ON un.id=b.unit_id LEFT JOIN boq_items parent ON parent.id=b.parent_id
+    JOIN units un ON un.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN boq_items parent ON parent.id=b.parent_id
     WHERE b.project_id=${q.project}::uuid AND ${projectScope(actor, sql`b.project_id`)}
     ${
       q.items.length
@@ -170,7 +170,7 @@ export async function reportOverview(actor: Actor, q: ProjectReportQuery) {
       COUNT(*) FILTER(WHERE received>0 AND received<=allocated)::int within_limit,
       (SELECT COUNT(*)::int FROM period_requests) request_count,
       (SELECT COUNT(*)::int FROM period_receipts) receipt_count,
-      (SELECT COALESCE(jsonb_agg(t),'[]'::jsonb) FROM (SELECT ${rowSelect} FROM data ORDER BY GREATEST(received/allocated,requested/allocated) DESC,code,boq_id,name,id LIMIT 6)t) top,
+      (SELECT COALESCE(jsonb_agg(t),'[]'::jsonb) FROM (SELECT ${rowSelect} FROM data ORDER BY GREATEST(received/NULLIF(allocated,0),requested/NULLIF(allocated,0)) DESC NULLS LAST,code,boq_id,name,id LIMIT 6)t) top,
       (SELECT COALESCE(jsonb_agg(jsonb_build_object('month',to_char(m.bucket,'YYYY-MM'),'requests',COALESCE(r.count,0),'receipts',COALESCE(c.count,0)) ORDER BY m.bucket),'[]'::jsonb) FROM months m LEFT JOIN trend_requests r ON r.bucket=m.bucket LEFT JOIN trend_receipts c ON c.bucket=m.bucket) trend
     FROM data`))!;
 }

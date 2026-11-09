@@ -33,11 +33,11 @@ export async function saveProject(
         tx,
       ))!;
       await tx.execute(
-        sql`UPDATE projects SET code=${v.code},name=${v.name},location=${v.location},archived=${v.archived} WHERE id=${id}`,
+        sql`UPDATE projects SET name=${v.name},location=${v.location},archived=${v.archived} WHERE id=${id}`,
       );
     } else {
       await tx.execute(
-        sql`INSERT INTO projects(id,code,name,location) VALUES (${id},${v.code},${v.name},${v.location})`,
+        sql`INSERT INTO projects(id,name,location) VALUES (${id},${v.name},${v.location})`,
       );
       await tx.execute(
         sql`INSERT INTO project_users(project_id,user_id) VALUES (${id},${a.id})`,
@@ -51,7 +51,6 @@ export async function saveProject(
       1,
       id,
       changes(old, {
-        code: v.code,
         name: v.name,
         location: v.location,
         archived: v.archived,
@@ -83,6 +82,7 @@ export async function saveBoq(a: Actor, v: z.infer<typeof boqSchema>, m: Meta) {
     } else if (v.level !== 1) throw new AppError("hierarchy");
     if (
       v.level === 3 &&
+      v.unitId &&
       !(await one(
         sql`SELECT id FROM units WHERE id=${v.unitId} AND active=true`,
         tx,
@@ -91,11 +91,11 @@ export async function saveBoq(a: Actor, v: z.infer<typeof boqSchema>, m: Meta) {
       throw new AppError("invalid");
     if (v.id)
       await tx.execute(
-        sql`UPDATE boq_items SET parent_id=${v.parentId},level=${v.level},code=${v.code},name=${v.name},description=${v.level === 3 ? v.description : null},unit_id=${v.unitId},quantity=${v.quantity},active=COALESCE(${v.active ?? null},active) WHERE id=${id}`,
+        sql`UPDATE boq_items SET parent_id=${v.parentId},level=${v.level},name=${v.name},description=${v.level === 3 ? v.description : null},unit_id=${v.unitId},quantity=${v.quantity},active=COALESCE(${v.active ?? null},active) WHERE id=${id}`,
       );
     else
       await tx.execute(
-        sql`INSERT INTO boq_items(id,project_id,parent_id,level,code,name,description,unit_id,quantity,active) VALUES (${id},${v.projectId},${v.parentId},${v.level},${v.code},${v.name},${v.level === 3 ? v.description : null},${v.unitId},${v.quantity},${v.active ?? true})`,
+        sql`INSERT INTO boq_items(id,project_id,parent_id,level,name,description,unit_id,quantity,active) VALUES (${id},${v.projectId},${v.parentId},${v.level},${v.name},${v.level === 3 ? v.description : null},${v.unitId},${v.quantity},${v.active ?? true})`,
       );
     await audit(
       tx,
@@ -107,7 +107,6 @@ export async function saveBoq(a: Actor, v: z.infer<typeof boqSchema>, m: Meta) {
       changes(old, {
         parent_id: v.parentId,
         level: v.level,
-        code: v.code,
         name: v.name,
         description: v.description,
         unit_id: v.unitId,
@@ -126,8 +125,12 @@ export async function saveMaterial(
 ) {
   requirePermission(a, `boq.${v.id ? "edit" : "create"}`);
   return db().transaction(async (tx) => {
-    const b = await one<{ project_id: string; level: number }>(
-      sql`SELECT project_id,level FROM boq_items WHERE id=${v.boqItemId}`,
+    const b = await one<{
+      project_id: string;
+      level: number;
+      unit_id: string | null;
+    }>(
+      sql`SELECT project_id,level,unit_id FROM boq_items WHERE id=${v.boqItemId}`,
       tx,
     );
     if (!b || b.level !== 3) throw new AppError("hierarchy");
@@ -140,13 +143,30 @@ export async function saveMaterial(
           )
         : {};
     if (!old) throw new AppError("notFound", 404);
+    const unitId = v.unitId || old.unit_id || b.unit_id;
+    if (
+      !(await one(
+        sql`SELECT id FROM units WHERE id=${unitId} AND active=true`,
+        tx,
+      ))
+    )
+      throw new AppError("invalid");
+    if (
+      v.id &&
+      unitId !== (old.unit_id || b.unit_id) &&
+      (await one(
+        sql`SELECT id FROM request_lines WHERE material_id=${id} LIMIT 1`,
+        tx,
+      ))
+    )
+      throw new AppError("referenced", 409);
     if (v.id)
       await tx.execute(
-        sql`UPDATE materials SET name=${v.name},quantity=${v.quantity},active=${v.active} WHERE id=${id}`,
+        sql`UPDATE materials SET unit_id=${unitId},name=${v.name},quantity=${v.quantity},active=${v.active} WHERE id=${id}`,
       );
     else
       await tx.execute(
-        sql`INSERT INTO materials(id,boq_item_id,name,quantity) VALUES (${id},${v.boqItemId},${v.name},${v.quantity})`,
+        sql`INSERT INTO materials(id,boq_item_id,unit_id,name,quantity) VALUES (${id},${v.boqItemId},${unitId},${v.name},${v.quantity})`,
       );
     await audit(
       tx,
@@ -155,7 +175,12 @@ export async function saveMaterial(
       v.id ? 1 : 0,
       3,
       id,
-      changes(old, { name: v.name, quantity: v.quantity, active: v.active }),
+      changes(old, {
+        unit_id: unitId,
+        name: v.name,
+        quantity: v.quantity,
+        active: v.active,
+      }),
       b.project_id,
     );
     return { id };

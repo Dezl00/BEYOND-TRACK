@@ -1,15 +1,13 @@
-import { readSheet } from "read-excel-file/node";
+import readWorkbook from "read-excel-file/node";
 import writeExcelFile from "write-excel-file/node";
 import { parse as parseCsv } from "csv-parse/sync";
 import { randomUUID } from "node:crypto";
-import { db, one, rows, sql } from "@/db";
+import { db, rows, sql } from "@/db";
 import type { Actor } from "@/lib/domain";
-import { boqSchema, materialSchema } from "@/lib/validation";
 import { ar } from "@/messages/ar";
 import { requirePermission, requireProject } from "./access";
 import { AppError } from "./errors";
 import { audit, type Meta } from "./events";
-import type { z } from "zod";
 function checkZip(buffer: Buffer) {
   let eocd = -1;
   for (let i = buffer.length - 22; i >= Math.max(0, buffer.length - 65557); i--)
@@ -38,47 +36,61 @@ function checkZip(buffer: Buffer) {
   }
 }
 export async function parseImport(file: File) {
-  if (file.size > 4 * 1024 * 1024 || !file.size) throw new AppError("file");
+  if (!file.size || file.size > 4 * 1024 * 1024) throw new AppError("file");
   const buffer = Buffer.from(await file.arrayBuffer());
-  let cells: unknown[][];
-  if (file.name.toLowerCase().endsWith(".xlsx")) {
+  let sheets: unknown[][][];
+  if (/\.xlsx$/i.test(file.name)) {
     checkZip(buffer);
-    cells = await readSheet(buffer);
-  } else if (file.name.toLowerCase().endsWith(".csv"))
-    cells = parseCsv(buffer, {
-      bom: true,
-      skip_empty_lines: true,
-      relax_column_count: true,
-      max_record_size: 32000,
-    }) as unknown[][];
-  else throw new AppError("import");
-  if (
-    !cells.length ||
-    cells.length > 501 ||
-    cells.some((row) => row.length > 9)
-  )
-    throw new AppError("import");
-  const headers = cells[0];
-  if (ar.boq.headers.some((h, i) => String(headers[i] ?? "").trim() !== h))
-    throw new AppError("import");
+    sheets = (await readWorkbook(buffer)).map((sheet) => sheet.data);
+  } else if (/\.csv$/i.test(file.name)) {
+    sheets = [
+      parseCsv(buffer, {
+        bom: true,
+        skip_empty_lines: true,
+        max_record_size: 32000,
+      }),
+    ];
+  } else throw new AppError("import");
   const data: string[][] = [];
-  cells.slice(1).forEach((row) => {
-    const values = Array.from({ length: 9 }, (_, i) => {
-      const cell = row[i];
+  for (const sheet of sheets) {
+    const [headers, ...body] = sheet;
+    if (!headers?.length && !body.length) continue;
+    if (
+      headers.length !== 5 ||
+      ar.boq.headers.some((h, i) => {
+        const value = String(headers[i] ?? "").trim();
+        return h !== value && !(i === 2 && value === "القسم الفرعي2");
+      })
+    )
+      throw new AppError("import");
+    for (const row of body) {
+      if (row.every((cell) => cell == null || cell === "")) continue;
       if (
-        cell !== null &&
-        cell !== undefined &&
-        typeof cell !== "string" &&
-        typeof cell !== "number"
+        row.length !== 5 ||
+        Array.from(row).some(
+          (cell) =>
+            typeof cell !== "string" ||
+            !cell.trim() ||
+            cell.trim().length > 200,
+        )
       )
         throw new AppError("import");
-      return String(cell ?? "").trim();
-    });
-    if (values.some(Boolean)) data.push(values);
-  });
+      data.push(row.map((cell) => String(cell).trim()));
+      if (data.length > 10000) throw new AppError("import");
+    }
+  }
   if (!data.length) throw new AppError("import");
   return data;
 }
+type Section = {
+  id: string;
+  parent: string | null;
+  level: number;
+  name: string;
+  unit: string | null;
+  active: boolean;
+};
+type Product = { parent: string; name: string; unit: string };
 export async function importBoq(
   a: Actor,
   projectId: string,
@@ -88,109 +100,131 @@ export async function importBoq(
   requirePermission(a, "boq.create");
   return db().transaction(async (tx) => {
     await requireProject(a, projectId, tx, true);
-    const unitRows = await rows<{ id: string; name: string; symbol: string }>(
-        sql`SELECT id,name,symbol FROM units WHERE active=true ORDER BY id LIMIT 1000`,
-        tx,
-      ),
-      items = new Map<string, { id: string; values: string[] }>();
-    for (const row of data) {
-      if (row[0].length > 60) throw new AppError("import");
-      const existing = items.get(row[0]);
+    await tx.execute(
+      sql`SELECT id FROM projects WHERE id=${projectId} FOR UPDATE`,
+    );
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(918371)`);
+    const units = await rows<{
+      id: string;
+      name: string;
+      symbol: string;
+      active: boolean;
+    }>(sql`SELECT id,name,symbol,active FROM units`, tx);
+    const unitIds = new Map<string, string>();
+    const newUnits = [];
+    for (const label of new Set(data.map((row) => row[4]))) {
+      const exact = units.filter((u) => u.name === label);
+      const matches = exact.length
+        ? exact
+        : units.filter((u) => u.symbol === label);
       if (
-        existing &&
-        existing.values.slice(0, 7).join("\u001f") !==
-          row.slice(0, 7).join("\u001f")
+        matches.length > 1 ||
+        matches[0]?.active === false ||
+        !label ||
+        label.length > 50
       )
         throw new AppError("import");
-      if (!existing) items.set(row[0], { id: randomUUID(), values: row });
+      const id = matches[0]?.id ?? randomUUID();
+      if (!matches.length)
+        newUnits.push({ id, name: label, symbol: label.slice(0, 20) });
+      unitIds.set(label, id);
     }
-    const parsed: (z.infer<typeof boqSchema> & { id: string })[] = [];
-    for (const item of [...items.values()].sort(
-      (a, b) => Number(a.values[2]) - Number(b.values[2]),
-    )) {
-      const r = item.values,
-        unit = unitRows.find((u) => u.name === r[4] || u.symbol === r[4]);
-      if (Number(r[2]) === 3 && !unit) throw new AppError("import");
-      const parent = r[3] ? items.get(r[3]) : undefined;
-      if (r[3] && !parent) throw new AppError("hierarchy");
-      const v = boqSchema.parse({
-        projectId,
-        code: r[0],
-        name: r[1],
-        level: Number(r[2]),
-        parentId: parent?.id || null,
-        unitId: unit?.id,
-        quantity: r[5],
-        description: r[6],
-      });
-      if (parent && Number(parent.values[2]) !== v.level - 1)
-        throw new AppError("hierarchy");
-      parsed.push({ ...v, id: item.id });
-    }
-    // Three ordered batches preserve parent constraints without one round trip per row.
-    for (const level of [1, 2, 3]) {
-      const batch = parsed.filter((item) => item.level === level);
-      if (batch.length)
-        await tx.execute(
-          sql`INSERT INTO boq_items(id,project_id,parent_id,level,code,name,unit_id,quantity,description) VALUES ${sql.join(
-            batch.map(
-              (v) =>
-                sql`(${v.id},${projectId},${v.parentId},${v.level},${v.code},${v.name},${v.unitId},${v.quantity},${v.level === 3 ? v.description : null})`,
-            ),
-            sql`,`,
-          )}`,
-        );
-    }
-    const parsedMaterials: z.infer<typeof materialSchema>[] = [];
-    for (const r of data) {
-      if (!r[7] && !r[8]) continue;
-      const item = items.get(r[0])!;
-      if (Number(r[2]) !== 3) throw new AppError("import");
-      const v = materialSchema.parse({
-        boqItemId: item.id,
-        name: r[7],
-        quantity: r[8],
-      });
-      parsedMaterials.push(v);
-    }
-    if (parsedMaterials.length)
-      await tx.execute(
-        sql`INSERT INTO materials(boq_item_id,name,quantity) VALUES ${sql.join(
-          parsedMaterials.map(
-            (v) => sql`(${v.boqItemId},${v.name},${v.quantity})`,
-          ),
-          sql`,`,
-        )}`,
-      );
-    const materials = parsedMaterials.length;
-    await audit(
+    if (newUnits.length)
+      await tx.execute(sql`INSERT INTO units(id,name,symbol)
+      SELECT id,name,symbol FROM jsonb_to_recordset(${JSON.stringify(newUnits)}::jsonb) AS u(id uuid,name text,symbol text)`);
+    const found = await rows<Section>(
+      sql`SELECT id,parent_id parent,level,name,unit_id unit,active FROM boq_items WHERE project_id=${projectId}`,
       tx,
-      a.id,
-      meta,
-      0,
-      2,
-      projectId,
-      { import: { codes: [...items.keys()], materials } },
-      projectId,
     );
-    return { rows: items.size, materials };
+    const key = (parent: string | null, name: string) =>
+      JSON.stringify([parent, name]);
+    const sections = new Map<string, Section>();
+    const ambiguous = new Set<string>();
+    for (const section of found) {
+      const k = key(section.parent, section.name);
+      if (sections.has(k)) ambiguous.add(k);
+      sections.set(k, section);
+    }
+    const added: Section[] = [];
+    const products = new Map<string, Product>();
+    for (const row of data) {
+      let parent: string | null = null;
+      const unit = unitIds.get(row[4])!;
+      for (let level = 1; level <= 3; level++) {
+        const name = row[level - 1],
+          k = key(parent, name);
+        let section: Section | undefined = sections.get(k);
+        if (ambiguous.has(k) || section?.active === false)
+          throw new AppError("import");
+        if (!section) {
+          section = {
+            id: randomUUID(),
+            parent,
+            level,
+            name,
+            unit: level === 3 ? unit : null,
+            active: true,
+          };
+          added.push(section);
+          sections.set(k, section);
+        } else if (level === 3 && section.unit !== unit) section.unit = null;
+        parent = section.id;
+      }
+      const product = { parent: parent!, name: row[3], unit };
+      const k = key(parent, row[3]);
+      if (products.has(k) && products.get(k)!.unit !== unit)
+        throw new AppError("import");
+      products.set(k, product);
+    }
+    for (const level of [1, 2, 3]) {
+      const batch = added.filter((s) => s.level === level);
+      if (batch.length)
+        await tx.execute(sql`INSERT INTO boq_items(id,project_id,parent_id,level,name,description,unit_id,quantity)
+        SELECT (v->>'id')::uuid,${projectId},(v->>'parent')::uuid,${level},v->>'name',
+          CASE WHEN ${level}::int=3 THEN v->>'name' END,(v->>'unit')::uuid,CASE WHEN ${level}::int=3 THEN 0 END
+          FROM jsonb_array_elements(${JSON.stringify(batch)}::jsonb) WITH ORDINALITY AS t(v,ord) ORDER BY ord`);
+    }
+    const existing = await rows<Product>(
+      sql`SELECT m.boq_item_id parent,m.name,COALESCE(m.unit_id,b.unit_id) unit FROM materials m JOIN boq_items b ON b.id=m.boq_item_id WHERE b.project_id=${projectId}`,
+      tx,
+    );
+    for (const item of existing) {
+      const k = key(item.parent, item.name);
+      if (products.has(k) && products.get(k)!.unit !== item.unit)
+        throw new AppError("import");
+      products.delete(k);
+    }
+    if (products.size)
+      await tx.execute(sql`INSERT INTO materials(boq_item_id,name,unit_id,quantity)
+      SELECT (v->>'parent')::uuid,v->>'name',(v->>'unit')::uuid,0 FROM jsonb_array_elements(${JSON.stringify([...products.values()])}::jsonb) WITH ORDINALITY AS t(v,ord) ORDER BY ord`);
+    const result = {
+      rows: added.length,
+      materials: products.size,
+      units: newUnits.length,
+    };
+    if (result.rows || result.materials || result.units)
+      await audit(
+        tx,
+        a.id,
+        meta,
+        0,
+        2,
+        projectId,
+        { import: result },
+        projectId,
+      );
+    return result;
   });
 }
 export async function importTemplate() {
-  const data: (string | number)[][] = [
-    [...ar.boq.headers],
-    ["01", ar.seed.sampleMain, 1, "", "", "", "", "", ""],
-    ["01.01", ar.seed.sampleSecondary, 2, "01", "", "", "", "", ""],
+  const data = [
+    ar.boq.headers,
     [
-      "01.01.01",
+      ar.seed.sampleMain,
+      ar.seed.sampleSecondary,
       ar.seed.sampleSub,
-      3,
-      "01.01",
-      ar.seed.units[2][0],
-      100,
-      ar.seed.sampleDescription,
       ar.seed.sampleMaterial,
-      100,
+      ar.seed.units[2][0],
     ],
   ];
   return writeExcelFile(
@@ -205,7 +239,7 @@ export async function importTemplate() {
       sheet: ar.boq.title,
       rightToLeft: true,
       stickyRowsCount: 1,
-      columns: ar.boq.headers.map((_, i) => ({ width: i === 6 ? 50 : 22 })),
+      columns: [24, 24, 28, 48, 15].map((width) => ({ width })),
     },
     { fontFamily: "IBM Plex Sans Arabic", fontSize: 11 },
   ).toBuffer();

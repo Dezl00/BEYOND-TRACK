@@ -32,19 +32,15 @@ export default async function ImportPage({
             </thead>
             <tbody>
               <tr>
-                <td>
-                  <bdi className="code">01.01.01</bdi>
-                </td>
-                <td>{ar.seed.sampleSub}</td>
-                <td>3</td>
-                <td>
-                  <bdi className="code">01.01</bdi>
-                </td>
-                <td>{ar.seed.units[2][0]}</td>
-                <td>100</td>
-                <td>{ar.seed.sampleDescription}</td>
-                <td>{ar.seed.sampleMaterial}</td>
-                <td>100</td>
+                {[
+                  ar.seed.sampleMain,
+                  ar.seed.sampleSecondary,
+                  ar.seed.sampleSub,
+                  ar.seed.sampleMaterial,
+                  ar.seed.units[2][0],
+                ].map((cell, i) => (
+                  <td key={i}>{cell}</td>
+                ))}
               </tr>
             </tbody>
           </table>

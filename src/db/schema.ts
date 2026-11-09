@@ -149,6 +149,8 @@ export const materials = pgTable(
   "materials",
   {
     id: id(),
+    code: varchar("code", { length: 60 }).notNull(),
+    unitId: uuid("unit_id").references(() => units.id),
     boqItemId: uuid("boq_item_id")
       .notNull()
       .references(() => boqItems.id),

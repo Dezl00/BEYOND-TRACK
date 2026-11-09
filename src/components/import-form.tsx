@@ -33,7 +33,9 @@ export default function ImportForm({ project }: { project?: string }) {
           const r = await fetch("/api/import", { method: "POST", body: form }),
             data = await r.json();
           if (!r.ok) throw new Error(data.error);
-          setSuccess(`${ar.boq.imported}: ${data.rows}`);
+          setSuccess(
+            `تمت إضافة ${data.rows} قسم و${data.materials} مادة و${data.units} وحدة.`,
+          );
           router.refresh();
         } catch (e) {
           setError(
@@ -47,6 +49,11 @@ export default function ImportForm({ project }: { project?: string }) {
       }}
     >
       <Message error={error} success={success} />
+      <p className="muted">
+        كل صف يمثل مادة واحدة. تُقرأ جميع أوراق Excel، وتُنشأ الأكواد والوحدات
+        الجديدة تلقائيًا بكمية ابتدائية صفر. يمكنك إعادة رفع الملف لإضافة المواد
+        الجديدة.
+      </p>
       <div className="fields">
         <Field label={ar.common.project}>
           <Lookup resource="projects" value={projectId} onChange={setProject} />

@@ -48,7 +48,6 @@ export default function ResourceForm({
   const initialState = (): Data => ({
     id: initial?.id,
     name: initial?.name || "",
-    code: initial?.code || "",
     location: initial?.location || "",
     archived: initial?.archived || false,
     active: initial?.active ?? true,
@@ -58,7 +57,7 @@ export default function ResourceForm({
     level: initial?.level || 1,
     description: initial?.description || "",
     unitId: initial?.unit_id || "",
-    quantity: decimalText(initial?.quantity),
+    quantity: decimalText(initial?.quantity) || "0",
     boqItemId: initial?.boq_item_id || "",
     email: initial?.email || "",
     username: initial?.username || "",
@@ -112,6 +111,7 @@ export default function ResourceForm({
     try {
       const values = {
         ...state,
+        unitId: state.unitId || null,
         ...(resource === "user" && !state.password
           ? { password: undefined }
           : {}),
@@ -161,7 +161,6 @@ export default function ResourceForm({
           {text("name", ar.fields.name, { maxLength: 200 })}
           {resource === "project" ? (
             <>
-              {text("code", ar.fields.code)}
               {text("location", ar.fields.location)}
               {initial ? check("archived", ar.common.archive) : null}
             </>
@@ -175,7 +174,6 @@ export default function ResourceForm({
           ) : null}
           {resource === "boq" ? (
             <>
-              {text("code", ar.fields.code)}
               <Field label={ar.common.project}>
                 <Lookup
                   resource="projects"
@@ -249,6 +247,14 @@ export default function ResourceForm({
                   value={String(state.boqItemId)}
                   initialLabel={String(initial?.boq_name || "")}
                   onChange={(value) => set("boqItemId", value)}
+                />
+              </Field>
+              <Field label={ar.fields.unit}>
+                <Lookup
+                  resource="units"
+                  value={String(state.unitId || "")}
+                  initialLabel={String(initial?.unit_name || "")}
+                  onChange={(value) => set("unitId", value)}
                 />
               </Field>
               <NumberField

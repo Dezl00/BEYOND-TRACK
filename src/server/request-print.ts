@@ -38,7 +38,7 @@ export async function printRequestLines(
     l.quantity::text,l.notes,${prices && canViewPrices(actor) ? sql`l.price::text` : sql`null`} price,
     COALESCE(rec.received,0)::text received
     FROM request_lines l JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id
-    JOIN units un ON un.id=b.unit_id LEFT JOIN LATERAL (
+    JOIN units un ON un.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL (
       SELECT SUM(accepted-returned) received FROM receipt_lines WHERE request_line_id=l.id
     ) rec ON true WHERE l.request_id=${id}::uuid ORDER BY b.code,b.id,m.name,l.id LIMIT 100`);
 }
@@ -88,7 +88,7 @@ export async function printReceipts(actor: Actor, id: string, cursor?: string) {
       'accepted',rl.accepted::text,'damaged',rl.damaged::text,'rejected',rl.rejected::text,'returned',rl.returned::text
     ) ORDER BY bi.code,bi.id,m.name,l.id)
     FROM receipt_lines rl JOIN request_lines l ON l.id=rl.request_line_id
-    JOIN materials m ON m.id=l.material_id JOIN boq_items bi ON bi.id=m.boq_item_id JOIN units un ON un.id=bi.unit_id
+    JOIN materials m ON m.id=l.material_id JOIN boq_items bi ON bi.id=m.boq_item_id JOIN units un ON un.id=COALESCE(m.unit_id,bi.unit_id)
     WHERE rl.receipt_id=b.id),'[]'::jsonb) lines FROM batch b ORDER BY b.created_at,b.id`),
     true,
   );

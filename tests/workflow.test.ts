@@ -180,6 +180,7 @@ beforeAll(async () => {
     "drizzle/generated/0004_military_onslaught.sql",
     "drizzle/generated/0005_boq_leaf_measurements.sql",
     "drizzle/generated/0006_fixed_fixer.sql",
+    "drizzle/generated/0007_catalog_materials.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
@@ -188,6 +189,7 @@ beforeAll(async () => {
     "drizzle/custom/0006_pricing_and_receipts.sql",
     "drizzle/custom/0007_boq_leaf_measurements.sql",
     "drizzle/custom/0008_whatsapp.sql",
+    "drizzle/custom/0009_catalog_codes.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -903,14 +905,14 @@ describe("Arabic BOQ import", () => {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       }),
     );
-    expect(data).toHaveLength(3);
-    expect(data.slice(0, 2).map((row) => row.slice(4, 6))).toEqual([
-      ["", ""],
-      ["", ""],
-    ]);
+    expect(data).toHaveLength(1);
     const imported = await importBoq(owner, ids.p2, data, meta);
-    expect(imported).toEqual({ rows: 3, materials: 1 });
-    await expect(importBoq(owner, ids.p2, data, meta)).rejects.toThrow();
+    expect(imported).toEqual({ rows: 3, materials: 1, units: 0 });
+    await expect(importBoq(owner, ids.p2, data, meta)).resolves.toEqual({
+      rows: 0,
+      materials: 0,
+      units: 0,
+    });
     expect(
       (
         await pg.query<{ n: number }>(
@@ -919,6 +921,42 @@ describe("Arabic BOQ import", () => {
         )
       ).rows[0].n,
     ).toBe(3);
+  });
+  it("numbers mixed-unit materials under one leaf without code collisions", async () => {
+    const data = Array.from({ length: 12 }, (_, i) => [
+      "قسم دليل",
+      "ثانوي دليل",
+      "فرعي دليل",
+      "صنف " + i,
+      i % 2 ? "م³" : "وحدة دليل",
+    ]);
+    expect(await importBoq(owner, ids.p2, data, meta)).toEqual({
+      rows: 3,
+      materials: 12,
+      units: 1,
+    });
+    const items = await pg.query<{
+      code: string;
+      leaf: string;
+      quantity: string;
+      unit: string;
+    }>(
+      "SELECT m.code,b.code leaf,m.quantity,u.symbol unit FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=m.unit_id WHERE b.name='فرعي دليل' ORDER BY m.name",
+    );
+    expect(new Set(items.rows.map((r) => r.code)).size).toBe(12);
+    expect(
+      items.rows.every(
+        (r) => Number(r.quantity) === 0 && r.code.startsWith(r.leaf),
+      ),
+    ).toBe(true);
+    expect(new Set(items.rows.map((r) => r.unit))).toEqual(
+      new Set(["م³", "وحدة دليل"]),
+    );
+    expect(await importBoq(owner, ids.p2, data, meta)).toEqual({
+      rows: 0,
+      materials: 0,
+      units: 0,
+    });
   });
   it("saves and lists unmeasured parent items, including parents from older records", async () => {
     const fields = { projectId: ids.p1, code: "TEST-MAIN", name: "بند رئيسي" };
@@ -948,7 +986,7 @@ describe("Arabic BOQ import", () => {
     expect(boqSchema.safeParse({ ...leaf, unitId: ids.unit }).success).toBe(
       false,
     );
-    await saveBoq(
+    const savedLeaf = await saveBoq(
       owner,
       boqSchema.parse({ ...leaf, unitId: ids.unit, quantity: "1.25" }),
       meta,
@@ -980,10 +1018,9 @@ describe("Arabic BOQ import", () => {
         }),
       );
     await expect(
-      pg.query(
-        "UPDATE boq_items SET quantity=NULL WHERE code='TEST-LEAF' AND project_id=$1",
-        [ids.p1],
-      ),
+      pg.query("UPDATE boq_items SET quantity=NULL WHERE id=$1", [
+        savedLeaf.id,
+      ]),
     ).rejects.toThrow();
   });
   it("rejects an unauthorized importer and mismatched Arabic headers", async () => {

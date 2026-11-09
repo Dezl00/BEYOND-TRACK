@@ -85,7 +85,7 @@ export async function saveRequest(
       sql`SELECT m.id,m.quantity,m.active,b.project_id FROM materials m JOIN boq_items b ON b.id=m.boq_item_id WHERE m.id IN (${sql.join(
         ids.map((id) => sql`${id}::uuid`),
         sql`,`,
-      )}) AND b.level=3 AND b.active=true AND EXISTS(SELECT 1 FROM units un WHERE un.id=b.unit_id AND un.active=true) AND NOT EXISTS(SELECT 1 FROM boq_items pa LEFT JOIN boq_items grand ON grand.id=pa.parent_id WHERE pa.id=b.parent_id AND (pa.active=false OR grand.active=false)) ORDER BY m.id FOR UPDATE OF m`,
+      )}) AND b.level=3 AND b.active=true AND EXISTS(SELECT 1 FROM units un WHERE un.id=COALESCE(m.unit_id,b.unit_id) AND un.active=true) AND NOT EXISTS(SELECT 1 FROM boq_items pa LEFT JOIN boq_items grand ON grand.id=pa.parent_id WHERE pa.id=b.parent_id AND (pa.active=false OR grand.active=false)) ORDER BY m.id FOR UPDATE OF m`,
       tx,
     );
     if (

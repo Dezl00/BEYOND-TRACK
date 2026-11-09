@@ -140,12 +140,6 @@ export const receiptSchema = z
   );
 export const projectSchema = z.object({
   id: uuid.optional(),
-  code: z
-    .string()
-    .trim()
-    .min(1)
-    .max(30)
-    .regex(/^[A-Za-z0-9_-]+$/),
   name: short,
   location: z.string().trim().max(200).default(""),
   archived: z.boolean().default(false),
@@ -154,7 +148,6 @@ const boqFields = z.object({
   id: uuid.optional(),
   projectId: uuid,
   parentId: uuid.nullable(),
-  code: z.string().trim().min(1).max(60),
   name: short,
   description: z.string().trim().max(4000).default(""),
   active: z.boolean().optional(),
@@ -162,7 +155,11 @@ const boqFields = z.object({
 export const boqSchema = z
   .discriminatedUnion("level", [
     boqFields.extend({ level: z.union([z.literal(1), z.literal(2)]) }),
-    boqFields.extend({ level: z.literal(3), unitId: uuid, quantity: qty }),
+    boqFields.extend({
+      level: z.literal(3),
+      unitId: uuid.nullable(),
+      quantity: nonnegative,
+    }),
   ])
   .refine(
     (v) => (v.level === 3 ? !!v.description : !v.description),
@@ -174,8 +171,9 @@ export const boqSchema = z
 export const materialSchema = z.object({
   id: uuid.optional(),
   boqItemId: uuid,
+  unitId: uuid.nullish(),
   name: short,
-  quantity: qty,
+  quantity: nonnegative,
   active: z.boolean().default(true),
 });
 export const supplierSchema = z.object({
