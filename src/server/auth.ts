@@ -43,7 +43,7 @@ export const currentActor = cache(async (): Promise<Actor | null> => {
   const value = (await cookies()).get(sessionCookie)?.value;
   if (!value || !/^[a-f0-9]{64}$/.test(value)) return null;
   const a = await one<Actor>(
-    sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.role_id,u.is_owner,u.force_password_change,u.theme,u.otp_enabled,u.otp_exempt,r.name role_name,r.unit_supervisor,s.id session_id,s.expires_at,s.remember,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions FROM sessions s JOIN users u ON u.id=s.user_id JOIN roles r ON r.id=u.role_id WHERE (s.token_hash=${hash(value)} OR (s.previous_token_hash=${hash(value)} AND s.previous_until>now())) AND s.expires_at>now() AND u.deleted_at IS NULL AND r.active=true AND (u.locked=false OR u.is_owner=true) LIMIT 1`,
+    sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.role_id,u.is_owner,u.force_password_change,u.theme,u.otp_enabled,u.otp_exempt,r.name role_name,r.unit_supervisor,r.workflow_role,s.id session_id,s.expires_at,s.remember,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions FROM sessions s JOIN users u ON u.id=s.user_id JOIN roles r ON r.id=u.role_id WHERE (s.token_hash=${hash(value)} OR (s.previous_token_hash=${hash(value)} AND s.previous_until>now())) AND s.expires_at>now() AND u.deleted_at IS NULL AND r.active=true AND (u.locked=false OR u.is_owner=true) LIMIT 1`,
   );
   return a || null;
 });

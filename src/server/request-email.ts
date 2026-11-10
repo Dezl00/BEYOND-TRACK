@@ -25,7 +25,7 @@ export async function prepareRequestEmail(
   if (!request) return null;
   const prices = canViewPrices(actor);
   const lines = await rows<MailLine>(
-    sql`SELECT m.code,m.name,u.name unit,l.quantity,${prices ? sql`l.price` : sql`NULL`} price,l.notes,COALESCE(rec.accepted,0) accepted,COALESCE(rec.damaged,0) damaged,COALESCE(rec.rejected,0) rejected,COALESCE(rec.returned,0) returned FROM request_lines l JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL(SELECT SUM(accepted) accepted,SUM(damaged) damaged,SUM(rejected) rejected,SUM(returned) returned FROM receipt_lines WHERE request_line_id=l.id)rec ON true WHERE l.request_id=${requestId} ORDER BY m.code,m.name`,
+    sql`SELECT m.code,m.name,u.name unit,l.quantity,${prices ? sql`l.price` : sql`NULL`} price,concat_ws(' · ',NULLIF(l.notes,''),CASE WHEN l.review_status=2 THEN 'ملاحظة الرفض: '||l.review_note END) notes,COALESCE(rec.accepted,0) accepted,COALESCE(rec.damaged,0) damaged,COALESCE(rec.rejected,0) rejected,COALESCE(rec.returned,0) returned FROM request_lines l JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL(SELECT SUM(accepted) accepted,SUM(damaged) damaged,SUM(rejected) rejected,SUM(returned) returned FROM receipt_lines WHERE request_line_id=l.id)rec ON true WHERE l.request_id=${requestId} ORDER BY m.code,m.name`,
   );
   if (prices)
     request.quotes = await rows<MailQuote>(

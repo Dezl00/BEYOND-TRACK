@@ -2,9 +2,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ar } from "@/messages/ar";
-import { type Actor, can } from "@/lib/domain";
+import {
+  type Actor,
+  can,
+  canApproveOverage,
+  approvalPermission,
+  transitions,
+} from "@/lib/domain";
 import type { Quote } from "@/lib/quotations";
-import { orderSchema, transitionSchema } from "@/lib/validation";
+import type { RequestAttachment } from "@/lib/attachments";
+import { transitionSchema } from "@/lib/validation";
 import { Button, Modal, Field, Message, command } from "./ui";
 import {
   QuotationEditor,
@@ -12,21 +19,31 @@ import {
   type RequestLine,
 } from "./quotation-editor";
 import ReceiptForm from "./receipt-form";
+import TechnicalReview from "./technical-review";
+import PaymentForm from "./payment-form";
 export function RequestActions({
   actor,
   request,
   lines,
   quotes,
+  attachments = [],
   pendingOverage,
 }: {
-  actor: Actor;
-  request: { id: string; status: number; version: number };
+  actor: Pick<Actor, "id" | "is_owner" | "permissions" | "workflow_role">;
+  request: {
+    id: string;
+    status: number;
+    version: number;
+    pricing_revision?: number;
+    created_by?: string;
+  };
   lines: RequestLine[];
   quotes: Quote[];
+  attachments?: RequestAttachment[];
   pendingOverage: boolean;
 }) {
-  const router = useRouter(),
-    [mode, setMode] = useState(""),
+  const router = useRouter();
+  const [mode, setMode] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [reason, setReason] = useState("");
@@ -39,17 +56,12 @@ export function RequestActions({
     setMode("");
     router.refresh();
   }
-  async function submit(e: React.SubmitEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function submit(event: React.SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      if (mode === "order")
-        await command(
-          "order",
-          orderSchema.parse({ id: request.id, version: request.version }),
-        );
-      else if (mode === "overage") await command("overage", { id: request.id });
+      if (mode === "overage") await command("overage", { id: request.id });
       else
         await command(
           "transition",
@@ -61,124 +73,136 @@ export function RequestActions({
           }),
         );
       done();
-    } catch (e) {
+    } catch (error) {
       setError(
-        e instanceof Error && !("issues" in e) ? e.message : ar.errors.invalid,
+        error instanceof Error && !("issues" in error)
+          ? error.message
+          : ar.errors.invalid,
       );
     } finally {
       setBusy(false);
     }
   }
-  const approvalPermission =
-    request.status === 1
-      ? "technical.approve"
-      : [9, 10].includes(request.status)
-        ? "finance.approve"
-        : "procurement.approve";
+  const status = request.status;
+  const approver = can(actor, approvalPermission(status));
+  const own = actor.is_owner || request.created_by === actor.id;
+  const nextApproval: Record<number, number> = { 12: 1, 13: 1, 15: 2, 5: 6 };
   return (
     <>
       <div className="row">
-        {request.status === 0 && can(actor, "requests.create") ? (
-          <Button intent="blue" onClick={() => open("1")}>
+        {status === 0 && own && can(actor, "requests.create") ? (
+          <Button intent="blue" onClick={() => open("12")}>
             {ar.common.submit}
           </Button>
         ) : null}
-        {!pendingOverage &&
-        request.status === 1 &&
-        can(actor, "technical.approve") ? (
-          <Button intent="blue" onClick={() => open("9")}>
-            {ar.common.approve}
+        {!pendingOverage && nextApproval[status] !== undefined && approver ? (
+          <Button
+            intent="green"
+            onClick={() => open(String(nextApproval[status]))}
+          >
+            {status === 5 ? ar.common.finish : ar.common.approve}
           </Button>
         ) : null}
-        {!pendingOverage &&
-        request.status === 9 &&
-        can(actor, "finance.approve") ? (
-          <Button intent="green" onClick={() => open("2")}>
-            {ar.common.approve}
+        {!pendingOverage && status === 1 && approver ? (
+          <Button intent="blue" onClick={() => open("technical")}>
+            مراجعة واعتماد البنود
           </Button>
         ) : null}
+        {status === 12 && approver ? (
+          <Button onClick={() => open("13")}>تعليق الطلب</Button>
+        ) : null}
         {!pendingOverage &&
-        [2, 10, 11].includes(request.status) &&
-        can(actor, "procurement.approve") &&
-        can(actor, "procurement.edit") ? (
+        status === 2 &&
+        can(actor, "procurement.edit") &&
+        approver ? (
           <Button intent="blue" onClick={() => open("quotes")}>
-            {request.status === 2 ? "تسجيل عروض الأسعار" : "تعديل عروض الأسعار"}
+            تسجيل عرض السعر
           </Button>
         ) : null}
-        {request.status === 10 && can(actor, "finance.approve") ? (
+        {status === 10 && approver ? (
           <>
-            {!pendingOverage && (
+            {!pendingOverage ? (
               <Button intent="green" onClick={() => open("11")}>
                 اعتماد التسعير
               </Button>
-            )}
+            ) : null}
             <Button onClick={() => open("returnPricing")}>
-              إرجاع التسعير للمشتريات
+              إرجاع للمشتريات
             </Button>
           </>
         ) : null}
-        {!pendingOverage &&
-        request.status === 11 &&
-        can(actor, "procurement.approve") &&
-        can(actor, "procurement.edit") ? (
-          <Button intent="blue" onClick={() => open("order")}>
-            {ar.common.order}
+        {!pendingOverage && status === 11 && approver ? (
+          <Button intent="green" onClick={() => open("payment")}>
+            تأكيد الدفع
           </Button>
         ) : null}
-        {[3, 4, 5].includes(request.status) && can(actor, "receipts.create") ? (
+        {[3, 4, 5].includes(status) && can(actor, "receipts.create") ? (
           <Button intent="green" onClick={() => open("receipt")}>
             {ar.common.receive}
           </Button>
         ) : null}
-        {!pendingOverage &&
-        request.status === 5 &&
-        can(actor, "procurement.approve") ? (
-          <Button intent="green" onClick={() => open("6")}>
-            {ar.common.finish}
-          </Button>
-        ) : null}
         {pendingOverage &&
-        [1, 2, 5, 9, 10, 11].includes(request.status) &&
-        can(actor, "requests.approve") ? (
+        [1, 2, 5, 10, 11, 12, 13, 15].includes(status) &&
+        canApproveOverage(actor) ? (
           <Button intent="green" onClick={() => open("overage")}>
             {ar.common.approveOverage}
           </Button>
         ) : null}
-        {[1, 2, 9, 10].includes(request.status) &&
-        can(actor, approvalPermission) ? (
+        {[12, 13, 15].includes(status) && approver ? (
           <Button intent="red" onClick={() => open("7")}>
             {ar.common.reject}
           </Button>
         ) : null}
-        {[0, 1, 2, 3, 9, 10, 11].includes(request.status) &&
-        can(actor, "requests.delete") ? (
+        {transitions[status]?.includes(8) && can(actor, "requests.delete") ? (
           <Button intent="red" onClick={() => open("8")}>
             {ar.common.cancel}
           </Button>
         ) : null}
-        {request.status === 7 && can(actor, "requests.edit") ? (
+        {status === 7 && own && can(actor, "requests.edit") ? (
           <Button onClick={() => open("0")}>{ar.common.restore}</Button>
         ) : null}
       </div>
       <Modal
         title={
-          mode === "quotes"
-            ? "عروض الأسعار"
-            : mode === "receipt"
-              ? ar.requests.newReceipt
-              : ar.common.confirmation
+          mode === "technical"
+            ? "مراجعة البنود"
+            : mode === "quotes"
+              ? "عرض السعر"
+              : mode === "payment"
+                ? "الدفع"
+                : mode === "receipt"
+                  ? ar.requests.newReceipt
+                  : ar.common.confirmation
         }
         open={!!mode}
-        onOpenChange={(v) => {
-          if (!v && !busy) setMode("");
+        onOpenChange={(value) => {
+          if (!value && !busy) setMode("");
         }}
-        wide={["quotes", "receipt", "11", "order"].includes(mode)}
+        wide={["technical", "quotes", "payment", "receipt", "11"].includes(
+          mode,
+        )}
       >
-        {mode === "quotes" ? (
+        {mode === "technical" ? (
+          <TechnicalReview
+            request={request}
+            lines={lines}
+            onDone={done}
+            onBusyChange={setBusy}
+          />
+        ) : mode === "quotes" ? (
           <QuotationEditor
             request={request}
             lines={lines}
             quotes={quotes}
+            attachments={attachments}
+            onDone={done}
+            onBusyChange={setBusy}
+          />
+        ) : mode === "payment" ? (
+          <PaymentForm
+            request={request}
+            quotes={quotes}
+            lines={lines}
             onDone={done}
             onBusyChange={setBusy}
           />
@@ -192,26 +216,42 @@ export function RequestActions({
         ) : (
           <form className="stack" noValidate onSubmit={submit}>
             <Message error={error} />
-            {["7", "8", "returnPricing"].includes(mode) ? (
+            {["7", "8", "13", "returnPricing"].includes(mode) ? (
               <Field label={ar.fields.reason}>
                 <textarea
                   className="input"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   maxLength={1000}
+                  required
                 />
               </Field>
-            ) : ["11", "order"].includes(mode) ? (
+            ) : mode === "11" ? (
               <>
-                <p>
-                  {mode === "11"
-                    ? "اعتماد العرض المرشح بالتكلفة المعروضة؟"
-                    : "تأكيد التوريد وفق العرض المعتمد؟"}
-                </p>
                 <QuoteSummary
                   quotes={quotes.filter((q) => q.selected)}
                   lines={lines}
                 />
+                {attachments
+                  .filter((f) =>
+                    quotes.some(
+                      (q) => q.selected && q.attachment_ids?.includes(f.id),
+                    ),
+                  )
+                  .map((f) => (
+                    <a
+                      key={f.id}
+                      className="attachment"
+                      href={`/api/attachments/${f.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {f.purpose === "alternative"
+                        ? "عرض سعر آخر"
+                        : "عرض السعر"}{" "}
+                      · {f.name}
+                    </a>
+                  ))}
               </>
             ) : (
               <p>

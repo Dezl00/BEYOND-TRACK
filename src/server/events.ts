@@ -43,9 +43,10 @@ export async function notify(
   requestId: string,
   type: number,
   actorId: string,
+  technicalReturn = false,
 ) {
   await conn.execute(
-    sql`INSERT INTO outbox(kind,payload) VALUES (1,${JSON.stringify({ requestId, type, actorId })}::jsonb)`,
+    sql`INSERT INTO outbox(kind,payload) VALUES (1,${JSON.stringify({ requestId, type, actorId, ...(technicalReturn && { technicalReturn }) })}::jsonb)`,
   );
 }
 export async function queueEmail(

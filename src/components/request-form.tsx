@@ -12,6 +12,7 @@ type Line = {
   quantity: string;
   notes: string;
   label?: string;
+  reviewNote?: string;
   key: string;
 };
 export default function RequestForm({
@@ -38,6 +39,7 @@ export default function RequestForm({
         materialId: String(l.material_id),
         quantity: decimalText(l.quantity),
         notes: String(l.notes),
+        reviewNote: String(l.review_note || ""),
         label: String(l.material_name),
       })) || [{ key: "first", materialId: "", quantity: "", notes: "" }],
     ),
@@ -49,6 +51,10 @@ export default function RequestForm({
     );
   }
   async function save(submit: boolean) {
+    if (submit && !notes.trim()) {
+      setError(ar.errors.usageScope);
+      return;
+    }
     setError("");
     setBusy(true);
     try {
@@ -58,7 +64,7 @@ export default function RequestForm({
         projectId,
         notes,
         submit,
-        lines: lines.map(({ key, label, ...rest }) => rest),
+        lines: lines.map(({ key, label, reviewNote, ...rest }) => rest),
       });
       const result = await command("request", data);
       router.push(`/requests/${result.id}`);
@@ -102,12 +108,13 @@ export default function RequestForm({
               }}
             />
           </Field>
-          <Field label={ar.fields.notes}>
+          <Field label="نطاق الاستخدام">
             <textarea
               className="input"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               maxLength={2000}
+              required
             />
           </Field>
         </div>
@@ -156,6 +163,9 @@ export default function RequestForm({
                 onChange={(value) => update(line.key, "quantity", value)}
               />
               <div className="line-note">
+                {line.reviewNote ? (
+                  <p className="review-note text-red">{line.reviewNote}</p>
+                ) : null}
                 <Field label={ar.fields.notes}>
                   <input
                     className="input"
@@ -189,7 +199,9 @@ export default function RequestForm({
         ) : null}
         <Button intent="blue" type="submit" pending={busy}>
           <Send size={16} />
-          {initial && initial.status !== 0 ? ar.common.save : ar.common.submit}
+          {initial && ![0, 14].includes(initial.status)
+            ? ar.common.save
+            : ar.common.submit}
         </Button>
       </div>
     </form>

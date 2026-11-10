@@ -110,12 +110,14 @@ describe("BOQ resource form", () => {
 describe("Request approval controls", () => {
   const props = { actor: { is_owner: true } as Actor, lines: [], quotes: [] };
   it.each([
-    [1, ar.common.approve],
-    [9, ar.common.approve],
+    [1, "مراجعة واعتماد البنود"],
+    [12, ar.common.approve],
+    [15, ar.common.approve],
+    [13, ar.common.approve],
     [10, "اعتماد التسعير"],
-    [11, ar.common.order],
+    [11, "تأكيد الدفع"],
     [5, ar.common.finish],
-    [2, "تسجيل عروض الأسعار"],
+    [2, "تسجيل عرض السعر"],
   ] as const)(
     "switches the action for a pending overage in stage %s",
     (status, ordinary) => {

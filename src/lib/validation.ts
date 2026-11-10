@@ -75,16 +75,53 @@ export const requestSchema = z
   .refine(
     (v) => new Set(v.lines.map((l) => l.materialId)).size === v.lines.length,
     ar.errors.duplicate,
-  );
+  )
+  .refine((v) => !v.submit || v.notes.length > 0, {
+    message: "نطاق الاستخدام مطلوب",
+    path: ["notes"],
+  });
 export const transitionSchema = z.object({
   id: uuid,
   version: z.number().int().positive(),
-  status: z.number().int().min(0).max(11),
+  status: z.number().int().min(0).max(15),
   reason: z.string().trim().max(1000).default(""),
 });
+export const attachmentIds = z
+  .array(uuid)
+  .max(20)
+  .refine((v) => new Set(v).size === v.length);
 export const orderSchema = z
-  .object({ id: uuid, version: z.number().int().positive() })
+  .object({
+    id: uuid,
+    version: z.number().int().positive(),
+    key: uuid,
+    attachmentIds: attachmentIds.refine(
+      (v) => v.length > 0,
+      "إيصال الدفع مطلوب",
+    ),
+  })
   .strict();
+export const technicalReviewSchema = z
+  .object({
+    id: uuid,
+    version: z.number().int().positive(),
+    lines: z
+      .array(
+        z
+          .object({
+            id: uuid,
+            approved: z.boolean(),
+            note: z.string().trim().max(1000).default(""),
+          })
+          .refine((v) => v.approved || v.note.length > 0, {
+            message: "ملاحظة الرفض مطلوبة",
+            path: ["note"],
+          }),
+      )
+      .min(1)
+      .max(100),
+  })
+  .refine((v) => new Set(v.lines.map((l) => l.id)).size === v.lines.length);
 const offerSchema = z.object({
   supplierId: uuid,
   expectedAt: dateOnly,
@@ -97,14 +134,19 @@ export const quotationsSchema = z
   .object({
     id: uuid,
     version: z.number().int().positive(),
-    selectedIndex: z.number().int().min(0),
-    offers: z.array(offerSchema).min(1).max(10),
+    selectedIndex: z.literal(0),
+    offers: z.array(offerSchema).length(1),
+    uploadKey: uuid,
+    attachmentIds: attachmentIds.refine(
+      (v) => v.length > 0,
+      "مرفق عرض السعر مطلوب",
+    ),
+    alternativeAttachmentIds: attachmentIds.default([]),
   })
   .refine(
     (v) =>
-      v.selectedIndex < v.offers.length &&
-      new Set(v.offers.map((o) => o.supplierId)).size === v.offers.length,
-    ar.errors.quoteSuppliers,
+      new Set([...v.attachmentIds, ...v.alternativeAttachmentIds]).size ===
+      v.attachmentIds.length + v.alternativeAttachmentIds.length,
   );
 export const receiptSchema = z
   .object({
@@ -242,7 +284,7 @@ export const userSchema = z
 export const roleSchema = z.object({
   id: uuid.optional(),
   name: z.string().trim().min(1).max(100),
-  permissions: z.array(z.string().min(1).max(80)).max(100),
+  permissions: z.array(z.string().min(1).max(80)).max(120),
   active: z.boolean().optional(),
 });
 export const settingsSchema = z
@@ -301,7 +343,7 @@ export const listQuerySchema = z.object({
   seconds: sectionIds,
   leaves: sectionIds,
   selectable: z.enum(["1"]).optional(),
-  status: z.coerce.number().int().min(0).max(11).optional(),
+  status: z.coerce.number().int().min(0).max(15).optional(),
   user: uuid.optional(),
   action: z.coerce.number().int().min(0).max(13).optional(),
   entity: z.coerce.number().int().min(0).max(11).optional(),

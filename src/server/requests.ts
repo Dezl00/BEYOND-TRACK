@@ -1,3 +1,4 @@
+import { linkAttachments } from "./attachments";
 import { receiptQuantityError } from "@/lib/receiving";
 import type { QuotePrice } from "@/lib/quotations";
 import { randomUUID } from "node:crypto";
@@ -10,6 +11,7 @@ import {
   editable,
   receiptStatus,
   transitions,
+  approvalPermission,
 } from "@/lib/domain";
 import {
   requestSchema,
@@ -17,6 +19,7 @@ import {
   orderSchema,
   quotationsSchema,
   receiptSchema,
+  technicalReviewSchema,
 } from "@/lib/validation";
 import {
   requirePermission,
@@ -39,7 +42,7 @@ export async function overages(id: string, conn: Executor = db()) {
     approved: boolean;
     over: boolean;
   }>(
-    sql`SELECT l.id,l.quantity,l.overage_approved_by IS NOT NULL approved,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests r ON r.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (r.status BETWEEN 1 AND 6 OR r.status IN(9,10,11))),0)>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id WHERE l.request_id=${id}`,
+    sql`SELECT l.id,l.quantity,l.overage_approved_by IS NOT NULL approved,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests r ON r.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (r.status BETWEEN 1 AND 6 OR r.status IN(9,10,11,12,13,14,15))),0)>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id WHERE l.request_id=${id}`,
     conn,
   );
 }
@@ -63,12 +66,21 @@ export async function saveRequest(
   input: z.infer<typeof requestSchema>,
   meta: Meta,
 ) {
+  if (input.submit && !input.notes.trim()) throw new AppError("usageScope");
   requirePermission(actor, input.id ? "requests.edit" : "requests.create");
   return db().transaction(async (tx) => {
     await requireProject(actor, input.projectId, tx, true);
     let existing: RequestRow | undefined;
     if (input.id) {
       existing = await requireRequest(actor, input.id, tx, true);
+      if (
+        [3, 4, 5, 6].includes(existing.status) ||
+        (await one(
+          sql`SELECT id FROM request_payments WHERE request_id=${existing.id} LIMIT 1`,
+          tx,
+        ))
+      )
+        throw new AppError("transition", 409);
       if (existing.project_id !== input.projectId)
         throw new AppError("invalid");
       if (existing.version !== input.version)
@@ -115,35 +127,36 @@ export async function saveRequest(
       if (received && (!next || new Decimal(next.quantity).lt(received.net)))
         throw new AppError("quantity", 409);
     }
-    let status = existing?.status || 0;
-    if (input.submit && status === 0) status = 1;
-    // Pricing is invalidated when the composition changes after an order. Receipts remain immutable.
-    if (
-      existing &&
-      status !== 0 &&
-      ![6, 7, 8].includes(status) &&
-      (input.lines.length !== oldLines.length ||
+    const previousStatus = existing?.status ?? 0;
+    const submitting = input.submit && [0, 14].includes(previousStatus);
+    const changed =
+      !!existing &&
+      (input.notes !== existing.notes ||
+        input.lines.length !== oldLines.length ||
         input.lines.some(
-          (l) =>
+          (line) =>
             !oldLines.some(
               (old) =>
-                old.material_id === l.materialId &&
-                new Decimal(old.quantity).eq(l.quantity),
+                old.material_id === line.materialId &&
+                old.notes === line.notes &&
+                new Decimal(old.quantity).eq(line.quantity),
             ),
-        ))
-    )
-      status = 1;
-    if (existing && status === 1 && existing.status !== 0) {
+        ));
+    const restart =
+      submitting || (changed && ![0, 6, 7, 8, 14].includes(previousStatus));
+    const status = restart ? 12 : previousStatus;
+    if (restart && !input.notes.trim()) throw new AppError("usageScope");
+    if (existing && restart) {
       await tx.execute(
         sql`UPDATE purchase_requests SET pricing_revision=pricing_revision+1,supplier_id=null,expected_at=null WHERE id=${id}`,
       );
       await tx.execute(
-        sql`UPDATE request_lines SET price=null WHERE request_id=${id}`,
+        sql`UPDATE request_lines SET price=null,review_status=0,reviewed_by=null,reviewed_at=null,overage_approved_by=null,overage_approved_at=null WHERE request_id=${id}`,
       );
     }
     if (existing)
       await tx.execute(
-        sql`UPDATE purchase_requests SET notes=${input.notes},status=${status},submitted_at=CASE WHEN submitted_at IS NULL AND ${input.submit} THEN now() ELSE submitted_at END,updated_at=now(),version=version+1 WHERE id=${id}`,
+        sql`UPDATE purchase_requests SET notes=${input.notes},status=${status},submitted_at=CASE WHEN ${submitting} THEN now() ELSE submitted_at END,updated_at=now(),version=version+1 WHERE id=${id}`,
       );
     else
       await tx.execute(
@@ -201,41 +214,36 @@ export async function transitionRequest(
     if (r.version !== input.version) throw new AppError("conflict", 409);
     if (!transitions[r.status]?.includes(input.status))
       throw new AppError("transition", 409);
-    if (input.status === 2 && ![9, 10].includes(r.status))
+    if (
+      (r.status === 14 && input.status === 12) ||
+      [3, 4, 5, 10, 14, 15].includes(input.status)
+    )
       throw new AppError("transition", 409);
-    if (input.status === 9 && r.status !== 1)
-      throw new AppError("transition", 409);
-    if ([3, 4, 5, 10].includes(input.status))
-      throw new AppError("transition", 409); // Derived by order/receipt services, including owner actions.
-    if (input.status === 1) {
-      requirePermission(actor, "requests.create");
+    if (input.status === 12 || input.status === 0) {
+      requirePermission(
+        actor,
+        input.status === 12 ? "requests.create" : "requests.edit",
+      );
       if (r.created_by !== actor.id && !actor.is_owner)
         throw new AppError("forbidden", 403);
+      if (input.status === 12 && !r.notes.trim())
+        throw new AppError("usageScope");
     } else if (input.status === 8) {
       requirePermission(actor, "requests.delete");
       if (
-        (
-          await one<{ n: string }>(
-            sql`SELECT COUNT(*)::text n FROM receipts WHERE request_id=${r.id}`,
-            tx,
-          )
-        )?.n !== "0"
+        await one(
+          sql`SELECT id FROM receipts WHERE request_id=${r.id} UNION ALL SELECT id FROM request_payments WHERE request_id=${r.id} LIMIT 1`,
+          tx,
+        )
       )
         throw new AppError("referenced", 409);
-    } else if (input.status === 0) requirePermission(actor, "requests.edit");
-    else if (input.status === 9 || (input.status === 7 && r.status === 1))
-      requirePermission(actor, "technical.approve");
-    else if (
-      (input.status === 2 && [9, 10].includes(r.status)) ||
-      (input.status === 11 && r.status === 10) ||
-      (input.status === 7 && [9, 10].includes(r.status))
-    )
-      requirePermission(actor, "finance.approve");
-    else requirePermission(actor, "procurement.approve");
+    } else {
+      requirePermission(actor, approvalPermission(r.status));
+    }
     if (
-      ([7, 8].includes(input.status) ||
+      ([7, 8, 13].includes(input.status) ||
         (r.status === 10 && input.status === 2)) &&
-      !input.reason
+      !input.reason.trim()
     )
       throw new AppError("required");
     if (input.status === 11) {
@@ -244,13 +252,14 @@ export async function transitionRequest(
         sql`UPDATE request_quotes SET approved_by=${actor.id},approved_at=now() WHERE id=${quote.id}`,
       );
     }
-    if (
-      [6, 9, 11].includes(input.status) ||
-      (input.status === 2 && r.status === 9)
-    )
+    if ([1, 2, 6, 11].includes(input.status))
       await ensureOverageApproved(r.id, tx);
+    if (input.status === 12)
+      await tx.execute(
+        sql`UPDATE request_lines SET review_status=0,reviewed_by=null,reviewed_at=null,overage_approved_by=null,overage_approved_at=null WHERE request_id=${r.id}`,
+      );
     await tx.execute(
-      sql`UPDATE purchase_requests SET status=${input.status},version=version+1,updated_at=now(),submitted_at=CASE WHEN ${input.status}=1 THEN now() WHEN ${input.status}=0 THEN null ELSE submitted_at END WHERE id=${r.id}`,
+      sql`UPDATE purchase_requests SET status=${input.status},version=version+1,updated_at=now(),submitted_at=CASE WHEN ${input.status}=12 THEN now() WHEN ${input.status}=0 THEN null ELSE submitted_at END WHERE id=${r.id}`,
     );
     await history(tx, r, actor, input.status, input.reason);
     await audit(
@@ -270,12 +279,65 @@ export async function transitionRequest(
     return { id: r.id };
   });
 }
-export async function approveOverage(actor: Actor, id: string, meta: Meta) {
-  requirePermission(actor, "requests.approve");
+export async function reviewTechnical(
+  actor: Actor,
+  input: z.infer<typeof technicalReviewSchema>,
+  meta: Meta,
+) {
+  requirePermission(actor, "technical.approve");
   return db().transaction(async (tx) => {
+    const request = await requireRequest(actor, input.id, tx, true);
+    await requireProject(actor, request.project_id, tx, true);
+    if (request.status !== 1) throw new AppError("transition", 409);
+    if (request.version !== input.version) throw new AppError("conflict", 409);
+    const lines = await rows<{ id: string }>(
+      sql`SELECT id FROM request_lines WHERE request_id=${request.id}`,
+      tx,
+    );
+    if (
+      input.lines.length !== lines.length ||
+      new Set(input.lines.map((l) => l.id)).size !== lines.length ||
+      input.lines.some(
+        (l) =>
+          !lines.some((row) => row.id === l.id) ||
+          (!l.approved && !l.note.trim()),
+      )
+    )
+      throw new AppError("invalid");
+    const status = input.lines.every((l) => l.approved) ? 15 : 14;
+    if (status === 15) await ensureOverageApproved(request.id, tx);
+    for (const line of input.lines)
+      await tx.execute(
+        sql`UPDATE request_lines SET review_status=${line.approved ? 1 : 2},review_note=${line.note},reviewed_by=${actor.id},reviewed_at=now() WHERE id=${line.id}`,
+      );
+    await tx.execute(
+      sql`UPDATE purchase_requests SET status=${status},version=version+1,updated_at=now() WHERE id=${request.id}`,
+    );
+    await history(tx, request, actor, status);
+    await audit(
+      tx,
+      actor.id,
+      meta,
+      3,
+      4,
+      request.id,
+      { status: { before: 1, after: status }, technicalReview: input.lines },
+      request.project_id,
+    );
+    await notify(tx, request.id, 1, actor.id, status === 14);
+    return { id: request.id };
+  });
+}
+export async function approveOverage(actor: Actor, id: string, meta: Meta) {
+  return db().transaction(async (tx) => {
+    const authorized = await one(
+      sql`SELECT u.id FROM users u JOIN roles role ON role.id=u.role_id WHERE u.id=${actor.id} AND (u.is_owner OR role.workflow_role='construction') AND role.active AND NOT u.locked AND u.deleted_at IS NULL FOR SHARE OF u,role`,
+      tx,
+    );
+    if (!authorized) throw new AppError("forbidden", 403);
     const r = await requireRequest(actor, id, tx, true);
     await requireProject(actor, r.project_id, tx, true);
-    if (![1, 2, 5, 9, 10, 11].includes(r.status))
+    if (![1, 2, 5, 10, 11, 12, 13, 15].includes(r.status))
       throw new AppError("transition", 409);
     const lines = (await overages(id, tx)).filter((l) => l.over && !l.approved);
     if (!lines.length) throw new AppError("conflict", 409);
@@ -340,42 +402,59 @@ export async function submitQuotations(
     const r = await requireRequest(actor, input.id, tx, true);
     await requireProject(actor, r.project_id, tx, true);
     if (r.version !== input.version) throw new AppError("conflict", 409);
-    if (![2, 10, 11].includes(r.status)) throw new AppError("transition", 409);
-    if (
-      input.selectedIndex < 0 ||
-      input.selectedIndex >= input.offers.length ||
-      new Set(input.offers.map((o) => o.supplierId)).size !==
-        input.offers.length
-    )
+    if (r.status !== 2) throw new AppError("transition", 409);
+    const [offer] = input.offers;
+    if (!offer || input.offers.length !== 1 || input.selectedIndex !== 0)
       throw new AppError("quoteSuppliers");
+    if (!input.attachmentIds?.length) throw new AppError("quotationAttachment");
     await ensureOverageApproved(r.id, tx);
     const lines = await rows<{ id: string; quantity: string }>(
       sql`SELECT id,quantity FROM request_lines WHERE request_id=${r.id}`,
       tx,
     );
+    const quantities = new Map(lines.map((line) => [line.id, line.quantity]));
+    if (
+      offer.prices.length !== lines.length ||
+      new Set(offer.prices.map((p) => p.id)).size !== lines.length ||
+      offer.prices.some((p) => !quantities.has(p.id))
+    )
+      throw new AppError("invalid");
+    if (
+      !(await one(
+        sql`SELECT id FROM suppliers WHERE id=${offer.supplierId} AND active FOR SHARE`,
+        tx,
+      ))
+    )
+      throw new AppError("invalid");
     const revision = r.pricing_revision + 1;
-    for (const [index, offer] of input.offers.entries()) {
-      if (
-        offer.prices.length !== lines.length ||
-        new Set(offer.prices.map((p) => p.id)).size !== lines.length ||
-        offer.prices.some((p) => !lines.some((l) => l.id === p.id))
-      )
-        throw new AppError("invalid");
-      if (
-        !(await one(
-          sql`SELECT id FROM suppliers WHERE id=${offer.supplierId} AND active=true`,
-          tx,
-        ))
-      )
-        throw new AppError("invalid");
-      const prices = offer.prices.map((p) => ({
-        ...p,
-        quantity: String(lines.find((l) => l.id === p.id)!.quantity),
-      }));
-      await tx.execute(
-        sql`INSERT INTO request_quotes(request_id,revision,supplier_id,expected_at,prices,selected,created_by) VALUES(${r.id},${revision},${offer.supplierId},${offer.expectedAt},${JSON.stringify(prices)}::jsonb,${index === input.selectedIndex},${actor.id})`,
-      );
-    }
+    await linkAttachments(
+      tx,
+      actor,
+      r,
+      "quotation",
+      input.attachmentIds,
+      input.uploadKey,
+      revision,
+    );
+    await linkAttachments(
+      tx,
+      actor,
+      r,
+      "alternative",
+      input.alternativeAttachmentIds,
+      input.uploadKey,
+      revision,
+    );
+    const prices = offer.prices.map((p) => ({
+      ...p,
+      quantity: quantities.get(p.id)!,
+    }));
+    const files = [...input.attachmentIds, ...input.alternativeAttachmentIds];
+    await tx.execute(sql`INSERT INTO request_quotes(request_id,revision,supplier_id,expected_at,prices,attachment_ids,selected,created_by)
+      VALUES(${r.id},${revision},${offer.supplierId},${offer.expectedAt},${JSON.stringify(prices)}::jsonb,ARRAY[${sql.join(
+        files.map((id) => sql`${id}::uuid`),
+        sql`,`,
+      )}],true,${actor.id})`);
     await tx.execute(
       sql`UPDATE purchase_requests SET status=10,pricing_revision=${revision},version=version+1,updated_at=now() WHERE id=${r.id}`,
     );
@@ -391,6 +470,8 @@ export async function submitQuotations(
         status: { before: r.status, after: 10 },
         revision,
         offers: input.offers,
+        attachmentIds: input.attachmentIds,
+        alternativeAttachmentIds: input.alternativeAttachmentIds,
         selectedIndex: input.selectedIndex,
       },
       r.project_id,
@@ -404,16 +485,38 @@ export async function placeOrder(
   input: z.infer<typeof orderSchema>,
   meta: Meta,
 ) {
-  requirePermission(actor, "procurement.edit");
-  requirePermission(actor, "procurement.approve");
+  requirePermission(actor, "accounts.approve");
   return db().transaction(async (tx) => {
     const r = await requireRequest(actor, input.id, tx, true);
     await requireProject(actor, r.project_id, tx, true);
+    const previous = await one<{ id: string; paid_by: string }>(
+      sql`SELECT id,paid_by FROM request_payments WHERE idempotency_key=${input.key} AND request_id=${r.id}`,
+      tx,
+    );
+    if (previous) {
+      if (previous.paid_by !== actor.id) throw new AppError("conflict", 409);
+      return { id: r.id };
+    }
     if (r.version !== input.version) throw new AppError("conflict", 409);
     if (r.status !== 11) throw new AppError("pricingRequired", 409);
     const quote = await selectedQuote(r, tx);
     if (!quote.approved_by) throw new AppError("pricingRequired", 409);
     await ensureOverageApproved(r.id, tx);
+    if (!input.attachmentIds?.length) throw new AppError("paymentAttachment");
+    const paymentId = randomUUID();
+    await tx.execute(
+      sql`INSERT INTO request_payments(id,request_id,quote_id,paid_by,idempotency_key) VALUES(${paymentId},${r.id},${quote.id},${actor.id},${input.key})`,
+    );
+    await linkAttachments(
+      tx,
+      actor,
+      r,
+      "payment",
+      input.attachmentIds,
+      input.key,
+      r.pricing_revision,
+      paymentId,
+    );
     for (const p of quote.prices)
       await tx.execute(
         sql`UPDATE request_lines SET price=${p.price} WHERE id=${p.id}`,

@@ -52,6 +52,7 @@ vi.mock("next/headers", () => ({
 }));
 import {
   saveRequest,
+  reviewTechnical,
   transitionRequest,
   approveOverage,
   placeOrder,
@@ -81,6 +82,7 @@ import {
   requireActor,
   changePassword,
 } from "@/server/auth";
+import { GET as download } from "@/app/api/attachments/[id]/route";
 import { GET as options } from "@/app/api/options/route";
 import { ar } from "@/messages/ar";
 import { decrypt } from "@/server/security";
@@ -94,6 +96,9 @@ const ids = {
   other: randomUUID(),
   buyer: randomUUID(),
   receiver: randomUUID(),
+  construction: randomUUID(),
+  manager: randomUUID(),
+  accountant: randomUUID(),
   p1: randomUUID(),
   p2: randomUUID(),
   role: randomUUID(),
@@ -162,6 +167,27 @@ const technical = actor(ids.buyer, [
     "finance.view",
     "finance.approve",
   ]);
+const construction = actor(ids.construction, [
+  "requests.view",
+  "requests.view_all",
+  "projects.all",
+  "construction.view",
+  "construction.approve",
+]);
+const manager = actor(ids.manager, [
+  "requests.view",
+  "requests.view_all",
+  "projects.all",
+  "project_management.view",
+  "project_management.approve",
+]);
+const accountant = actor(ids.accountant, [
+  "requests.view",
+  "requests.view_all",
+  "projects.all",
+  "accounts.view",
+  "accounts.approve",
+]);
 beforeAll(async () => {
   vi.stubEnv(
     "AUTH_SECRET",
@@ -182,6 +208,8 @@ beforeAll(async () => {
     "drizzle/generated/0006_fixed_fixer.sql",
     "drizzle/generated/0007_catalog_materials.sql",
     "drizzle/generated/0008_project_details.sql",
+    "drizzle/generated/0009_oval_corsair.sql",
+    "drizzle/generated/0010_request_stage_history.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
@@ -192,6 +220,7 @@ beforeAll(async () => {
     "drizzle/custom/0008_whatsapp.sql",
     "drizzle/custom/0009_catalog_codes.sql",
     "drizzle/custom/0010_project_management.sql",
+    "drizzle/custom/0011_request_workflow.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -206,6 +235,9 @@ beforeAll(async () => {
     ids.other,
     ids.buyer,
     ids.receiver,
+    ids.construction,
+    ids.manager,
+    ids.accountant,
   ])
     await pg.query(
       "INSERT INTO users(id,name,email,username,job_title,password_hash,role_id,is_owner,force_password_change) VALUES($1,$2,$3,$4,$5,$6,$7,$8,false)",
@@ -220,6 +252,10 @@ beforeAll(async () => {
         id === ids.owner,
       ],
     );
+  await pg.query(
+    "UPDATE users SET role_id=(SELECT id FROM roles WHERE workflow_role='construction') WHERE id=$1",
+    [ids.construction],
+  );
   await pg.query(
     "INSERT INTO projects(id,code,name) VALUES($1,$2,$3),($4,$5,$6)",
     [ids.p1, "P1", "مشروع أول", ids.p2, "P2", "مشروع ثان"],
@@ -272,7 +308,7 @@ const create = (quantity = "10") =>
     engineer,
     {
       projectId: ids.p1,
-      notes: "",
+      notes: "المبنى الأول",
       submit: true,
       lines: [{ materialId: ids.material, quantity, notes: "" }],
     },
@@ -286,31 +322,56 @@ async function request(id: string) {
     )
   ).rows[0];
 }
-async function order(id: string) {
-  let r = await request(id);
+async function uploadEvidence(
+  id: string,
+  purpose: "quotation" | "alternative" | "payment",
+  userId = ids.buyer,
+) {
+  const key = randomUUID(),
+    file = randomUUID();
+  await pg.query(
+    "INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes,purpose,upload_key) VALUES($1,$2,$3,$4,'raw','pdf','document.pdf',100,$5,$6)",
+    [file, id, userId, randomUUID(), purpose, key],
+  );
+  return { key, attachmentIds: [file] };
+}
+async function approveToProcurement(id: string) {
+  let row = await request(id);
   await transitionRequest(
-    technical,
-    { id, version: r.version, status: 9, reason: "" },
+    construction,
+    { id, version: row.version, status: 1, reason: "" },
     meta,
   );
-  r = await request(id);
-  await transitionRequest(
-    finance,
-    { id, version: r.version, status: 2, reason: "" },
-    meta,
-  );
-  r = await request(id);
   const lines = (
     await pg.query<{ id: string }>(
       "SELECT id FROM request_lines WHERE request_id=$1",
       [id],
     )
   ).rows;
+  await reviewTechnical(
+    technical,
+    {
+      id,
+      version: (await request(id)).version,
+      lines: lines.map((l) => ({ id: l.id, approved: true, note: "" })),
+    },
+    meta,
+  );
+  await transitionRequest(
+    manager,
+    { id, version: (await request(id)).version, status: 2, reason: "" },
+    meta,
+  );
+  return lines;
+}
+async function order(id: string) {
+  const lines = await approveToProcurement(id);
+  const quoteFiles = await uploadEvidence(id, "quotation");
   await submitQuotations(
     buyer,
     {
       id,
-      version: r.version,
+      version: (await request(id)).version,
       selectedIndex: 0,
       offers: [
         {
@@ -319,6 +380,9 @@ async function order(id: string) {
           prices: lines.map((l) => ({ id: l.id, price: "5.25" })),
         },
       ],
+      uploadKey: quoteFiles.key,
+      attachmentIds: quoteFiles.attachmentIds,
+      alternativeAttachmentIds: [],
     },
     meta,
   );
@@ -327,7 +391,15 @@ async function order(id: string) {
     { id, version: (await request(id)).version, status: 11, reason: "" },
     meta,
   );
-  await placeOrder(buyer, { id, version: (await request(id)).version }, meta);
+  await placeOrder(
+    accountant,
+    {
+      id,
+      version: (await request(id)).version,
+      ...(await uploadEvidence(id, "payment", ids.accountant)),
+    },
+    meta,
+  );
   return lines;
 }
 describe("Authorization and database invariants", () => {
@@ -345,7 +417,7 @@ describe("Authorization and database invariants", () => {
         engineer,
         {
           projectId: ids.p2,
-          notes: "",
+          notes: "المبنى الأول",
           submit: true,
           lines: [{ materialId: ids.material, quantity: "1", notes: "" }],
         },
@@ -357,7 +429,7 @@ describe("Authorization and database invariants", () => {
         owner,
         {
           projectId: ids.p2,
-          notes: "",
+          notes: "المبنى الأول",
           submit: true,
           lines: [{ materialId: ids.material, quantity: "1", notes: "" }],
         },
@@ -456,12 +528,69 @@ describe("Request to receipt", () => {
       ),
     ).rejects.toMatchObject({ status: 403 });
   });
+  it("moves pending legacy financial reviews to the project manager and preserves past stages", async () => {
+    const oldDb = new PGlite();
+    const migration = "0011_request_workflow.sql";
+    try {
+      for (const folder of ["drizzle/generated", "drizzle/custom"])
+        for (const name of (await readdir(folder))
+          .filter((name) => name.endsWith(".sql") && name !== migration)
+          .sort())
+          await oldDb.exec(await readFile(folder + "/" + name, "utf8"));
+      await oldDb.query(
+        "INSERT INTO users(id,name,email,username,job_title,password_hash,role_id) SELECT $1,'مهندس','old@example.invalid','old','مهندس','unused',id FROM roles WHERE name='المكتب الفني'",
+        [ids.engineer],
+      );
+      await oldDb.query(
+        "INSERT INTO projects(id,code,name) VALUES($1,'LEGACY','مشروع قديم')",
+        [ids.p1],
+      );
+      const awaiting = randomUUID(),
+        delivering = randomUUID(),
+        pendingFirstReview = randomUUID();
+      await oldDb.query(
+        "INSERT INTO purchase_requests(id,project_id,created_by,status) VALUES($1,$2,$3,9),($4,$2,$3,3),($5,$2,$3,1)",
+        [awaiting, ids.p1, ids.engineer, delivering, pendingFirstReview],
+      );
+      await oldDb.query(
+        "INSERT INTO request_timeline(request_id,user_id,from_status,to_status) VALUES($1,$2,1,9)",
+        [awaiting, ids.engineer],
+      );
+      await oldDb.exec(await readFile("drizzle/custom/" + migration, "utf8"));
+      expect(
+        (
+          await oldDb.query<{ id: string; status: number }>(
+            "SELECT id,status FROM purchase_requests",
+          )
+        ).rows,
+      ).toEqual(
+        expect.arrayContaining([
+          { id: awaiting, status: 15 },
+          { id: delivering, status: 3 },
+          { id: pendingFirstReview, status: 12 },
+        ]),
+      );
+      expect(
+        (
+          await oldDb.query(
+            "SELECT user_id,from_status,to_status FROM request_timeline WHERE request_id=$1 ORDER BY to_status",
+            [awaiting],
+          )
+        ).rows,
+      ).toEqual([
+        { user_id: ids.engineer, from_status: 1, to_status: 9 },
+        { user_id: null, from_status: 9, to_status: 15 },
+      ]);
+    } finally {
+      await oldDb.close();
+    }
+  });
   it("hides the BOQ from procurement and migrates both approval roles", async () => {
     await expect(listResource(buyer, "boq", { q: "" })).rejects.toMatchObject({
       status: 403,
     });
     const roles = await pg.query<{ name: string }>(
-      "SELECT name FROM roles WHERE name IN('المكتب الفني','المالية')",
+      "SELECT name FROM roles WHERE name IN('المكتب الفني','مدير الحسابات')",
     );
     expect(roles.rows).toHaveLength(2);
     const technicalPermissions = await pg.query<{ key: string }>(
@@ -477,8 +606,8 @@ describe("Request to receipt", () => {
     expect((await liveSnapshot(other)).revision).toBe(before.revision);
     const own = await liveSnapshot(engineer);
     await transitionRequest(
-      technical,
-      { id, version: 1, status: 9, reason: "" },
+      construction,
+      { id, version: 1, status: 1, reason: "" },
       meta,
     );
     expect((await liveSnapshot(engineer)).revision).not.toBe(own.revision);
@@ -495,7 +624,7 @@ describe("Request to receipt", () => {
     await expect(
       transitionRequest(
         engineer,
-        { id, version: 1, status: 9, reason: "" },
+        { id, version: 1, status: 1, reason: "" },
         meta,
       ),
     ).rejects.toMatchObject({ status: 403 });
@@ -509,7 +638,7 @@ describe("Request to receipt", () => {
           id,
           version: 2,
           projectId: ids.p1,
-          notes: "",
+          notes: "المبنى الأول",
           submit: true,
           lines: [{ materialId: ids.material, quantity: "5", notes: "" }],
         },
@@ -527,7 +656,7 @@ describe("Request to receipt", () => {
           id,
           version: 1,
           projectId: ids.p1,
-          notes: "",
+          notes: "المبنى الأول",
           submit: true,
           lines: [{ materialId: ids.material, quantity: "5", notes: "" }],
         },
@@ -535,51 +664,129 @@ describe("Request to receipt", () => {
       ),
     ).rejects.toMatchObject({ status: 403 });
   });
-  it("requires both approvals and explicit overage approval before procurement", async () => {
+  it("requires construction approval for overage, resumes a hold, and sends rejected lines back through construction", async () => {
     const { id } = await create("101");
-    expect(
-      (await listRequests(finance, { q: "" })).items.map((row) => row.id),
-    ).not.toContain(id);
-    await expect(
-      transitionRequest(buyer, { id, version: 1, status: 2, reason: "" }, meta),
-    ).rejects.toMatchObject({ status: 404 });
-    await expect(
-      transitionRequest(buyer, { id, version: 1, status: 9, reason: "" }, meta),
-    ).rejects.toMatchObject({ status: 404 });
-    await expect(
+    const change = async (who: Actor, status: number, reason = "") =>
       transitionRequest(
-        technical,
-        { id, version: 1, status: 9, reason: "" },
+        who,
+        { id, version: (await request(id)).version, status, reason },
         meta,
-      ),
-    ).rejects.toMatchObject({ code: "overage" });
-    await approveOverage(technical, id, meta);
-    await transitionRequest(
-      technical,
-      { id, version: 2, status: 9, reason: "" },
+      );
+    expect((await request(id)).status).toBe(12);
+    await expect(approveOverage(technical, id, meta)).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(change(construction, 1)).rejects.toMatchObject({
+      code: "overage",
+    });
+    await change(construction, 13, "مراجعة الموقع");
+    await approveOverage(construction, id, meta);
+    await change(construction, 1);
+    await expect(change(technical, 15)).rejects.toMatchObject({
+      code: "transition",
+    });
+    const line = (await requestDetail(engineer, id)).lines[0];
+    const review = async (approved: boolean, note: string) =>
+      reviewTechnical(
+        technical,
+        {
+          id,
+          version: (await request(id)).version,
+          lines: [{ id: line.id, approved, note }],
+        },
+        meta,
+      );
+    await expect(review(false, "")).rejects.toMatchObject({ code: "invalid" });
+    await review(false, "راجع كمية الخرسانة");
+    const event = (
+      await pg.query<{ id: string }>(
+        "SELECT id FROM outbox WHERE kind=1 AND payload->>'requestId'=$1 AND payload->>'technicalReturn'='true'",
+        [id],
+      )
+    ).rows[0];
+    await pg.query(
+      "INSERT INTO role_permissions(role_id,permission_id) SELECT $1,id FROM permissions WHERE key='requests.view' ON CONFLICT DO NOTHING",
+      [ids.role],
+    );
+    await pg.query(
+      "INSERT INTO notification_preferences(user_id,type,in_app,email) VALUES($1,1,false,false),($2,1,false,false) ON CONFLICT(user_id,type) DO UPDATE SET in_app=false",
+      [ids.engineer, ids.construction],
+    );
+    const locked = (
+      await pg.query<{ id: string }>(
+        "UPDATE outbox SET locked_until=now()+interval '1 hour' WHERE id<>$1 AND locked_until IS NULL RETURNING id",
+        [event.id],
+      )
+    ).rows;
+    try {
+      await processJobs(1);
+      expect(
+        (
+          await pg.query<{ user_id: string }>(
+            "SELECT user_id FROM notifications WHERE event_id=$1",
+            [event.id],
+          )
+        ).rows.map((n) => n.user_id),
+      ).toEqual(expect.arrayContaining([ids.engineer, ids.construction]));
+    } finally {
+      await pg.query(
+        "UPDATE outbox SET locked_until=NULL WHERE id=ANY($1::uuid[])",
+        [locked.map((j) => j.id)],
+      );
+      await pg.query(
+        "DELETE FROM notification_preferences WHERE type=1 AND user_id=ANY($1::uuid[])",
+        [[ids.engineer, ids.construction]],
+      );
+    }
+    await expect(change(engineer, 12)).rejects.toMatchObject({
+      code: "transition",
+    });
+    await saveRequest(
+      engineer,
+      {
+        id,
+        version: (await request(id)).version,
+        projectId: ids.p1,
+        notes: "مبنى ٢",
+        submit: false,
+        lines: [
+          { materialId: ids.material, quantity: "101", notes: "تصحيح أولي" },
+        ],
+      },
       meta,
     );
-    expect(
-      (await listRequests(finance, { q: "" })).items.map((row) => row.id),
-    ).toContain(id);
-    expect(
-      (await listRequests(buyer, { q: "" })).items.map((row) => row.id),
-    ).not.toContain(id);
-    await expect(
-      transitionRequest(
-        technical,
-        { id, version: 3, status: 2, reason: "" },
-        meta,
-      ),
-    ).rejects.toMatchObject({ status: 403 });
-    await transitionRequest(
-      finance,
-      { id, version: 3, status: 2, reason: "" },
+    expect((await request(id)).status).toBe(14);
+    expect((await request(id)).status).toBe(14);
+    expect((await requestDetail(engineer, id)).lines[0].review_note).toBe(
+      "راجع كمية الخرسانة",
+    );
+    await pg.query(
+      "UPDATE purchase_requests SET submitted_at=now()-interval '1 day' WHERE id=$1",
+      [id],
+    );
+    await saveRequest(
+      engineer,
+      {
+        id,
+        version: (await request(id)).version,
+        projectId: ids.p1,
+        notes: "مبنى ٢",
+        submit: true,
+        lines: [
+          { materialId: ids.material, quantity: "101", notes: "تمت المراجعة" },
+        ],
+      },
       meta,
     );
-    expect((await request(id)).status).toBe(2);
+    expect((await request(id)).status).toBe(12);
+    await approveOverage(owner, id, meta);
+    await change(construction, 1);
+    await review(true, "");
+    expect((await request(id)).status).toBe(15);
+    await expect(change(technical, 2)).rejects.toMatchObject({ status: 403 });
+    await change(manager, 2);
     expect(
-      (await listRequests(buyer, { q: "" })).items.map((row) => row.id),
+      (await listRequests(buyer, { q: "" })).items.map((r) => r.id),
     ).toContain(id);
   });
   it("keeps an engineer's draft hidden from the approval departments", async () => {
@@ -704,134 +911,107 @@ describe("Request to receipt", () => {
       ),
     ).rejects.toThrow();
   });
-  it("compares multiple supplier quotes, restricts financial approval and invalidates changed pricing", async () => {
-    const { id } = await create("1");
-    await transitionRequest(
-      technical,
-      { id, version: 1, status: 9, reason: "" },
-      meta,
+  it("prices one supplier with separate evidence, requires accounts approval and records payment once before delivery", async () => {
+    const { id } = await create("1"),
+      lines = await approveToProcurement(id);
+    const evidence = await uploadEvidence(id, "quotation"),
+      alternative = randomUUID();
+    await pg.query(
+      "INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes,purpose,upload_key) VALUES($1,$2,$3,$4,'raw','pdf','alternative.pdf',100,'alternative',$5)",
+      [alternative, id, ids.buyer, randomUUID(), evidence.key],
     );
-    await transitionRequest(
-      finance,
-      { id, version: 2, status: 2, reason: "" },
-      meta,
+    const publicUrl =
+      "https://res.cloudinary.com/example/raw/upload/test-document.pdf";
+    const openFile = () =>
+      download(
+        new Request("https://example.invalid/api/attachments/" + alternative),
+        { params: Promise.resolve({ id: alternative }) },
+      );
+    await pg.query(
+      "UPDATE attachments SET cloudinary_url=$1,delivery_type='upload' WHERE id=$2",
+      [publicUrl, alternative],
     );
-    const line = (
-      await pg.query<{ id: string }>(
-        "SELECT id FROM request_lines WHERE request_id=$1",
-        [id],
-      )
-    ).rows[0];
-    const supplier = randomUUID();
-    await pg.query("INSERT INTO suppliers(id,name) VALUES($1,$2)", [
-      supplier,
-      "مورد بديل " + supplier,
-    ]);
-    const offers = [
-      {
-        supplierId: ids.supplier,
-        expectedAt: "2026-12-10",
-        prices: [{ id: line.id, price: "5.25" }],
-      },
-      {
-        supplierId: supplier,
-        expectedAt: "2026-12-11",
-        prices: [{ id: line.id, price: "4.00" }],
-      },
-    ];
-    await expect(
-      placeOrder(buyer, { id, version: 3 }, meta),
-    ).rejects.toMatchObject({ code: "pricingRequired" });
-    await expect(
-      transitionRequest(owner, { id, version: 3, status: 3, reason: "" }, meta),
-    ).rejects.toMatchObject({ code: "transition" });
-    await submitQuotations(
-      buyer,
-      { id, version: 3, offers, selectedIndex: 1 },
-      meta,
-    );
-    const financeOnly = {
-      ...finance,
-      permissions: [
-        "requests.view",
-        "requests.view_all",
-        "projects.all",
-        "finance.view",
-        "finance.approve",
-      ],
+    expect((await openFile()).status).toBe(401);
+    const offer = {
+      supplierId: ids.supplier,
+      expectedAt: "2026-12-10",
+      prices: lines.map((l) => ({ id: l.id, price: "5.25" })),
     };
-    const detail = await requestDetail(financeOnly, id);
-    expect(detail.quotes).toHaveLength(2);
-    expect(detail.quotes.find((q) => q.selected)?.supplier_id).toBe(supplier);
-    expect((await requestDetail(engineer, id)).quotes).toHaveLength(0);
-    expect(
-      (await listRequests(financeOnly, { q: "" }, "finance")).items.map(
-        (x) => x.id,
-      ),
-    ).toContain(id);
+    const price = async () => ({
+      id,
+      version: (await request(id)).version,
+      selectedIndex: 0 as const,
+      offers: [offer],
+      uploadKey: evidence.key,
+      attachmentIds: evidence.attachmentIds,
+      alternativeAttachmentIds: [alternative],
+    });
     await expect(
-      transitionRequest(
+      submitQuotations(
         buyer,
-        { id, version: 4, status: 11, reason: "" },
+        { ...(await price()), offers: [offer, offer] },
         meta,
       ),
-    ).rejects.toMatchObject({ status: 403 });
-    await transitionRequest(
-      financeOnly,
-      { id, version: 4, status: 2, reason: "مراجعة السعر" },
-      meta,
-    );
-    await submitQuotations(
-      buyer,
-      { id, version: 5, offers, selectedIndex: 1 },
-      meta,
-    );
-    await transitionRequest(
-      financeOnly,
-      { id, version: 6, status: 11, reason: "" },
-      meta,
-    );
-    await submitQuotations(
-      buyer,
-      { id, version: 7, offers, selectedIndex: 0 },
-      meta,
-    );
-    expect((await request(id)).status).toBe(10);
+    ).rejects.toThrow();
     await expect(
-      placeOrder(buyer, { id, version: 8 }, meta),
-    ).rejects.toMatchObject({ code: "pricingRequired" });
-    await transitionRequest(
-      financeOnly,
-      { id, version: 8, status: 11, reason: "" },
-      meta,
-    );
-    await placeOrder(buyer, { id, version: 9 }, meta);
-    expect((await requestDetail(financeOnly, id)).lines[0].price).toBe("5.25");
+      submitQuotations(
+        buyer,
+        { ...(await price()), attachmentIds: [alternative] },
+        meta,
+      ),
+    ).rejects.toThrow();
+    await submitQuotations(buyer, await price(), meta);
+    const opened = await openFile();
+    expect(opened.status).toBe(302);
+    expect(opened.headers.get("location")).toBe(publicUrl);
+    expect((await requestDetail(engineer, id)).quotes).toHaveLength(0);
+    expect((await requestDetail(finance, id)).quotes).toHaveLength(1);
+    const change = async (who: Actor, status: number, reason = "") =>
+      transitionRequest(
+        who,
+        { id, version: (await request(id)).version, status, reason },
+        meta,
+      );
+    await expect(change(buyer, 11)).rejects.toMatchObject({ status: 403 });
+    await change(finance, 2, "تعديل السعر");
+    await submitQuotations(buyer, await price(), meta);
+    await change(finance, 11);
+    const payment = {
+      id,
+      version: (await request(id)).version,
+      ...(await uploadEvidence(id, "payment", ids.accountant)),
+    };
+    await expect(placeOrder(buyer, payment, meta)).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(
+      placeOrder(accountant, { ...payment, attachmentIds: [] }, meta),
+    ).rejects.toMatchObject({ code: "paymentAttachment" });
+    await placeOrder(accountant, payment, meta);
+    await placeOrder(accountant, payment, meta);
+    expect((await request(id)).status).toBe(3);
     expect(
       (
-        await pg.query<{ supplier_id: string }>(
-          "SELECT supplier_id FROM purchase_requests WHERE id=$1",
-          [id],
-        )
-      ).rows[0].supplier_id,
-    ).toBe(ids.supplier);
-    await saveRequest(
-      engineer,
-      {
-        id,
-        version: (await request(id)).version,
-        projectId: ids.p1,
-        notes: "",
-        submit: true,
-        lines: [{ materialId: ids.material, quantity: "2", notes: "" }],
-      },
-      meta,
-    );
-    expect((await request(id)).status).toBe(1);
-    expect((await requestDetail(owner, id)).quotes).toHaveLength(0);
+        await pg.query("SELECT id FROM request_payments WHERE request_id=$1", [
+          id,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+    expect((await requestDetail(finance, id)).lines[0].price).toBe("5.25");
     await expect(
-      placeOrder(owner, { id, version: (await request(id)).version }, meta),
-    ).rejects.toMatchObject({ code: "pricingRequired" });
+      saveRequest(
+        engineer,
+        {
+          id,
+          version: (await request(id)).version,
+          projectId: ids.p1,
+          notes: "المبنى",
+          submit: true,
+          lines: [{ materialId: ids.material, quantity: "2", notes: "" }],
+        },
+        meta,
+      ),
+    ).rejects.toMatchObject({ code: "transition" });
   });
   it("writes durable audit events in the transaction and exposes pending events to owner", async () => {
     const { id } = await create();

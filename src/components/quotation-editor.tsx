@@ -1,4 +1,6 @@
 "use client";
+import type { RequestAttachment } from "@/lib/attachments";
+import StageAttachments, { type UploadState } from "./stage-attachments";
 import { NumberField } from "./number-field";
 import { useEffect, useState } from "react";
 import Decimal from "decimal.js";
@@ -7,15 +9,7 @@ import { quotationsSchema } from "@/lib/validation";
 import type { Quote } from "@/lib/quotations";
 import { decimalText, number } from "@/lib/format";
 import { useDigits } from "./format-context";
-import {
-  Button,
-  Field,
-  Lookup,
-  DateInput,
-  Message,
-  Checkbox,
-  command,
-} from "./ui";
+import { Button, Field, Lookup, DateInput, Message, command } from "./ui";
 export type RequestLine = {
   id: string;
   material_name: string;
@@ -23,6 +17,8 @@ export type RequestLine = {
   accepted: string;
   returned: string;
   unit_name: string;
+  review_status?: number;
+  review_note?: string;
 };
 type Offer = {
   supplierId: string;
@@ -111,221 +107,198 @@ export function QuotationEditor({
   request,
   lines,
   quotes,
+  attachments = [],
   onDone,
   onBusyChange,
 }: {
-  request: { id: string; version: number };
+  request: { id: string; version: number; pricing_revision?: number };
   lines: RequestLine[];
   quotes: Quote[];
+  attachments?: RequestAttachment[];
   onDone: () => void;
   onBusyChange?: (value: boolean) => void;
 }) {
   const digits = useDigits();
-  const blank = (): Offer => ({
-    supplierId: "",
-    expectedAt: "",
-    prices: lines.map((l) => ({ id: l.id, price: "" })),
-  });
-  const [offers, setOffers] = useState<Offer[]>(() =>
-    quotes.length
-      ? quotes.map((q) => ({
-          supplierId: q.supplier_id,
-          expectedAt: q.expected_at,
-          prices: lines.map((l) => ({
-            id: l.id,
-            price: decimalText(q.prices.find((p) => p.id === l.id)?.price),
-          })),
-        }))
-      : [blank()],
+  const selected = quotes.find((q) => q.selected) || quotes[0];
+  const [offer, setOffer] = useState<Offer>(() => ({
+    supplierId: selected?.supplier_id || "",
+    expectedAt: selected?.expected_at || "",
+    prices: lines.map((line) => ({
+      id: line.id,
+      price: decimalText(selected?.prices.find((p) => p.id === line.id)?.price),
+    })),
+  }));
+  const [uploadKey] = useState(() => crypto.randomUUID());
+  const currentFiles = attachments.filter((f) =>
+    selected?.attachment_ids?.includes(f.id),
   );
-  const [multiple, setMultiple] = useState(quotes.length > 1),
-    [selectedIndex, setSelected] = useState(
-      Math.max(
-        0,
-        quotes.findIndex((q) => q.selected),
-      ),
-    ),
-    [busy, setBusy] = useState(false),
+  const [primary, setPrimary] = useState<UploadState>({
+    ids: [],
+    ready: false,
+    uploading: false,
+  });
+  const [alternatives, setAlternatives] = useState<UploadState>({
+    ids: [],
+    ready: false,
+    uploading: false,
+  });
+  const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const uploading = primary.uploading || alternatives.uploading;
   useEffect(() => {
-    onBusyChange?.(busy);
+    onBusyChange?.(busy || uploading);
     return () => onBusyChange?.(false);
-  }, [busy, onBusyChange]);
-  const shown = multiple ? offers : offers.slice(0, 1);
-  function update(index: number, patch: Partial<Offer>) {
-    setOffers((prev) =>
-      prev.map((o, i) => (i === index ? { ...o, ...patch } : o)),
-    );
-  }
-  async function submit(e: React.SubmitEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError("");
+  }, [busy, uploading, onBusyChange]);
+  async function submit(event: React.SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!primary.ready || !alternatives.ready || !primary.ids.length || busy)
+      return;
     setBusy(true);
+    setError("");
     try {
       await command(
         "quotations",
         quotationsSchema.parse({
-          ...request,
-          offers: shown,
-          selectedIndex: multiple ? selectedIndex : 0,
+          id: request.id,
+          version: request.version,
+          offers: [offer],
+          selectedIndex: 0,
+          uploadKey,
+          attachmentIds: primary.ids,
+          alternativeAttachmentIds: alternatives.ids,
         }),
       );
       onDone();
-    } catch (e) {
+    } catch (error) {
       setError(
-        e instanceof Error && !("issues" in e) ? e.message : ar.errors.invalid,
+        error instanceof Error && !("issues" in error)
+          ? error.message
+          : ar.errors.invalid,
       );
     } finally {
       setBusy(false);
     }
   }
+  const total = offer.prices.reduce(
+    (sum, p) =>
+      sum.plus(
+        new Decimal(p.price || 0).times(
+          lines.find((l) => l.id === p.id)!.quantity,
+        ),
+      ),
+    new Decimal(0),
+  );
   return (
-    <form onSubmit={submit} className="stack" noValidate>
+    <form className="stack" noValidate onSubmit={submit}>
       <Message error={error} />
-      <p className="muted">
-        أدخل أسعار نفس مواد الطلب لكل مورد، وحدد العرض المرشح لاعتماد المالية.
-        تعديل العروض يعيدها للاعتماد.
-      </p>
-      <fieldset disabled={busy} className="form-fieldset stack">
-        <Checkbox
-          label="إضافة أكثر من عرض سعر"
-          checked={multiple}
-          onChange={(e) => {
-            setMultiple(e.target.checked);
-            if (e.target.checked && offers.length === 1)
-              setOffers([...offers, blank()]);
-            if (!e.target.checked) setSelected(0);
-          }}
-        />
-        {shown.map((offer, index) => (
-          <section className="panel quote-editor" key={index}>
-            <div className="panel-heading">
-              <label className="row">
-                <input
-                  type="radio"
-                  name="selected-offer"
-                  checked={selectedIndex === index}
-                  onChange={() => setSelected(index)}
-                />
-                عرض {number(index + 1, digits, 0)} ·{" "}
-                {selectedIndex === index ? "مرشح للاعتماد" : "ترشيح هذا العرض"}
-              </label>
-              {index > 0 ? (
-                <Button
-                  type="button"
-                  className="small"
-                  onClick={() => {
-                    setOffers((prev) => prev.filter((_, i) => i !== index));
-                    setSelected((prev) =>
-                      prev === index ? 0 : prev > index ? prev - 1 : prev,
-                    );
-                  }}
-                >
-                  حذف العرض
-                </Button>
-              ) : null}
-            </div>
-            <div className="panel-body fields">
-              <Field label="المورد">
-                <Lookup
-                  resource="suppliers"
-                  value={offer.supplierId}
-                  onChange={(supplierId) => update(index, { supplierId })}
-                />
-              </Field>
-              <Field label="تاريخ التوريد المتوقع">
-                <DateInput
-                  value={offer.expectedAt}
-                  onChange={(expectedAt) => update(index, { expectedAt })}
-                />
-              </Field>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>المادة</th>
-                    <th>الكمية</th>
-                    <th>سعر الوحدة</th>
-                    <th>الإجمالي</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((l, lineIndex) => (
-                    <tr key={l.id}>
-                      <td className="wrap">{l.material_name}</td>
-                      <td>
-                        {number(l.quantity, digits)} {l.unit_name}
-                      </td>
-                      <td>
-                        <NumberField
-                          className="quote-price"
-                          ariaLabel={
-                            "سعر " +
-                            l.material_name +
-                            " في العرض " +
-                            (index + 1)
-                          }
-                          precision={2}
-                          value={offer.prices[lineIndex].price}
-                          onChange={(price) =>
-                            update(index, {
-                              prices: offer.prices.map((p, i) =>
-                                i === lineIndex ? { ...p, price } : p,
-                              ),
-                            })
-                          }
-                        />
-                      </td>
-                      <td>
-                        {number(
-                          new Decimal(l.quantity)
-                            .times(offer.prices[lineIndex].price || 0)
-                            .toString(),
-                          digits,
-                          2,
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="panel-body">
-              <strong>
-                الإجمالي:{" "}
-                {number(
-                  offer.prices
-                    .reduce(
-                      (sum, p) =>
-                        sum.plus(
-                          new Decimal(p.price || 0).times(
-                            lines.find((l) => l.id === p.id)!.quantity,
+      <fieldset className="form-fieldset stack" disabled={busy}>
+        <div className="fields">
+          <Field label="المورد">
+            <Lookup
+              resource="suppliers"
+              value={offer.supplierId}
+              initialLabel={selected?.supplier_name}
+              onChange={(supplierId) =>
+                setOffer((prev) => ({ ...prev, supplierId }))
+              }
+            />
+          </Field>
+          <Field label="تاريخ التوريد المتوقع">
+            <DateInput
+              value={offer.expectedAt}
+              onChange={(expectedAt) =>
+                setOffer((prev) => ({ ...prev, expectedAt }))
+              }
+            />
+          </Field>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>المادة</th>
+                <th>الكمية</th>
+                <th>سعر الوحدة</th>
+                <th>الإجمالي</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((line, index) => (
+                <tr key={line.id}>
+                  <td className="wrap">{line.material_name}</td>
+                  <td>
+                    {number(line.quantity, digits)} {line.unit_name}
+                  </td>
+                  <td>
+                    <NumberField
+                      className="quote-price"
+                      ariaLabel={"سعر " + line.material_name}
+                      precision={2}
+                      value={offer.prices[index].price}
+                      onChange={(price) =>
+                        setOffer((prev) => ({
+                          ...prev,
+                          prices: prev.prices.map((p) =>
+                            p.id === line.id ? { ...p, price } : p,
                           ),
-                        ),
-                      new Decimal(0),
-                    )
-                    .toString(),
-                  digits,
-                  2,
-                )}{" "}
-                {ar.currency}
-              </strong>
-            </div>
-          </section>
-        ))}
-        {multiple && offers.length < 10 ? (
-          <Button type="button" onClick={() => setOffers([...offers, blank()])}>
-            إضافة عرض سعر آخر
-          </Button>
-        ) : null}
+                        }))
+                      }
+                    />
+                  </td>
+                  <td>
+                    {number(
+                      new Decimal(line.quantity)
+                        .times(offer.prices[index].price || 0)
+                        .toString(),
+                      digits,
+                      2,
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <strong>
+          الإجمالي {number(total.toString(), digits, 2)} {ar.currency}
+        </strong>
+        <div className="fields">
+          <StageAttachments
+            requestId={request.id}
+            uploadKey={uploadKey}
+            purpose="quotation"
+            label="عرض السعر"
+            initial={currentFiles.filter((f) => f.purpose === "quotation")}
+            onChange={setPrimary}
+            disabled={busy}
+          />
+          <StageAttachments
+            requestId={request.id}
+            uploadKey={uploadKey}
+            purpose="alternative"
+            label="عروض أسعار أخرى"
+            initial={currentFiles.filter((f) => f.purpose === "alternative")}
+            onChange={setAlternatives}
+            disabled={busy}
+          />
+        </div>
       </fieldset>
       <div className="form-footer">
-        <Button type="button" onClick={onDone} disabled={busy}>
+        <Button type="button" onClick={onDone} disabled={busy || uploading}>
           إلغاء
         </Button>
-        <Button type="submit" intent="blue" pending={busy}>
-          إرسال لاعتماد التسعير
+        <Button
+          type="submit"
+          intent="blue"
+          pending={busy}
+          disabled={
+            uploading ||
+            !primary.ready ||
+            !alternatives.ready ||
+            !primary.ids.length
+          }
+        >
+          إرسال لمدير الحسابات
         </Button>
       </div>
     </form>

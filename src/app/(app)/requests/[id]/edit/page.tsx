@@ -16,6 +16,8 @@ export default async function EditRequest({
   requirePermission(a, "requests.edit");
   const id = uuid.parse((await params).id),
     r = await requestDetail(a, id);
+  if ([3, 4, 5, 6].includes(r.status) || r.has_payment)
+    throw new AppError("transition", 409);
   if (
     !a.is_owner &&
     (r.created_by !== a.id || !editable(r.submitted_at, r.status))

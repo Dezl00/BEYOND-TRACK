@@ -24,6 +24,7 @@ export const roles = pgTable(
   {
     id: id(),
     name: varchar("name", { length: 100 }).notNull(),
+    workflowRole: varchar("workflow_role", { length: 30 }),
     unitSupervisor: boolean("unit_supervisor").notNull().default(false),
     system: boolean("system").default(false).notNull(),
     active: boolean("active").default(true).notNull(),
@@ -217,6 +218,10 @@ export const requestLines = pgTable(
     quantity: numeric("quantity", { precision: 18, scale: 3 }).notNull(),
     price: numeric("price", { precision: 18, scale: 2 }),
     notes: varchar("notes", { length: 1000 }).default("").notNull(),
+    reviewStatus: smallint("review_status").default(0).notNull(),
+    reviewNote: varchar("review_note", { length: 1000 }).default("").notNull(),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     overageApprovedBy: uuid("overage_approved_by").references(() => users.id),
     overageApprovedAt: timestamp("overage_approved_at", { withTimezone: true }),
   },
@@ -257,6 +262,7 @@ export const requestQuotes = pgTable(
       .references(() => suppliers.id),
     expectedAt: varchar("expected_at", { length: 10 }).notNull(),
     prices: jsonb("prices").notNull(),
+    attachmentIds: uuid("attachment_ids").array().notNull().default([]),
     selected: boolean("selected").default(false).notNull(),
     createdBy: uuid("created_by")
       .notNull()
@@ -271,6 +277,27 @@ export const requestQuotes = pgTable(
       t.revision,
       t.supplierId,
     ),
+  ],
+);
+export const requestPayments = pgTable(
+  "request_payments",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => requestQuotes.id),
+    paidBy: uuid("paid_by")
+      .notNull()
+      .references(() => users.id),
+    key: uuid("idempotency_key").notNull(),
+    createdAt: time("created_at"),
+  },
+  (t) => [
+    uniqueIndex("payment_key").on(t.key),
+    uniqueIndex("payment_quote").on(t.quoteId),
   ],
 );
 export const receiptLines = pgTable(
@@ -300,9 +327,7 @@ export const timeline = pgTable(
     requestId: uuid("request_id")
       .notNull()
       .references(() => requests.id),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id),
+    userId: uuid("user_id").references(() => users.id),
     fromStatus: smallint("from_status"),
     toStatus: smallint("to_status").notNull(),
     note: varchar("note", { length: 1000 }).default("").notNull(),
@@ -319,6 +344,15 @@ export const attachments = pgTable(
       .references(() => requests.id),
     receiptId: uuid("receipt_id").references(() => receipts.id),
     receiptKey: uuid("receipt_key"),
+    purpose: varchar("purpose", { length: 20 }).default("request").notNull(),
+    uploadKey: uuid("upload_key"),
+    linkedAt: timestamp("linked_at", { withTimezone: true }),
+    pricingRevision: integer("pricing_revision"),
+    paymentId: uuid("payment_id").references(() => requestPayments.id),
+    deliveryType: varchar("delivery_type", { length: 20 })
+      .default("authenticated")
+      .notNull(),
+    cloudinaryUrl: text("cloudinary_url"),
     uploadedBy: uuid("uploaded_by")
       .notNull()
       .references(() => users.id),

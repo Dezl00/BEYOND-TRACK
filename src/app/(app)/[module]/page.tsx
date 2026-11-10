@@ -14,7 +14,7 @@ import {
 import { listQuerySchema } from "@/lib/validation";
 import { ar } from "@/messages/ar";
 import RequestPurge from "@/components/request-purge";
-import { can, canManageUnits } from "@/lib/domain";
+import { can, canManageUnits, requestModules } from "@/lib/domain";
 import { number, date, requestCode } from "@/lib/format";
 import { one, sql } from "@/db";
 import { Empty, Pagination } from "@/components/common";
@@ -52,7 +52,7 @@ export default async function ResourcePage({
   if (
     ![
       ...Object.keys(resources),
-      "procurement",
+      ...requestModules,
       "technical",
       "finance",
       "receipts",
@@ -75,7 +75,7 @@ export default async function ResourcePage({
       ? await auditList(a, q)
       : module === "notifications"
         ? await notifications(a, q.cursor, q.q)
-        : ["technical", "finance", "procurement", "receipts"].includes(module)
+        : (requestModules as readonly string[]).includes(module)
           ? await listRequests(a, q, module)
           : await listResource(a, module, q);
   return (
@@ -98,9 +98,7 @@ export default async function ResourcePage({
             {module === "notifications" ? <NotificationRead /> : null}
           </>
         }
-        statuses={["technical", "finance", "procurement", "receipts"].includes(
-          module,
-        )}
+        statuses={(requestModules as readonly string[]).includes(module)}
         exportable={can(a, `${permission}.export`)}
         audit={module === "audit"}
       />
@@ -115,9 +113,7 @@ export default async function ResourcePage({
         />
       ) : null}
       <section className="panel table-panel">
-        {["technical", "finance", "procurement", "receipts"].includes(
-          module,
-        ) ? (
+        {(requestModules as readonly string[]).includes(module) ? (
           <RequestTable items={data.items} digits={digits} />
         ) : !data.items.length ? (
           <Empty />

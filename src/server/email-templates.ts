@@ -150,7 +150,7 @@ export function requestEmail(
     state,
     `${section("بيانات الطلب")}
 <table role="presentation" ${tableStyle}>${field("المشروع", request.project)}${field("مقدّم الطلب", request.creator)}${field("تاريخ الإنشاء", date(request.created_at, 0, true))}${field("المورد", request.supplier || "لم يُحدّد بعد")}${field("التوريد المتوقع", request.expected_at ? date(request.expected_at) : "لم يُحدّد بعد")}</table>
-${request.notes ? '<p style="margin:14px 0 0;white-space:pre-line"><strong>ملاحظات الطلب</strong><br>' + escape(request.notes) + "</p>" : ""}
+${request.notes ? '<p style="margin:14px 0 0;white-space:pre-line"><strong>نطاق الاستخدام</strong><br>' + escape(request.notes) + "</p>" : ""}
 ${request.lastAction ? '<p style="margin:14px 0 0"><strong>آخر إجراء</strong><br>' + escape(request.lastAction) + "</p>" : ""}
 ${quotes.length ? '<div style="padding-top:22px">' + section("عروض الأسعار") + "<table " + tableStyle + '><thead><tr bgcolor="#f1f3fc">' + header("المورد") + header("موعد التوريد") + header("الإجمالي (ر.س)") + "</tr></thead><tbody>" + quoteRows + "</tbody></table></div>" : ""}
 <div style="padding-top:22px">${section("بنود الطلب (" + lines.length + ")")}

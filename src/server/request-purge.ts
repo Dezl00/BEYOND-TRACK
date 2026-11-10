@@ -91,7 +91,7 @@ async function deleteProjectData(tx: Executor, projectId: string) {
     sql`SELECT id FROM purchase_requests WHERE project_id=${projectId} ORDER BY id FOR UPDATE`,
   );
   await tx.execute(
-    sql`INSERT INTO outbox(kind,payload) SELECT 4,jsonb_build_object('publicId',public_id,'resourceType',resource_type) FROM attachments WHERE request_id IN (${requests})`,
+    sql`INSERT INTO outbox(kind,payload) SELECT 4,jsonb_build_object('publicId',public_id,'resourceType',resource_type,'deliveryType',delivery_type) FROM attachments WHERE request_id IN (${requests})`,
   );
   await tx.execute(
     sql`DELETE FROM outbox WHERE (kind IN(1,2,5) AND payload->>'requestId' IN (SELECT id::text FROM purchase_requests WHERE project_id=${projectId})) OR (kind=3 AND payload->>'notificationId' IN (SELECT id::text FROM notifications WHERE request_id IN (${requests})))`,
@@ -101,6 +101,7 @@ async function deleteProjectData(tx: Executor, projectId: string) {
   );
   for (const table of [
     "attachments",
+    "request_payments",
     "notifications",
     "receipts",
     "request_timeline",
@@ -207,7 +208,7 @@ export async function purgeRequests(
     );
     // File removal is retried by the background worker; no unbounded file list is loaded.
     await tx.execute(
-      sql`INSERT INTO outbox(kind,payload) SELECT 4,jsonb_build_object('publicId',public_id,'resourceType',resource_type) FROM attachments`,
+      sql`INSERT INTO outbox(kind,payload) SELECT 4,jsonb_build_object('publicId',public_id,'resourceType',resource_type,'deliveryType',delivery_type) FROM attachments`,
     );
     await tx.execute(
       sql`DELETE FROM outbox WHERE kind IN(1,3) OR (kind IN(2,5) AND (payload ? 'requestId' OR COALESCE(payload->>'otpKey',payload->>'key')=${`purge:${challenge.id}`})) OR (kind=2 AND payload->>'key' ~ '^[0-9a-f-]{36}:[0-9a-f-]{36}$')`,
@@ -215,6 +216,7 @@ export async function purgeRequests(
     for (const table of [
       "notifications",
       "attachments",
+      "request_payments",
       "receipt_lines",
       "receipts",
       "request_timeline",

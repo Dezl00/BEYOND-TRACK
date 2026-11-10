@@ -1,3 +1,5 @@
+import RequestTimeline from "@/components/request-timeline";
+import { attachmentLabels, type RequestAttachment } from "@/lib/attachments";
 import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import { Pencil, FileText, ChevronRight } from "lucide-react";
@@ -46,7 +48,9 @@ export default async function RequestPage({
       >
         <StatusBadge status={r.status} />
         <RequestPrintOptions id={id} canPrice={pricing} />
-        {can(a, "requests.edit") &&
+        {![3, 4, 5, 6].includes(r.status) &&
+        !r.has_payment &&
+        can(a, "requests.edit") &&
         (a.is_owner ||
           (r.created_by === a.id && editable(r.submitted_at, r.status))) ? (
           <Link className="btn edit-button" href={`/requests/${id}/edit`}>
@@ -79,16 +83,27 @@ export default async function RequestPage({
               <dd>{r.expected_at ? date(r.expected_at, d) : "—"}</dd>
             </div>
             <div>
-              <dt>{ar.fields.notes}</dt>
+              <dt>نطاق الاستخدام</dt>
               <dd className="break">{r.notes || "—"}</dd>
             </div>
           </dl>
         </section>
         <div className="no-print">
           <RequestActions
-            actor={a}
-            request={r}
+            actor={{
+              id: a.id,
+              is_owner: a.is_owner,
+              permissions: a.permissions,
+              workflow_role: a.workflow_role,
+            }}
+            request={{
+              id: r.id,
+              status: r.status,
+              version: r.version,
+              created_by: r.created_by,
+            }}
             quotes={r.quotes}
+            attachments={r.files as unknown as RequestAttachment[]}
             pendingOverage={r.lines.some(
               (l) => l.over === true && !l.overage_approved_by,
             )}
@@ -99,6 +114,8 @@ export default async function RequestPage({
               accepted: String(l.accepted),
               returned: String(l.returned),
               unit_name: String(l.unit_name),
+              review_status: Number(l.review_status),
+              review_note: String(l.review_note || ""),
             }))}
           />
         </div>
@@ -146,6 +163,24 @@ export default async function RequestPage({
                             <bdi className="code">{String(l.code)}</bdi> ·{" "}
                             {String(l.boq_name)}
                           </span>
+                          {l.review_note ? (
+                            <span className="cell-sub review-note">
+                              {String(l.review_note)}
+                            </span>
+                          ) : null}
+                          {l.review_status ? (
+                            <span
+                              className={
+                                Number(l.review_status) === 1
+                                  ? "text-green"
+                                  : "text-red"
+                              }
+                            >
+                              {Number(l.review_status) === 1
+                                ? "معتمد فنيًا"
+                                : "مرفوض فنيًا"}
+                            </span>
+                          ) : null}
                           {l.description ? (
                             <span className="cell-sub">
                               {String(l.description)}
@@ -250,7 +285,16 @@ export default async function RequestPage({
                       key={f.id}
                     >
                       <FileText size={20} />
-                      <span>{String(f.name)}</span>
+                      <span>
+                        {String(f.name)}
+                        <small className="cell-sub">
+                          {
+                            attachmentLabels[
+                              f.purpose as RequestAttachment["purpose"]
+                            ]
+                          }
+                        </small>
+                      </span>
                     </a>
                   ))
                 ) : (
@@ -263,18 +307,19 @@ export default async function RequestPage({
             <div className="panel-heading">
               <h2>{ar.requests.timeline}</h2>
             </div>
-            <div className="timeline">
-              {r.history.items.map((h) => (
-                <div className="timeline-item" key={h.id}>
-                  <p>{ar.statuses[Number(h.to_status)]}</p>
-                  <small>{String(h.user_name)}</small>
-                  <p className="cell-sub">
-                    {date(String(h.created_at), d, true)}
-                  </p>
-                  {h.note ? <p className="muted">{String(h.note)}</p> : null}
-                </div>
-              ))}
-            </div>
+            <RequestTimeline
+              items={
+                r.history.items as unknown as {
+                  id: string;
+                  to_status: unknown;
+                  user_name: unknown;
+                  created_at: unknown;
+                  note: unknown;
+                }[]
+              }
+              currentId={String(r.latest_timeline_id)}
+              digits={d}
+            />
             <Pagination
               next={r.history.next}
               base={`/requests/${id}`}

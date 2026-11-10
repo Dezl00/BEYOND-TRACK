@@ -1637,33 +1637,80 @@ td.wrap {
   font-size: 14px;
 }
 .timeline {
-  padding: 24px;
+  padding: 24px 28px;
+  margin: 0;
+  list-style: none;
 }
 .timeline-item {
   position: relative;
-  padding-inline-start: 26px;
-  padding-block-end: 24px;
-  border-inline-start: 1px solid var(--border);
+  padding-inline-start: 48px;
+  padding-block: 4px 26px;
+  min-height: 58px;
 }
-.timeline-item:before {
+.timeline-item:not(:last-child)::after {
   content: "";
   position: absolute;
-  inset-inline-start: -4px;
-  inset-block-start: 5px;
-  width: 7px;
-  height: 7px;
-  background: var(--brand);
+  inset-inline-start: 17px;
+  top: 38px;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+.timeline-marker {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #eaf6ef;
+  color: #23864b;
+}
+.timeline-item.current .timeline-marker {
+  background: #fff1b8;
+  color: #9b6800;
+}
+.timeline-item.stopped .timeline-marker {
+  background: #fdeced;
+  color: #b53642;
+}
+.timeline-item .timeline-title {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.7;
+  margin: 0 0 5px;
+}
+.timeline-item .cell-sub {
+  margin: 5px 0 0;
+}
+.timeline-item small {
+  font-size: 12px;
+  color: var(--sub);
 }
 .timeline-item:last-child {
   padding-block-end: 0;
 }
-.timeline-item p {
+.timeline-note {
   font-size: 13px;
-  margin-block-end: 6px;
+  white-space: pre-line;
+  margin: 8px 0 0;
 }
-.timeline-item small {
-  font-size: 11px;
+.attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.technical-review-table {
+  min-width: 600px;
+}
+.technical-review-table textarea {
+  min-width: 160px;
+  min-height: 64px;
+}
+.review-note {
+  white-space: pre-line;
 }
 .attachment {
   display: flex;

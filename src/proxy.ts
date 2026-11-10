@@ -3,7 +3,7 @@ import { loginPath } from "@/lib/request-links";
 import { ar } from "@/messages/ar";
 export function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
-  const csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}' 'strict-dynamic' ${process.env.NODE_ENV === "development" ? "'unsafe-eval'" : ""}; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${process.env.NODE_ENV === "development" ? "ws:" : ""}; frame-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; ${process.env.NODE_ENV === "production" ? "upgrade-insecure-requests;" : ""}`;
+  const csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}' 'strict-dynamic' ${process.env.NODE_ENV === "development" ? "'unsafe-eval'" : ""}; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://res.cloudinary.com; font-src 'self'; connect-src 'self' ${process.env.NODE_ENV === "development" ? "ws:" : ""}; frame-src 'self' https://res.cloudinary.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; ${process.env.NODE_ENV === "production" ? "upgrade-insecure-requests;" : ""}`;
   const h = new Headers(request.headers);
   h.set("x-nonce", nonce);
   h.set("Content-Security-Policy", csp);
@@ -24,6 +24,7 @@ export function proxy(request: NextRequest) {
   const publicPath =
     path === "/login" ||
     path.startsWith("/api/auth/") ||
+    /^\/api\/attachments\/[a-f0-9-]{36}$/i.test(path) ||
     path === "/api/jobs" ||
     publicAsset;
   const cookie =

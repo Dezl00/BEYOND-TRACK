@@ -48,6 +48,23 @@ async function seed() {
     const all = [...permissions.keys()].filter((p) => !p.startsWith("audit."));
     const defaults = [
       { name: ar.roles.owner, keys: [] },
+      ...["construction", "project_management", "accounts"].map((module) => ({
+        name: ar.roles[
+          module as "construction" | "project_management" | "accounts"
+        ],
+        workflow: module,
+        keys: [
+          "projects.view",
+          "projects.all",
+          "boq.view",
+          "requests.view",
+          "requests.view_all",
+          "requests.export",
+          module + ".view",
+          module + ".approve",
+          module + ".export",
+        ],
+      })),
       { name: ar.roles.admin, keys: all },
       {
         name: ar.roles.engineer,
@@ -87,7 +104,6 @@ async function seed() {
           "requests.view",
           "requests.view_all",
           "requests.export",
-          "requests.approve",
           "technical.view",
           "technical.approve",
           "technical.export",
@@ -128,7 +144,7 @@ async function seed() {
       const id = existing?.id || randomUUID();
       if (!existing) {
         await tx.execute(
-          sql`INSERT INTO roles(id,name,system,unit_supervisor) VALUES (${id},${role.name},true,${role.name === ar.roles.admin})`,
+          sql`INSERT INTO roles(id,name,system,unit_supervisor,workflow_role) VALUES (${id},${role.name},true,${role.name === ar.roles.admin},${"workflow" in role ? (role.workflow as string) : null})`,
         );
         for (const key of role.keys)
           await tx.execute(

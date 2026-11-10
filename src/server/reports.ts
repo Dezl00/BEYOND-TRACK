@@ -69,7 +69,7 @@ function reportCte(actor: Actor, q: ProjectReportQuery) {
     AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"})
   ), permitted_requests AS MATERIALIZED (
     SELECT r.id,COALESCE(r.submitted_at,r.created_at) occurred_at
-    FROM purchase_requests r WHERE r.project_id=${q.project}::uuid AND r.status IN(1,2,3,4,5,6,9,10,11)
+    FROM purchase_requests r WHERE r.project_id=${q.project}::uuid AND r.status IN(1,2,3,4,5,6,9,10,11,12,13,14,15)
       AND ${requestScope(actor)}
       AND EXISTS(SELECT 1 FROM request_lines l JOIN target t ON t.id=l.material_id WHERE l.request_id=r.id)
   ), orders AS MATERIALIZED (

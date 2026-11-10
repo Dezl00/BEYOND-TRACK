@@ -108,10 +108,11 @@ beforeAll(async () => {
     "INSERT INTO settings(id) VALUES(1); INSERT INTO notification_policy(type) VALUES(0),(1),(2)",
   );
   await pg.query("INSERT INTO roles(id,name) VALUES($1,'Test')", [ids.role]);
-  await pg.query(
-    "INSERT INTO permissions(id,key,label) VALUES($1,'requests.view','View requests')",
-    [ids.permission],
-  );
+  ids.permission = (
+    await pg.query<{ id: ReturnType<typeof randomUUID> }>(
+      "SELECT id FROM permissions WHERE key='requests.view'",
+    )
+  ).rows[0].id;
   await pg.query(
     "INSERT INTO role_permissions(role_id,permission_id) VALUES($1,$2)",
     [ids.role, ids.permission],

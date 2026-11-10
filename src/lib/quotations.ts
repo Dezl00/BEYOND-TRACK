@@ -6,5 +6,6 @@ export type Quote = {
   expected_at: string;
   selected: boolean;
   prices: QuotePrice[];
+  attachment_ids?: string[];
   approved_by: string | null;
 };

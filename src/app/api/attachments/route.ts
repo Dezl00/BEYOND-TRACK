@@ -4,7 +4,9 @@ import type { UploadApiResponse } from "cloudinary";
 import { db, sql, one } from "@/db";
 import { requireActor } from "@/server/auth";
 import { requireRequest, requireProject } from "@/server/access";
-import { can } from "@/lib/domain";
+import { z } from "zod";
+import { attachmentPurposes } from "@/lib/attachments";
+import { requireUpload } from "@/server/attachments";
 import { uuid } from "@/lib/validation";
 import { errorResponse, AppError } from "@/server/errors";
 import { csrf, metadata, rateLimit } from "@/server/security";
@@ -15,8 +17,6 @@ export async function POST(req: Request) {
   try {
     csrf(req);
     const a = await requireActor();
-    if (!can(a, "receipts.create") && !can(a, "requests.edit"))
-      throw new AppError("forbidden", 403);
     await rateLimit("uploads", a.id, 40, 60);
     if (Number(req.headers.get("content-length") || 0) > 4.2 * 1024 * 1024)
       throw new AppError("file", 413);
@@ -26,13 +26,22 @@ export async function POST(req: Request) {
       receiptKey = form.get("receiptKey")
         ? uuid.parse(form.get("receiptKey"))
         : null;
-    const r = await requireRequest(a, id);
-    await requireProject(a, r.project_id, db(), true);
+    const purpose = z
+      .enum(attachmentPurposes)
+      .parse(form.get("purpose") || (receiptKey ? "receipt" : "request"));
+    const uploadKey = form.get("uploadKey")
+      ? uuid.parse(form.get("uploadKey"))
+      : null;
     if (
-      receiptKey &&
-      (!can(a, "receipts.create") || ![3, 4, 5].includes(r.status))
+      (purpose === "receipt") !== !!receiptKey ||
+      (["quotation", "alternative", "payment"].includes(purpose) && !uploadKey)
     )
-      throw new AppError("transition", 409);
+      throw new AppError("invalid");
+    if (uploadKey && (purpose === "request" || purpose === "receipt"))
+      throw new AppError("invalid");
+    const r = await requireRequest(a, id);
+    requireUpload(a, r, purpose);
+    await requireProject(a, r.project_id, db(), true);
     if (
       !(file instanceof File) ||
       file.size > 4 * 1024 * 1024 ||
@@ -46,7 +55,9 @@ export async function POST(req: Request) {
       !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(
         type.mime,
       ) ||
-      type.mime !== file.type
+      (file.type &&
+        file.type !== "application/octet-stream" &&
+        type.mime !== file.type)
     )
       throw new AppError("file");
     const resourceType = type.mime === "application/pdf" ? "raw" : "image";
@@ -57,7 +68,7 @@ export async function POST(req: Request) {
       const stream = cloud().uploader.upload_stream(
         {
           resource_type: resourceType,
-          type: "authenticated",
+          type: "upload",
           asset_folder: `beyond-track/${r.project_id}`,
           public_id: `bt-${randomUUID()}${resourceType === "raw" ? ".pdf" : ""}`,
           overwrite: false,
@@ -75,18 +86,18 @@ export async function POST(req: Request) {
       meta = await metadata();
     const attachmentId = await db().transaction(async (tx) => {
       const current = await requireRequest(a, id, tx, true);
-      if (receiptKey && ![3, 4, 5].includes(current.status))
-        throw new AppError("transition", 409);
+      requireUpload(a, current, purpose);
       const count = await one<{ n: number }>(
-        sql`SELECT COUNT(*)::int n FROM attachments WHERE request_id=${id} AND ${receiptKey ? sql`receipt_key=${receiptKey} AND uploaded_by=${a.id}` : sql`receipt_key IS NULL`}`,
+        sql`SELECT COUNT(*)::int n FROM attachments WHERE request_id=${id} AND purpose=${purpose} AND ${receiptKey ? sql`receipt_key=${receiptKey} AND uploaded_by=${a.id}` : uploadKey ? sql`upload_key=${uploadKey} AND uploaded_by=${a.id}` : sql`upload_key IS NULL AND receipt_key IS NULL`}`,
         tx,
       );
-      if ((count?.n || 0) >= 100) throw new AppError("file");
+      if ((count?.n || 0) >= (receiptKey || uploadKey ? 20 : 100))
+        throw new AppError("file");
       const attachmentId = randomUUID();
       await tx.execute(
-        sql`INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes,receipt_key) VALUES (${attachmentId},${id},${a.id},${upload.public_id},${resourceType},${type.ext},${name},${file.size},${receiptKey})`,
+        sql`INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes,receipt_key,purpose,upload_key,delivery_type,cloudinary_url) VALUES (${attachmentId},${id},${a.id},${upload.public_id},${resourceType},${type.ext},${name},${file.size},${receiptKey},${purpose},${uploadKey},'upload',${upload.secure_url})`,
       );
-      if (!receiptKey)
+      if (!receiptKey && !uploadKey)
         await tx.execute(
           sql`UPDATE purchase_requests SET version=version+1,updated_at=now() WHERE id=${id}`,
         );
@@ -108,7 +119,7 @@ export async function POST(req: Request) {
       try {
         await cloud().uploader.destroy(uploaded.public_id, {
           resource_type: uploaded.resource_type,
-          type: "authenticated",
+          type: uploaded.type,
         });
       } catch {}
     return errorResponse(e);

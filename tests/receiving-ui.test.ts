@@ -9,6 +9,7 @@ import {
   cleanup,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import TechnicalReview from "@/components/technical-review";
 import ReceiptForm from "@/components/receipt-form";
 import { QuotationEditor } from "@/components/quotation-editor";
 import {
@@ -78,6 +79,41 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("Receiving form", () => {
+  it("reviews each material, requires its rejection reason, and supports approving the full list", async () => {
+    const done = vi.fn(),
+      user = userEvent.setup(),
+      second = { ...lines[0], id: crypto.randomUUID(), material_name: "حديد" };
+    render(
+      createElement(TechnicalReview, {
+        request: { id: requestId, version: 2 },
+        lines: [lines[0], second],
+        onDone: done,
+        onBusyChange: vi.fn(),
+      }),
+    );
+    const submit = screen.getByRole("button", {
+      name: "حفظ المراجعة",
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "اعتماد الكل" }));
+    expect(submit.disabled).toBe(false);
+    await user.click(screen.getByRole("button", { name: "رفض حديد" }));
+    expect(submit.disabled).toBe(true);
+    await user.type(
+      screen.getByRole("textbox", { name: "ملاحظة رفض حديد" }),
+      "راجع المقاس",
+    );
+    await user.click(submit);
+    expect(state.command).toHaveBeenCalledWith("technical-review", {
+      id: requestId,
+      version: 2,
+      lines: [
+        { id: lineId, approved: true, note: "" },
+        { id: second.id, approved: false, note: "راجع المقاس" },
+      ],
+    });
+    expect(done).toHaveBeenCalledOnce();
+  });
   it("prefills outstanding quantities, adjusts accepted for damage and requires every upload to finish", async () => {
     const done = vi.fn(),
       user = userEvent.setup();
@@ -178,8 +214,7 @@ describe("Receiving form", () => {
   });
 });
 describe("Supplier quotations", () => {
-  it("adds the same quantity table with separate supplier prices through the toggle", async () => {
-    const user = userEvent.setup();
+  it("offers a single pricing table with distinct multi-file inputs", () => {
     render(
       createElement(QuotationEditor, {
         request: { id: requestId, version: 1 },
@@ -189,25 +224,21 @@ describe("Supplier quotations", () => {
       }),
     );
     expect(screen.getAllByRole("table")).toHaveLength(1);
-    await user.click(
-      screen.getByRole("switch", { name: "إضافة أكثر من عرض سعر" }),
-    );
-    expect(screen.getAllByRole("table")).toHaveLength(2);
-    fireEvent.change(screen.getByLabelText("سعر خرسانة في العرض 1"), {
-      target: { value: "5" },
-    });
-    fireEvent.change(screen.getByLabelText("سعر خرسانة في العرض 2"), {
-      target: { value: "7" },
-    });
+    expect(screen.queryByRole("switch")).toBeNull();
+    for (const label of ["عرض السعر", "عروض أسعار أخرى"])
+      expect(
+        (
+          document.querySelector(
+            'input[type="file"][aria-label="' + label + '"]',
+          ) as HTMLInputElement
+        ).multiple,
+      ).toBe(true);
     expect(
-      (screen.getByLabelText("سعر خرسانة في العرض 1") as HTMLInputElement)
-        .value,
-    ).toBe("5");
-    expect(
-      (screen.getByLabelText("سعر خرسانة في العرض 2") as HTMLInputElement)
-        .value,
-    ).toBe("7");
-    await user.click(screen.getByRole("button", { name: "إضافة عرض سعر آخر" }));
-    expect(screen.getAllByRole("table")).toHaveLength(3);
+      (
+        screen.getByRole("button", {
+          name: "إرسال لمدير الحسابات",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 });

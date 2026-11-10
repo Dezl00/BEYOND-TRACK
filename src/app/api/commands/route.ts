@@ -63,6 +63,13 @@ export async function POST(req: Request) {
           m,
         );
         break;
+      case "technical-review":
+        result = await requests.reviewTechnical(
+          a,
+          v.technicalReviewSchema.parse(data),
+          m,
+        );
+        break;
       case "quotations":
         result = await requests.submitQuotations(
           a,

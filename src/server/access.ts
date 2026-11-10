@@ -4,23 +4,45 @@ import { AppError } from "./errors";
 export function requirePermission(actor: Actor, key: string) {
   if (!can(actor, key)) throw new AppError("forbidden", 403);
 }
-export function projectScope(actor: Actor, column = sql`p.id`) {
+type ScopeActor = Pick<Actor, "id" | "is_owner" | "permissions">;
+export function projectScope(actor: ScopeActor, column = sql`p.id`) {
   return can(actor, "projects.all")
     ? sql`true`
     : sql`EXISTS (SELECT 1 FROM project_users pu WHERE pu.project_id=${column} AND pu.user_id=${actor.id}::uuid)`;
 }
-export function requestScope(actor: Actor) {
-  let stage = sql`true`;
+const departmentVisibility = [
+  {
+    permission: "project_management.view",
+    start: 15,
+    statuses: [2, 3, 4, 5, 6, 9, 10, 11, 15],
+  },
+  {
+    permission: "procurement.view",
+    start: 2,
+    statuses: [2, 3, 4, 5, 6, 10, 11],
+  },
+  { permission: "finance.view", start: 10, statuses: [3, 4, 5, 6, 10, 11] },
+  { permission: "accounts.view", start: 11, statuses: [3, 4, 5, 6, 11] },
+  { permission: "receipts.view", start: 3, statuses: [3, 4, 5, 6] },
+];
+export function departmentScope(actor: ScopeActor) {
   if (
-    !actor.is_owner &&
-    can(actor, "requests.view_all") &&
-    !can(actor, "technical.view")
-  ) {
-    if (can(actor, "finance.view"))
-      stage = sql`(r.status IN(2,3,4,5,6,9,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=r.id AND st.from_status=9))`;
-    else if (can(actor, "procurement.view"))
-      stage = sql`(r.status IN(2,3,4,5,6,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=r.id AND st.from_status=2))`;
-  }
+    actor.is_owner ||
+    !can(actor, "requests.view_all") ||
+    can(actor, "construction.view") ||
+    can(actor, "technical.view")
+  )
+    return;
+  return departmentVisibility.find((stage) => can(actor, stage.permission));
+}
+export function requestScope(actor: ScopeActor) {
+  const department = departmentScope(actor);
+  const stage = department
+    ? sql`(r.created_by=${actor.id} OR r.status IN (${sql.join(
+        department.statuses.map((s) => sql`${s}`),
+        sql`,`,
+      )}) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=r.id AND (st.from_status=${department.start} OR st.to_status=${department.start})))`
+    : sql`true`;
   return sql`${projectScope(actor, sql`r.project_id`)} AND ${can(actor, "requests.view_all") ? sql`true` : sql`r.created_by=${actor.id}::uuid`} AND ${actor.is_owner ? sql`true` : sql`(r.status<>0 OR r.created_by=${actor.id}::uuid)`} AND ${stage}`;
 }
 export async function requireProject(

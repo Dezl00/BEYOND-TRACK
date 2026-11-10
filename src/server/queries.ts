@@ -1,4 +1,5 @@
-import { canManageUnits } from "@/lib/domain";
+import { attachmentVisibility } from "./attachments";
+import { canManageUnits, stageStatuses } from "@/lib/domain";
 import type { Quote } from "@/lib/quotations";
 import { z } from "zod";
 import { db, rows, one, sql } from "@/db";
@@ -63,7 +64,16 @@ export async function listRequests(a: Actor, q: Query, mode = "requests") {
   const c = decodeCursor(q.cursor);
   return page(
     await rows<RecordRow>(
-      sql`SELECT r.id,r.number,r.status,r.created_at,r.expected_at,r.version,r.project_id,p.name project_name,u.name created_by_name,s.name supplier_name,(SELECT COUNT(*)::int FROM request_lines WHERE request_id=r.id) line_count FROM purchase_requests r JOIN projects p ON p.id=r.project_id JOIN users u ON u.id=r.created_by LEFT JOIN suppliers s ON s.id=r.supplier_id WHERE ${requestScope(a)} ${q.project ? sql`AND r.project_id=${q.project}` : sql``} ${q.status !== undefined ? sql`AND r.status=${q.status}` : mode === "procurement" ? sql`AND r.status IN(2,3,4,5,10,11)` : mode === "technical" ? sql`AND r.status=1` : mode === "finance" ? sql`AND r.status IN(9,10)` : mode === "receipts" ? sql`AND r.status BETWEEN 3 AND 6` : sql``} AND (${q.q}='' OR r.number::text ILIKE ${"%" + q.q + "%"} OR p.name ILIKE ${"%" + q.q + "%"}) ${c ? sql`AND (r.created_at,r.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY r.created_at DESC,r.id DESC LIMIT 26`,
+      sql`SELECT r.id,r.number,r.status,r.created_at,r.expected_at,r.version,r.project_id,p.name project_name,u.name created_by_name,s.name supplier_name,(SELECT COUNT(*)::int FROM request_lines WHERE request_id=r.id) line_count FROM purchase_requests r JOIN projects p ON p.id=r.project_id JOIN users u ON u.id=r.created_by LEFT JOIN suppliers s ON s.id=r.supplier_id WHERE ${requestScope(a)} ${q.project ? sql`AND r.project_id=${q.project}` : sql``} ${
+        q.status !== undefined
+          ? sql`AND r.status=${q.status}`
+          : stageStatuses[mode]
+            ? sql`AND r.status IN (${sql.join(
+                stageStatuses[mode].map((s) => sql`${s}`),
+                sql`,`,
+              )})`
+            : sql``
+      } AND (${q.q}='' OR r.number::text ILIKE ${"%" + q.q + "%"} OR p.name ILIKE ${"%" + q.q + "%"}) ${c ? sql`AND (r.created_at,r.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY r.created_at DESC,r.id DESC LIMIT 26`,
     ),
     true,
   );
@@ -73,11 +83,11 @@ export async function dashboard(a: Actor, project?: string) {
   const scope = sql`${requestScope(a)} ${project ? sql`AND r.project_id=${project}::uuid` : sql``}`;
   const [stats, latest, quantities] = await Promise.all([
     one<{ waiting: number; overdue: number; open: number; complete: number }>(
-      sql`SELECT COUNT(*) FILTER(WHERE r.status IN(1,2,9,10,11))::int waiting,COUNT(*) FILTER(WHERE r.status IN(3,4) AND r.expected_at<to_char(now() AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD'))::int overdue,COUNT(*) FILTER(WHERE (r.status BETWEEN 1 AND 4 OR r.status IN(9,10,11)))::int open,COUNT(*) FILTER(WHERE r.status IN(5,6))::int complete FROM purchase_requests r WHERE ${scope}`,
+      sql`SELECT COUNT(*) FILTER(WHERE r.status IN(1,2,9,10,11,12,13,14,15))::int waiting,COUNT(*) FILTER(WHERE r.status IN(3,4) AND r.expected_at<to_char(now() AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD'))::int overdue,COUNT(*) FILTER(WHERE (r.status BETWEEN 1 AND 4 OR r.status IN(9,10,11,12,13,14,15)))::int open,COUNT(*) FILTER(WHERE r.status IN(5,6))::int complete FROM purchase_requests r WHERE ${scope}`,
     ),
     listRequests(a, { q: "", project }),
     rows<{ id: string; name: string; requested: string; received: string }>(
-      sql`SELECT un.id,un.name,SUM(l.quantity)::text requested,SUM(COALESCE(rec.net,0))::text received FROM request_lines l JOIN purchase_requests r ON r.id=l.request_id JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id JOIN units un ON un.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL (SELECT SUM(accepted-returned) net FROM receipt_lines WHERE request_line_id=l.id) rec ON true WHERE ${scope} AND (r.status BETWEEN 1 AND 6 OR r.status IN(9,10,11)) GROUP BY un.id,un.name ORDER BY un.name LIMIT 25`,
+      sql`SELECT un.id,un.name,SUM(l.quantity)::text requested,SUM(COALESCE(rec.net,0))::text received FROM request_lines l JOIN purchase_requests r ON r.id=l.request_id JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id JOIN units un ON un.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL (SELECT SUM(accepted-returned) net FROM receipt_lines WHERE request_line_id=l.id) rec ON true WHERE ${scope} AND (r.status BETWEEN 1 AND 6 OR r.status IN(9,10,11,12,13,14,15)) GROUP BY un.id,un.name ORDER BY un.name LIMIT 25`,
     ),
   ]);
   return { stats: stats!, latest: latest.items.slice(0, 8), quantities };
@@ -91,24 +101,26 @@ export async function requestDetail(a: Actor, id: string, cursor?: string) {
       project_name: string;
       created_by_name: string;
       supplier_name: string | null;
+      latest_timeline_id: string;
+      has_payment: boolean;
     }>(
-      sql`SELECT r.id,p.name project_name,u.name created_by_name,s.name supplier_name FROM purchase_requests r JOIN projects p ON p.id=r.project_id JOIN users u ON u.id=r.created_by LEFT JOIN suppliers s ON s.id=r.supplier_id WHERE r.id=${id}`,
+      sql`SELECT r.id,EXISTS(SELECT 1 FROM request_payments py WHERE py.request_id=r.id) has_payment,(SELECT t.id FROM request_timeline t WHERE t.request_id=r.id ORDER BY t.created_at DESC,t.id DESC LIMIT 1) latest_timeline_id,p.name project_name,u.name created_by_name,s.name supplier_name FROM purchase_requests r JOIN projects p ON p.id=r.project_id JOIN users u ON u.id=r.created_by LEFT JOIN suppliers s ON s.id=r.supplier_id WHERE r.id=${id}`,
     ),
     rows<RecordRow>(
-      sql`SELECT l.id,l.material_id,l.quantity,l.notes,${canViewPrices(a) ? sql`l.price` : sql`null`} price,l.overage_approved_by,m.name material_name,m.quantity material_limit,b.code,b.name boq_name,b.description,un.name unit_name,COALESCE(rec.accepted,0)::text accepted,COALESCE(rec.returned,0)::text returned,COALESCE(rec.damaged,0)::text damaged,COALESCE(rec.rejected,0)::text rejected,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests pr ON pr.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (pr.status BETWEEN 1 AND 6 OR pr.status IN(9,10,11))),0 )>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id JOIN units un ON un.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL(SELECT SUM(accepted) accepted,SUM(returned) returned,SUM(damaged) damaged,SUM(rejected) rejected FROM receipt_lines WHERE request_line_id=l.id)rec ON true WHERE l.request_id=${id} ORDER BY b.code,m.name LIMIT 100`,
+      sql`SELECT l.id,l.material_id,l.quantity,l.notes,l.review_status,l.review_note,${canViewPrices(a) ? sql`l.price` : sql`null`} price,l.overage_approved_by,m.name material_name,m.quantity material_limit,b.code,b.name boq_name,b.description,un.name unit_name,COALESCE(rec.accepted,0)::text accepted,COALESCE(rec.returned,0)::text returned,COALESCE(rec.damaged,0)::text damaged,COALESCE(rec.rejected,0)::text rejected,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests pr ON pr.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (pr.status BETWEEN 1 AND 6 OR pr.status IN(9,10,11,12,13,14,15))),0 )>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id JOIN units un ON un.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL(SELECT SUM(accepted) accepted,SUM(returned) returned,SUM(damaged) damaged,SUM(rejected) rejected FROM receipt_lines WHERE request_line_id=l.id)rec ON true WHERE l.request_id=${id} ORDER BY b.code,m.name LIMIT 100`,
     ),
     rows<RecordRow>(
-      sql`SELECT t.id,t.from_status,t.to_status,t.created_at,t.note,u.name user_name FROM request_timeline t JOIN users u ON u.id=t.user_id WHERE t.request_id=${id} ${c ? sql`AND(t.created_at,t.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY t.created_at DESC,t.id DESC LIMIT 26`,
+      sql`SELECT t.id,t.from_status,t.to_status,t.created_at,t.note,COALESCE(u.name,'النظام') user_name FROM request_timeline t LEFT JOIN users u ON u.id=t.user_id WHERE t.request_id=${id} ${c ? sql`AND(t.created_at,t.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY t.created_at DESC,t.id DESC LIMIT 26`,
     ),
     rows<RecordRow>(
-      sql`SELECT id,name,bytes,format,created_at FROM attachments WHERE request_id=${id} AND (receipt_key IS NULL OR receipt_id IS NOT NULL) ORDER BY created_at DESC,id DESC LIMIT 25`,
+      sql`SELECT id,name,bytes,format,created_at,purpose,pricing_revision,payment_id FROM attachments WHERE request_id=${id} AND ${attachmentVisibility(a)} ORDER BY EXISTS(SELECT 1 FROM request_quotes q WHERE q.request_id=${id} AND q.revision=${r.pricing_revision} AND q.selected AND attachments.id=ANY(q.attachment_ids)) DESC,created_at DESC,id DESC LIMIT 100`,
     ),
     rows<RecordRow>(
       sql`SELECT r.id,r.created_at,r.notes,u.name received_by FROM receipts r JOIN users u ON u.id=r.created_by WHERE r.request_id=${id} ORDER BY r.created_at DESC,r.id DESC LIMIT 25`,
     ),
     canViewPrices(a)
       ? rows<Quote>(
-          sql`SELECT q.id,q.supplier_id,s.name supplier_name,q.expected_at,q.prices,q.selected,q.approved_by FROM request_quotes q JOIN suppliers s ON s.id=q.supplier_id WHERE q.request_id=${id} AND q.revision=${r.pricing_revision} ORDER BY q.created_at,q.id`,
+          sql`SELECT q.id,q.supplier_id,s.name supplier_name,q.expected_at,q.prices,q.attachment_ids,q.selected,q.approved_by FROM request_quotes q JOIN suppliers s ON s.id=q.supplier_id WHERE q.request_id=${id} AND q.revision=${r.pricing_revision} ORDER BY q.created_at,q.id`,
         )
       : Promise.resolve([] as Quote[]),
   ]);

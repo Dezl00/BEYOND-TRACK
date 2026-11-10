@@ -1,3 +1,4 @@
+import { departmentScope } from "./access";
 import { requestLink } from "@/lib/request-links";
 import { prepareRequestEmail } from "./request-email";
 import { otpRecipient, isOtpKey } from "./otp-delivery";
@@ -48,8 +49,9 @@ export async function processJobs(limit = 20) {
             created_by: string;
             number: number;
             status: number;
+            visited: number[];
           }>(
-            sql`SELECT project_id,created_by,number,status FROM purchase_requests WHERE id=${requestId}`,
+            sql`SELECT project_id,created_by,number,status,ARRAY(SELECT DISTINCT t.to_status FROM request_timeline t WHERE t.request_id=r.id) visited FROM purchase_requests r WHERE id=${requestId}`,
             tx,
           );
           if (request) {
@@ -66,6 +68,9 @@ export async function processJobs(limit = 20) {
             const link = requestLink(requestId);
             const users = await rows<{
               id: string;
+              is_owner: boolean;
+              permissions: string[];
+              workflow_role: string | null;
               email: string;
               in_app: boolean | null;
               email_enabled: boolean | null;
@@ -74,10 +79,20 @@ export async function processJobs(limit = 20) {
               whatsapp_country_code: string;
               whatsapp_number: string | null;
             }>(
-              sql`SELECT u.id,u.email,u.whatsapp_country_code,u.whatsapp_number,u.whatsapp_enabled,np.in_app,np.email email_enabled,np.whatsapp whatsapp_preference FROM users u LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.deleted_at IS NULL AND EXISTS(SELECT 1 FROM roles enabled_role WHERE enabled_role.id=u.role_id AND enabled_role.active=true) AND u.locked=false AND u.id<>${actorId} AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) AND (u.is_owner OR u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='technical.view') OR (EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND (${request.status} IN(2,3,4,5,6,9,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=${requestId} AND st.from_status=9))) OR (EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='procurement.view') AND NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND (${request.status} IN(2,3,4,5,6,10,11) OR EXISTS(SELECT 1 FROM request_timeline st WHERE st.request_id=${requestId} AND st.from_status=2))) OR (NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='finance.view') AND NOT EXISTS(SELECT 1 FROM role_permissions vp JOIN permissions vk ON vk.id=vp.permission_id WHERE vp.role_id=u.role_id AND vk.key='procurement.view'))) ORDER BY u.id LIMIT 1000`,
+              sql`SELECT u.id,u.is_owner,enabled_role.workflow_role,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions,u.email,u.whatsapp_country_code,u.whatsapp_number,u.whatsapp_enabled,np.in_app,np.email email_enabled,np.whatsapp whatsapp_preference FROM users u JOIN roles enabled_role ON enabled_role.id=u.role_id AND enabled_role.active LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.deleted_at IS NULL AND u.locked=false AND u.id<>${actorId} AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) ORDER BY u.id LIMIT 1000`,
               tx,
             );
             for (const u of users) {
+              const department = departmentScope(u);
+              if (
+                !u.is_owner &&
+                request.created_by !== u.id &&
+                (request.status === 0 ||
+                  (department &&
+                    !department.statuses.includes(request.status) &&
+                    !request.visited.includes(department.start)))
+              )
+                continue;
               const pref = effectivePreference(
                 policy || {
                   in_app: true,
@@ -93,7 +108,12 @@ export async function processJobs(limit = 20) {
                       whatsapp: u.whatsapp_preference ?? true,
                     },
               );
-              if (pref.in_app) {
+              if (
+                pref.in_app ||
+                (job.payload.technicalReturn &&
+                  (u.id === request.created_by ||
+                    u.workflow_role === "construction"))
+              ) {
                 const notification = await one<{ id: string }>(
                   sql`INSERT INTO notifications(user_id,event_id,type,request_id) VALUES (${u.id},${job.id},${type},${requestId}) ON CONFLICT(user_id,event_id) DO NOTHING RETURNING id`,
                   tx,
@@ -149,7 +169,7 @@ export async function processJobs(limit = 20) {
           String(job.payload.publicId),
           {
             resource_type: String(job.payload.resourceType),
-            type: "authenticated",
+            type: String(job.payload.deliveryType || "authenticated"),
             invalidate: true,
           },
         );
@@ -218,11 +238,11 @@ export async function maintain() {
     );
     // Abandoned receipt uploads never appear as evidence. Use the same durable file cleanup as a request purge.
     await tx.execute(sql`WITH expired AS (
-      SELECT id FROM attachments WHERE receipt_key IS NOT NULL AND receipt_id IS NULL
+      SELECT id FROM attachments WHERE ((receipt_key IS NOT NULL AND receipt_id IS NULL) OR (upload_key IS NOT NULL AND linked_at IS NULL))
       AND created_at<now()-interval '1 day' ORDER BY created_at LIMIT 500 FOR UPDATE SKIP LOCKED
     ), removed AS (
-      DELETE FROM attachments a USING expired WHERE a.id=expired.id RETURNING a.public_id,a.resource_type
-    ) INSERT INTO outbox(kind,payload) SELECT 4,jsonb_build_object('publicId',public_id,'resourceType',resource_type) FROM removed`);
+      DELETE FROM attachments a USING expired WHERE a.id=expired.id RETURNING a.public_id,a.resource_type,a.delivery_type
+    ) INSERT INTO outbox(kind,payload) SELECT 4,jsonb_build_object('publicId',public_id,'resourceType',resource_type,'deliveryType',delivery_type) FROM removed`);
     await tx.execute(sql`DELETE FROM rate_limits WHERE expires_at<now()`);
     await tx.execute(
       sql`DELETE FROM notifications WHERE read_at<now()-(SELECT read_notification_days FROM settings WHERE id=1)*interval '1 day'`,

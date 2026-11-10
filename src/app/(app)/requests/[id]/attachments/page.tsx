@@ -1,3 +1,5 @@
+import { attachmentVisibility } from "@/server/attachments";
+import { attachmentLabels, type AttachmentPurpose } from "@/lib/attachments";
 import Link from "next/link";
 import { FileText } from "lucide-react";
 import { requirePageActor } from "@/server/page-auth";
@@ -20,8 +22,13 @@ export default async function FilesPage({
     c = decodeCursor(cursorSchema.parse(q.cursor));
   await requireRequest(a, id);
   const data = page(
-    await rows<{ id: string; name: string; created_at: Date }>(
-      sql`SELECT id,name,created_at FROM attachments WHERE request_id=${id} AND (receipt_key IS NULL OR receipt_id IS NOT NULL) ${c ? sql`AND(created_at,id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY created_at DESC,id DESC LIMIT 26`,
+    await rows<{
+      id: string;
+      name: string;
+      purpose: AttachmentPurpose;
+      created_at: Date;
+    }>(
+      sql`SELECT id,name,created_at,purpose FROM attachments WHERE request_id=${id} AND ${attachmentVisibility(a)} ${c ? sql`AND(created_at,id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY created_at DESC,id DESC LIMIT 26`,
     ),
     true,
   );
@@ -44,7 +51,12 @@ export default async function FilesPage({
                 rel="noopener noreferrer"
               >
                 <FileText size={20} />
-                {f.name}
+                <span>
+                  {f.name}
+                  <small className="cell-sub">
+                    {attachmentLabels[f.purpose]}
+                  </small>
+                </span>
               </a>
             ))
           ) : (

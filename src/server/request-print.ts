@@ -1,3 +1,4 @@
+import { attachmentVisibility } from "./attachments";
 import { sql, rows, one } from "@/db";
 import { canViewPrices, can, type Actor } from "@/lib/domain";
 import { requireRequest } from "./access";
@@ -97,8 +98,8 @@ export async function printHistory(actor: Actor, id: string, cursor?: string) {
   await requireRequest(actor, id);
   const c = decodeCursor(cursor);
   return page(
-    await rows<HistoryPrintRow>(sql`SELECT t.id,t.created_at,t.from_status,t.to_status,t.note,u.name user_name
-    FROM request_timeline t JOIN users u ON u.id=t.user_id WHERE t.request_id=${id}::uuid
+    await rows<HistoryPrintRow>(sql`SELECT t.id,t.created_at,t.from_status,t.to_status,t.note,COALESCE(u.name,'النظام') user_name
+    FROM request_timeline t LEFT JOIN users u ON u.id=t.user_id WHERE t.request_id=${id}::uuid
     ${c ? sql`AND(t.created_at,t.id)>(${c.at}::timestamptz,${c.id}::uuid)` : sql``}
     ORDER BY t.created_at,t.id LIMIT 26`),
     true,
@@ -112,7 +113,7 @@ export async function printAttachments(
   await requireRequest(actor, id);
   const c = decodeCursor(cursor);
   return page(
-    await rows<AttachmentPrintRow>(sql`SELECT id,name,format,created_at,receipt_id FROM attachments WHERE request_id=${id}::uuid AND (receipt_key IS NULL OR receipt_id IS NOT NULL)
+    await rows<AttachmentPrintRow>(sql`SELECT id,name,format,created_at,receipt_id FROM attachments WHERE request_id=${id}::uuid AND ${attachmentVisibility(actor)}
     ${c ? sql`AND(created_at,id)>(${c.at}::timestamptz,${c.id}::uuid)` : sql``}
     ORDER BY created_at,id LIMIT 26`),
     true,
