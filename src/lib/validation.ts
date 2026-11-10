@@ -54,7 +54,8 @@ export const resetSchema = z.object({
     .transform((v) => v.toLowerCase()),
 });
 export const resetPasswordSchema = z.object({
-  token: z.string().regex(/^[a-f0-9]{64}$/),
+  challenge: uuid,
+  code: z.string().regex(/^\d{6}$/),
   password,
 });
 const line = z.object({

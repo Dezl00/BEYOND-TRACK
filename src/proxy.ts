@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { loginPath } from "@/lib/request-links";
 import { ar } from "@/messages/ar";
 export function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
@@ -31,7 +32,7 @@ export function proxy(request: NextRequest) {
   if (!publicPath && !request.cookies.has(cookie))
     response = path.startsWith("/api/")
       ? NextResponse.json({ error: ar.errors.forbidden }, { status: 401 })
-      : NextResponse.redirect(new URL("/login", request.url));
+      : NextResponse.redirect(new URL(loginPath(path), request.url));
   else response = NextResponse.next({ request: { headers: h } });
   response.headers.set("Content-Security-Policy", csp);
   response.headers.set(

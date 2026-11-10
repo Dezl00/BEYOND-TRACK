@@ -35,6 +35,15 @@ describe("Public login identity assets", () => {
       );
     }
   });
+  it("preserves a request notification destination through login", () => {
+    const id = crypto.randomUUID();
+    const response = proxy(
+      new NextRequest("https://example.com/requests/" + id),
+    );
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/login?request=" + id,
+    );
+  });
   it("keeps attachment and business APIs protected", () => {
     for (const path of [
       "/api/attachments/secret",

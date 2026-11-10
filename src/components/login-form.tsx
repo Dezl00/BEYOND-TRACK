@@ -1,6 +1,6 @@
 "use client";
+import { requestAfterLogin } from "@/lib/request-links";
 import { useId, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { ArrowLeft, LockKeyhole, UserRound, Eye, EyeOff } from "lucide-react";
 import { ar } from "@/messages/ar";
 import {
@@ -62,9 +62,7 @@ function PasswordField({
 }
 export default function LoginForm() {
   useLoginReady();
-  const params = useSearchParams(),
-    reset = params.get("reset");
-  const [mode, setMode] = useState(reset ? "reset" : "login"),
+  const [mode, setMode] = useState("login"),
     [identifier, setIdentifier] = useState(""),
     [password, setPassword] = useState(""),
     [confirmation, setConfirmation] = useState(""),
@@ -89,7 +87,7 @@ export default function LoginForm() {
             ? otpSchema.parse({ challenge, code })
             : mode === "forgot"
               ? resetSchema.parse({ email: identifier })
-              : resetPasswordSchema.parse({ token: reset, password });
+              : resetPasswordSchema.parse({ challenge, code, password });
       const response = await fetch(`/api/auth/${mode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -99,16 +97,37 @@ export default function LoginForm() {
       if (!response.ok) throw new Error(result.error);
       if (result.challenge) {
         setChallenge(result.challenge);
-        setMode("otp");
+        setMode(mode === "forgot" ? "reset" : "otp");
+        setCode("");
+        setConfirmation("");
         setPassword("");
-        setSuccess(ar.auth.otpSent);
-      } else if (result.redirect) window.location.assign(result.redirect);
-      else {
+        setSuccess(
+          mode === "forgot"
+            ? ar.auth.resetSent
+            : result.whatsapp
+              ? ar.auth.otpBoth
+              : ar.auth.otpSent,
+        );
+      } else if (result.redirect) {
+        const requestPath = requestAfterLogin(
+          new URLSearchParams(window.location.search).get("request"),
+        );
+        window.location.assign(
+          result.redirect === "/dashboard" && requestPath
+            ? requestPath
+            : result.redirect,
+        );
+      } else {
         setSuccess(result.message);
         if (mode === "reset") {
           setMode("login");
           setPassword("");
-          history.replaceState(null, "", "/login");
+          const id = new URLSearchParams(window.location.search).get("request");
+          history.replaceState(
+            null,
+            "",
+            requestAfterLogin(id) ? "/login?request=" + id : "/login",
+          );
         }
       }
     } catch (e) {
@@ -142,7 +161,7 @@ export default function LoginForm() {
                 aria-hidden="true"
               />
               <input
-                autoComplete="username"
+                autoComplete={mode === "forgot" ? "email" : "username"}
                 className="input numeric"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
@@ -150,6 +169,19 @@ export default function LoginForm() {
                 disabled={busy}
               />
             </div>
+          </Field>
+        ) : null}
+        {mode === "otp" || mode === "reset" ? (
+          <Field label={ar.auth.otp}>
+            <input
+              className="input numeric"
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              maxLength={6}
+              disabled={busy}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            />
           </Field>
         ) : null}
         {["login", "reset"].includes(mode) ? (
@@ -173,19 +205,6 @@ export default function LoginForm() {
             disabled={busy}
           />
         ) : null}
-        {mode === "otp" ? (
-          <Field label={ar.auth.otp}>
-            <input
-              className="input numeric"
-              autoComplete="one-time-code"
-              inputMode="numeric"
-              maxLength={6}
-              disabled={busy}
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            />
-          </Field>
-        ) : null}
         {mode === "login" ? (
           <div className="row between login-options">
             <Checkbox
@@ -197,6 +216,9 @@ export default function LoginForm() {
               className="btn link small login-forgot"
               type="button"
               onClick={() => {
+                setPassword("");
+                setCode("");
+                setConfirmation("");
                 setMode("forgot");
                 setError("");
               }}
@@ -225,6 +247,10 @@ export default function LoginForm() {
             className="link"
             onClick={() => {
               setMode("login");
+              setPassword("");
+              setCode("");
+              setConfirmation("");
+              setChallenge("");
               setError("");
               setSuccess("");
             }}

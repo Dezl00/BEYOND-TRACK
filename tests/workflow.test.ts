@@ -1265,20 +1265,41 @@ describe("Authentication", () => {
       code: "otp",
     });
   });
-  it("returns the same reset response and consumes reset tokens once", async () => {
+  it("returns the same reset response and consumes recovery codes once", async () => {
     const known = await forgotPassword(other.email),
       unknown = await forgotPassword("unknown@test.invalid");
-    expect(known).toEqual(unknown);
+    expect(known.message).toEqual(unknown.message);
+    expect(unknown.challenge).not.toBe(known.challenge);
     const mail = (
       await pg.query<{ payload: { encrypted: string } }>(
         "SELECT payload FROM outbox WHERE kind=2 ORDER BY created_at DESC LIMIT 1",
       )
     ).rows[0];
     const html = decrypt<{ html: string }>(mail.payload.encrypted).html,
-      token = html.match(/reset=([a-f0-9]{64})/)![1];
-    await resetPassword({ token, password: "Changed-password-12345" });
+      code = html.match(/dir="ltr">(\d{6})/)![1];
+    const challenge = known.challenge;
     await expect(
-      resetPassword({ token, password: "Changed-password-12345" }),
+      resetPassword({
+        challenge,
+        code: code === "000000" ? "111111" : "000000",
+        password: "Changed-password-12345",
+      }),
+    ).rejects.toMatchObject({ code: "reset" });
+    expect(
+      (
+        await pg.query<{ attempts: number }>(
+          "select attempts from auth_challenges where id=$1",
+          [challenge],
+        )
+      ).rows[0].attempts,
+    ).toBe(1);
+    await resetPassword({
+      challenge,
+      code,
+      password: "Changed-password-12345",
+    });
+    await expect(
+      resetPassword({ challenge, code, password: "Changed-password-12345" }),
     ).rejects.toMatchObject({ code: "reset" });
     expect(
       (

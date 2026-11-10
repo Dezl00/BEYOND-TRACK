@@ -1,3 +1,4 @@
+import { ar } from "@/messages/ar";
 import {
   beforeAll,
   beforeEach,
@@ -20,7 +21,17 @@ import {
 } from "@/lib/validation";
 import type { Actor } from "@/lib/domain";
 
-const state = vi.hoisted(() => ({ database: null as unknown }));
+const state = vi.hoisted(() => ({
+  database: null as unknown,
+  sendMail: vi.fn(
+    async (_mail: {
+      to: string;
+      html: string;
+      subject: string;
+      attachments: { contentId: string }[];
+    }) => ({ error: null }),
+  ),
+}));
 vi.mock("@/db", async () => {
   const { sql } = await import("drizzle-orm");
   const rows = async (q: unknown, c = state.database) =>
@@ -38,9 +49,14 @@ vi.mock("@/db", async () => {
 });
 vi.mock("resend", () => ({
   Resend: class {
-    emails = { send: async () => ({ error: null }) };
+    emails = { send: state.sendMail };
   },
 }));
+import { hash } from "bcryptjs";
+import { issueRequestPurge } from "@/server/request-purge";
+import { forgotPassword, login } from "@/server/auth";
+import { prepareRequestEmail } from "@/server/request-email";
+vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 import { db } from "@/db";
 import { saveUser, savePreferences, saveSettings } from "@/server/admin";
 import { notify } from "@/server/events";
@@ -119,6 +135,10 @@ beforeAll(async () => {
   );
 });
 beforeEach(async () => {
+  state.sendMail.mockClear();
+  await pg.query("UPDATE users SET whatsapp_enabled=false WHERE id=$1", [
+    ids.owner,
+  ]);
   gateway = vi.fn(
     async () =>
       new Response(JSON.stringify({ id: "gateway-test", state: "queued" }), {
@@ -294,6 +314,137 @@ describe("WhatsApp numbers and settings", () => {
 });
 
 describe("WhatsApp delivery", () => {
+  it.each(["login", "reset", "purge", "project"] as const)(
+    "sends the same %s OTP to the account by branded email and WhatsApp",
+    async (purpose) => {
+      const forOwner = purpose === "purge" || purpose === "project";
+      const userId = forOwner ? ids.owner : ids.user;
+      const email = userId + "@example.invalid";
+      const phone = forOwner ? "1000000001" : "1144797501";
+      let challenge: string;
+      let session: string | undefined;
+      if (forOwner) {
+        session = randomUUID();
+        await pg.query(
+          "UPDATE users SET whatsapp_number=$2,whatsapp_country_code='+20',whatsapp_enabled=true WHERE id=$1",
+          [userId, phone],
+        );
+        await pg.query(
+          "INSERT INTO sessions(id,user_id,token_hash,expires_at,ip,user_agent) VALUES($1,$2,$3,now()+interval '1 hour','127.0.0.1','OTP test')",
+          [session, userId, randomUUID()],
+        );
+        const result = await issueRequestPurge(
+          { ...owner, session_id: session },
+          meta,
+          purpose === "project" ? ids.project : undefined,
+        );
+        expect(result.whatsapp).toBe(true);
+        challenge = result.challenge;
+      } else if (purpose === "login") {
+        const password = "Example-password-321";
+        await pg.query(
+          "UPDATE users SET otp_enabled=true,password_hash=$2 WHERE id=$1",
+          [userId, await hash(password, 4)],
+        );
+        const result = await login({
+          identifier: email,
+          password,
+          remember: false,
+        });
+        if (!result.challenge) throw Error("Expected login challenge");
+        challenge = result.challenge;
+      } else {
+        challenge = (await forgotPassword(email)).challenge;
+      }
+      const key = (forOwner ? "purge" : purpose) + ":" + challenge;
+      const pending = (
+        await pg.query<{
+          kind: number;
+          payload: { encrypted: string; otpKey?: string };
+        }>("SELECT kind,payload FROM outbox WHERE kind IN(2,5)")
+      ).rows;
+      expect(pending).toHaveLength(2);
+      const wa = pending.find((job) => job.kind === 5)!.payload;
+      expect(wa.otpKey).toBe(key);
+      await processJobs(8);
+      expect(state.sendMail).toHaveBeenCalledTimes(1);
+      const delivered = state.sendMail.mock.calls[0][0];
+      expect(delivered.to).toBe(email);
+      expect(delivered.html).toContain('bgcolor="#293fd0"');
+      expect(
+        delivered.attachments.map((a: { contentId: string }) => a.contentId),
+      ).toEqual(["beyond-track-logo-white", "beyond-track-logo"]);
+      const code = delivered.html.match(/dir="ltr">(\d{6})/)![1];
+      const hero = delivered.html.match(
+        /<td class="mail-hero"[^>]*>([\s\S]*?)<\/td>/,
+      )![1];
+      const body = delivered.html.match(
+        /<td class="mail-body"[^>]*>([\s\S]*?)<\/td>/,
+      )![1];
+      expect(hero).toContain(delivered.subject);
+      expect(hero).not.toContain(code);
+      expect(
+        body
+          .replace(/<[^>]*>/g, "")
+          .trim()
+          .split(/\s+/)
+          .join(" "),
+      ).toBe(code + " " + ar.email.otpExpiry);
+      expect(delivered.html).not.toContain("?reset=");
+      expect(gateway).toHaveBeenCalledTimes(1);
+      const message = JSON.parse(String(gateway.mock.calls[0][1].body));
+      expect(message.to).toBe("+20" + phone);
+      expect(message.text).toBe(
+        ["*" + delivered.subject + "*", code, ar.email.otpExpiry].join("\n\n"),
+      );
+      if (purpose === "project") expect(message.text).toContain("WhatsApp"); // fixture project name
+      if (session)
+        await pg.query("DELETE FROM sessions WHERE id=$1", [session]);
+      else
+        await pg.query("UPDATE auth_challenges SET attempts=5 WHERE id=$1", [
+          challenge,
+        ]);
+      await deliverWhatsApp(wa);
+      expect(gateway).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("keeps email available without WhatsApp and skips queued codes if the registered number changes", async () => {
+    const email = ids.user + "@example.invalid";
+    await pg.query("UPDATE users SET whatsapp_enabled=false WHERE id=$1", [
+      ids.user,
+    ]);
+    await forgotPassword(email);
+    expect(
+      (await pg.query("SELECT id FROM outbox WHERE kind=5")).rows,
+    ).toHaveLength(0);
+    await processJobs(4);
+    expect(state.sendMail).toHaveBeenCalledTimes(1);
+    await pg.query("UPDATE users SET whatsapp_enabled=true WHERE id=$1", [
+      ids.user,
+    ]);
+    await forgotPassword(email);
+    await pg.query(
+      "UPDATE users SET whatsapp_number='1000000002' WHERE id=$1",
+      [ids.user],
+    );
+    await processJobs(6);
+    expect(state.sendMail).toHaveBeenCalledTimes(2);
+    expect(gateway).not.toHaveBeenCalled();
+  });
+  it("renders an authorized request email on the custom domain and skips revoked access", async () => {
+    const mail = await prepareRequestEmail(ids.user, ids.request, 0);
+    expect(mail?.html).toContain(
+      "https://beyond-track.online/requests/" + ids.request,
+    );
+    expect(mail?.html).toContain('src="cid:beyond-track-logo-white"');
+    expect(mail?.html).toContain('src="cid:beyond-track-logo"');
+    expect(mail?.html).toContain(ar.statuses[1]);
+    expect((await prepareRequestEmail(ids.owner, ids.request, 0))?.to).toBe(
+      ids.owner + "@example.invalid",
+    );
+    await pg.query("DELETE FROM project_users WHERE user_id=$1", [ids.user]);
+    expect(await prepareRequestEmail(ids.user, ids.request, 0)).toBeNull();
+  });
   it("sends request events independently of email and in-app notifications", async () => {
     await notify(db(), ids.request, 0, ids.sender);
     await processJobs(10);
@@ -310,7 +461,7 @@ describe("WhatsApp delivery", () => {
     const message = JSON.parse(String(options.body));
     expect(message.to).toBe("+201144797501");
     expect(message.text).toContain(
-      `https://track.example.invalid/requests/${ids.request}`,
+      `https://beyond-track.online/requests/${ids.request}`,
     );
   });
   it("encrypts queued content and retries failures with the same idempotency key", async () => {

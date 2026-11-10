@@ -1,7 +1,10 @@
+import { requestLink } from "@/lib/request-links";
+import { prepareRequestEmail } from "./request-email";
+import { otpRecipient, isOtpKey } from "./otp-delivery";
+import { emailLogos } from "./email-logo";
 import { Resend } from "resend";
 import { db, sql, one, rows } from "@/db";
 import { decrypt } from "./security";
-import { queueEmail } from "./events";
 import { ar } from "@/messages/ar";
 import { requestCode, effectivePreference } from "@/lib/domain-email";
 import { deliverPush, pushConfigured } from "./push";
@@ -20,7 +23,7 @@ export async function processJobs(limit = 20) {
   for (let n = 0; n < limit; n++) {
     if (Date.now() > deadline) break;
     const job = await one<Job>(
-      sql`UPDATE outbox SET locked_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=(SELECT id FROM outbox WHERE available_at<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY CASE kind WHEN 2 THEN 0 WHEN 3 THEN 1 WHEN 5 THEN 1 WHEN 1 THEN 2 ELSE 3 END,created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`,
+      sql`UPDATE outbox SET locked_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=(SELECT id FROM outbox WHERE available_at<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY CASE WHEN (kind=5 AND (payload ? 'otpKey' OR payload ? 'recoveryChallenge')) OR (kind=2 AND NOT (payload ? 'requestId')) THEN -1 ELSE 0 END, CASE kind WHEN 2 THEN 0 WHEN 3 THEN 1 WHEN 5 THEN 1 WHEN 1 THEN 2 ELSE 3 END,created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`,
     );
     if (!job) break;
     try {
@@ -60,6 +63,7 @@ export async function processJobs(limit = 20) {
               sql`SELECT whatsapp_enabled FROM settings WHERE id=1`,
               tx,
             );
+            const link = requestLink(requestId);
             const users = await rows<{
               id: string;
               email: string;
@@ -109,10 +113,6 @@ export async function processJobs(limit = 20) {
                 pref.whatsapp &&
                 to
               ) {
-                const link = new URL(
-                  `/requests/${requestId}`,
-                  process.env.APP_URL || "http://localhost:3000",
-                );
                 await queueWhatsApp(tx, {
                   userId: u.id,
                   requestId,
@@ -123,17 +123,8 @@ export async function processJobs(limit = 20) {
                 });
               }
               if (pref.email) {
-                const link = new URL(
-                  `/requests/${requestId}`,
-                  process.env.APP_URL || "http://localhost:3000",
-                );
-                await queueEmail(
-                  tx,
-                  u.email,
-                  ar.email.notificationSubject,
-                  `<html lang="ar" dir="rtl"><body><p>${ar.notificationTypes[type]} · ${requestCode(request.number)}</p><a href="${link}">${ar.email.viewRequest}</a></body></html>`,
-                  `${job.id}:${u.id}`,
-                  requestId,
+                await tx.execute(
+                  sql`INSERT INTO outbox(kind,payload) VALUES (2,${JSON.stringify({ requestId, userId: u.id, eventType: type, key: job.id + ":" + u.id })}::jsonb)`,
                 );
               }
             }
@@ -168,11 +159,40 @@ export async function processJobs(limit = 20) {
       } else {
         if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM)
           throw new Error("Email not configured");
-        const mail = decrypt<{ to: string; subject: string; html: string }>(
-          String(job.payload.encrypted),
-        );
+        const recipientId =
+          job.payload.userId ??
+          (typeof job.payload.key === "string"
+            ? job.payload.key.split(":")[1]
+            : undefined);
+        const mail =
+          job.payload.requestId && typeof recipientId === "string"
+            ? await prepareRequestEmail(
+                recipientId,
+                String(job.payload.requestId),
+                typeof job.payload.eventType === "number"
+                  ? job.payload.eventType
+                  : undefined,
+              )
+            : decrypt<{ to: string; subject: string; html: string }>(
+                String(job.payload.encrypted),
+              );
+        if (
+          !mail ||
+          (mail.subject === ar.email.resetSubject &&
+            mail.html.includes("?reset="))
+        ) {
+          await db().execute(sql`DELETE FROM outbox WHERE id=${job.id}`);
+          continue;
+        }
+        if (
+          isOtpKey(job.payload.key) &&
+          (await otpRecipient(job.payload.key))?.email !== mail.to
+        ) {
+          await db().execute(sql`DELETE FROM outbox WHERE id=${job.id}`);
+          continue;
+        }
         const r = await new Resend(process.env.RESEND_API_KEY).emails.send(
-          { from: process.env.EMAIL_FROM, ...mail },
+          { from: process.env.EMAIL_FROM, ...mail, attachments: emailLogos },
           { idempotencyKey: String(job.payload.key || job.id) },
         );
         if (r.error) throw new Error("Email delivery failed");

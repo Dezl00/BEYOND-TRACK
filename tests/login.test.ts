@@ -200,9 +200,15 @@ describe("Login, OTP, and recovery forms", () => {
   it("keeps the forgot-password response neutral and returns to login", async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ message: ar.auth.resetSent }), {
-        status: 200,
-      }),
+      new Response(
+        JSON.stringify({
+          challenge: crypto.randomUUID(),
+          message: ar.auth.resetSent,
+        }),
+        {
+          status: 200,
+        },
+      ),
     );
     render(createElement(LoginForm));
     await user.click(screen.getByRole("button", { name: ar.auth.forgot }));
@@ -216,16 +222,24 @@ describe("Login, OTP, and recovery forms", () => {
     await user.click(screen.getByRole("button", { name: ar.auth.returnLogin }));
     expect(screen.getByRole("heading", { name: ar.auth.title })).toBeTruthy();
   });
-  it("validates password confirmation before submitting a reset token", async () => {
-    state.params = "reset=" + "a".repeat(64);
+  it("validates password confirmation before submitting a recovery code", async () => {
+    const challenge = crypto.randomUUID();
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ message: ar.auth.resetDone }), {
-        status: 200,
-      }),
-    );
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ challenge, message: ar.auth.resetSent })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: ar.auth.resetDone }), {
+          status: 200,
+        }),
+      );
     vi.spyOn(history, "replaceState").mockImplementation(() => {});
     render(createElement(LoginForm));
+    await user.click(screen.getByRole("button", { name: ar.auth.forgot }));
+    await user.type(screen.getByLabelText(ar.auth.email), "user@example.com");
+    await user.click(screen.getByRole("button", { name: ar.auth.sendReset }));
+    await user.type(await screen.findByLabelText(ar.auth.otp), "123456");
     await user.type(
       screen.getByLabelText(ar.auth.newPassword),
       "Password-12345",
@@ -238,7 +252,7 @@ describe("Login, OTP, and recovery forms", () => {
       screen.getByRole("button", { name: ar.auth.changePassword }),
     );
     expect(screen.getByRole("alert").textContent).toBe(ar.errors.passwordMatch);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
     await user.clear(screen.getByLabelText(ar.auth.confirmPassword));
     await user.type(
       screen.getByLabelText(ar.auth.confirmPassword),
@@ -250,7 +264,7 @@ describe("Login, OTP, and recovery forms", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: ar.auth.title })).toBeTruthy(),
     );
-    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/auth/reset");
+    expect(vi.mocked(fetch).mock.calls[1][0]).toBe("/api/auth/reset");
     expect(history.replaceState).toHaveBeenCalledWith(null, "", "/login");
   });
 });

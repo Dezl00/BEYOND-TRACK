@@ -19,6 +19,7 @@ export default function RequestPurge({
     [ack, setAck] = useState(false),
     [challenge, setChallenge] = useState(""),
     [code, setCode] = useState(""),
+    [whatsapp, setWhatsapp] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [success, setSuccess] = useState("");
@@ -45,7 +46,9 @@ export default function RequestPurge({
           project ? { projectId: project.id } : {},
         )) as {
           challenge: string;
+          whatsapp: boolean;
         };
+        setWhatsapp(result.whatsapp);
         setChallenge(result.challenge);
       } else {
         await command(
@@ -115,7 +118,16 @@ export default function RequestPurge({
               {email}
             </bdi>
           </Field>
-          <Message error={error} />
+          <Message
+            error={error}
+            success={
+              challenge
+                ? whatsapp
+                  ? ar.auth.otpBoth
+                  : ar.auth.otpSent
+                : undefined
+            }
+          />
           <Checkbox
             label={
               project

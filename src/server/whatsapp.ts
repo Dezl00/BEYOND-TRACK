@@ -3,6 +3,8 @@ import { can, type Actor } from "@/lib/domain";
 import { whatsappRecipient } from "@/lib/whatsapp-phone";
 import { encrypt, decrypt } from "./security";
 import { requestScope } from "./access";
+import { requestLink } from "@/lib/request-links";
+import { otpRecipient } from "./otp-delivery";
 import { sendWhatsApp } from "./whatsapp-gateway";
 
 type WhatsAppJob = {
@@ -31,6 +33,22 @@ export async function queueWhatsApp(
 }
 
 export async function deliverWhatsApp(payload: Record<string, unknown>) {
+  const otpKey =
+    typeof payload.otpKey === "string"
+      ? payload.otpKey
+      : typeof payload.recoveryChallenge === "string"
+        ? "reset:" + payload.recoveryChallenge
+        : null;
+  if (otpKey) {
+    const account = await otpRecipient(otpKey);
+    if (!account?.phone) return;
+    const message = decrypt<{ to: string; text: string }>(
+      String(payload.encrypted),
+    );
+    if (account.phone === message.to)
+      await sendWhatsApp(message.to, message.text, String(payload.key));
+    return;
+  }
   const job = payload as WhatsAppJob;
   const user = await one<
     Actor & {
@@ -71,5 +89,9 @@ export async function deliverWhatsApp(payload: Record<string, unknown>) {
     message.to
   )
     return;
-  await sendWhatsApp(message.to, message.text, job.key);
+  const text = message.text.replace(
+    /https?:\/\/[\w.-]+\.vercel\.app\/requests\/([a-f\d-]+)/gi,
+    (link, id: string) => (id === job.requestId ? requestLink(id) : link),
+  );
+  await sendWhatsApp(message.to, text, job.key);
 }

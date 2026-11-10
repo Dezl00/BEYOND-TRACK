@@ -1,8 +1,9 @@
+import { queueOtp } from "./otp-delivery";
 import { randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { db, one, sql, type Executor } from "@/db";
 import type { Actor } from "@/lib/domain";
 import { ar } from "@/messages/ar";
-import { audit, queueEmail, type Meta } from "./events";
+import { audit, type Meta } from "./events";
 import { keyedHash, rateLimit } from "./security";
 import { AppError } from "./errors";
 import { purgeConfirmSchema } from "@/lib/validation";
@@ -42,7 +43,7 @@ export async function issueRequestPurge(
   await rateLimit("purge-issue", a.id, 3, 900);
   await rateLimit("purge-issue-ip", meta.ip, 6, 900);
   return db().transaction(async (tx) => {
-    const owner = await ownerSession(a, tx);
+    await ownerSession(a, tx);
     const project = projectId
       ? await one<{ name: string }>(
           sql`SELECT name FROM projects WHERE id=${projectId}`,
@@ -53,7 +54,7 @@ export async function issueRequestPurge(
     // One owner-level transaction prevents overlapping resends across devices.
     await tx.execute(sql`SELECT id FROM users WHERE id=${a.id} FOR UPDATE`);
     await tx.execute(
-      sql`DELETE FROM outbox WHERE kind=2 AND payload->>'key' IN(SELECT 'purge:'||id::text FROM request_purge_challenges WHERE user_id=${a.id})`,
+      sql`DELETE FROM outbox WHERE kind IN(2,5) AND COALESCE(payload->>'otpKey',payload->>'key') IN(SELECT 'purge:'||id::text FROM request_purge_challenges WHERE user_id=${a.id})`,
     );
     await tx.execute(
       sql`DELETE FROM request_purge_challenges WHERE user_id=${a.id}`,
@@ -63,17 +64,19 @@ export async function issueRequestPurge(
     await tx.execute(
       sql`INSERT INTO request_purge_challenges(id,user_id,session_id,project_id,token_hash,expires_at) VALUES(${challenge},${a.id},${a.session_id},${projectId ?? null},${purgeHash(challenge, a.session_id, code, projectId)},now()+interval '5 minutes')`,
     );
-    await queueEmail(
+    const delivery = await queueOtp(
       tx,
-      owner.email,
-      project ? "تأكيد حذف المشروع" : ar.settings.purgeSubject,
-      `<html lang="ar" dir="rtl"><body><p>${project ? "رمز حذف المشروع " + project.name.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;") : ar.settings.purgeBody}</p><p dir="ltr">${code}</p><p>${ar.email.otpExpiry}</p></body></html>`,
-      `purge:${challenge}`,
+      "purge",
+      challenge,
+      project
+        ? "تأكيد حذف المشروع «" + project.name + "»"
+        : ar.settings.purgeSubject,
+      code,
     );
     await audit(tx, a.id, meta, 1, 8, "1", {
       request_purge: { requested: true, projectId },
     });
-    return { challenge, email: owner.email };
+    return { challenge, ...delivery };
   });
 }
 async function deleteProjectData(tx: Executor, projectId: string) {
@@ -177,7 +180,7 @@ export async function purgeRequests(
         projectId,
       );
       await tx.execute(
-        sql`DELETE FROM outbox WHERE kind=2 AND payload->>'key'=${"purge:" + challenge.id}`,
+        sql`DELETE FROM outbox WHERE kind IN(2,5) AND COALESCE(payload->>'otpKey',payload->>'key')=${"purge:" + challenge.id}`,
       );
       await tx.execute(
         sql`DELETE FROM request_purge_challenges WHERE id=${challenge.id}`,
@@ -207,7 +210,7 @@ export async function purgeRequests(
       sql`INSERT INTO outbox(kind,payload) SELECT 4,jsonb_build_object('publicId',public_id,'resourceType',resource_type) FROM attachments`,
     );
     await tx.execute(
-      sql`DELETE FROM outbox WHERE kind IN(1,3,5) OR (kind=2 AND (payload ? 'requestId' OR payload->>'key' ~ '^[0-9a-f-]{36}:[0-9a-f-]{36}$' OR payload->>'key'=${`purge:${challenge.id}`}))`,
+      sql`DELETE FROM outbox WHERE kind IN(1,3) OR (kind IN(2,5) AND (payload ? 'requestId' OR COALESCE(payload->>'otpKey',payload->>'key')=${`purge:${challenge.id}`})) OR (kind=2 AND payload->>'key' ~ '^[0-9a-f-]{36}:[0-9a-f-]{36}$')`,
     );
     for (const table of [
       "notifications",

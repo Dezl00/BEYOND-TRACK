@@ -1,3 +1,4 @@
+import { queueOtp } from "./otp-delivery";
 import { randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { compare, hash as hashPassword } from "bcryptjs";
 import { cookies } from "next/headers";
@@ -7,7 +8,7 @@ import type { Actor } from "@/lib/domain";
 import { ar } from "@/messages/ar";
 import { AppError } from "./errors";
 import { hash, keyedHash, token, rateLimit, metadata } from "./security";
-import { audit, authAudit, queueEmail, type Meta } from "./events";
+import { audit, authAudit, type Meta } from "./events";
 import type { z } from "zod";
 import {
   loginSchema,
@@ -151,20 +152,22 @@ export async function login(input: z.infer<typeof loginSchema>) {
       await tx.execute(
         sql`INSERT INTO auth_challenges(id,user_id,kind,token_hash,remember,expires_at) VALUES (${challenge},${u.id},0,${keyedHash(`${challenge}:${code}`)},${input.remember},now()+interval '5 minutes')`,
       );
-      await queueEmail(
+      const delivery = await queueOtp(
         tx,
-        u.email,
+        "login",
+        challenge,
         ar.email.otpSubject,
-        `<html lang="ar" dir="rtl"><body><p>${ar.email.otpBody}</p><p dir="ltr">${code}</p><p>${ar.email.otpExpiry}</p></body></html>`,
+        code,
       );
-      return { challenge } as const;
+      return { challenge, whatsapp: delivery.whatsapp } as const;
     }
     return {
       session: await makeSession(tx, fresh, input.remember, meta),
     } as const;
   });
   if ("error" in result) throw new AppError("credentials", 401);
-  if ("challenge" in result) return { challenge: result.challenge };
+  if ("challenge" in result)
+    return { challenge: result.challenge, whatsapp: result.whatsapp };
   await setSessionCookie(
     result.session.value,
     result.session.expires,
@@ -224,44 +227,55 @@ export async function forgotPassword(email: string) {
   const meta = await metadata();
   await rateLimit("reset-ip", meta.ip, 5, 900);
   await rateLimit("reset-account", email, 3, 900);
-  const u = await one<User>(
-    sql`SELECT * FROM users WHERE email=${email} AND locked=false AND deleted_at IS NULL`,
-  );
-  if (u && process.env.RESEND_API_KEY && process.env.EMAIL_FROM)
-    await db().transaction(async (tx) => {
-      const value = token();
-      await tx.execute(
-        sql`DELETE FROM auth_challenges WHERE user_id=${u.id} AND kind=1`,
-      );
-      await tx.execute(
-        sql`INSERT INTO auth_challenges(user_id,kind,token_hash,expires_at) VALUES (${u.id},1,${hash(value)},now()+interval '30 minutes')`,
-      );
-      const link = new URL(
-        "/login",
-        process.env.APP_URL || "http://localhost:3000",
-      );
-      link.searchParams.set("reset", value);
-      await queueEmail(
-        tx,
-        u.email,
-        ar.email.resetSubject,
-        `<html lang="ar" dir="rtl"><body><a href="${link.toString()}">${ar.email.resetBody}</a><p>${ar.email.resetExpiry}</p></body></html>`,
-      );
-    });
-  return { message: ar.auth.resetSent };
+  const challenge = randomUUID();
+  await db().transaction(async (tx) => {
+    const user = await one<{
+      id: string;
+      email: string;
+    }>(
+      sql`SELECT u.id,u.email FROM users u JOIN roles r ON r.id=u.role_id AND r.active WHERE u.email=${email} AND u.deleted_at IS NULL AND NOT u.locked FOR UPDATE OF u`,
+      tx,
+    );
+    if (!user) return;
+    const code = String(randomInt(0, 1000000)).padStart(6, "0");
+    await tx.execute(
+      sql`DELETE FROM auth_challenges WHERE user_id=${user.id} AND kind=1`,
+    );
+    await tx.execute(
+      sql`INSERT INTO auth_challenges(id,user_id,kind,token_hash,expires_at) VALUES (${challenge},${user.id},1,${keyedHash("reset:" + challenge + ":" + user.email + ":" + code)},now()+interval '5 minutes')`,
+    );
+    await queueOtp(tx, "reset", challenge, ar.email.resetSubject, code);
+  });
+  return { message: ar.auth.resetSent, challenge };
 }
 export async function resetPassword(
   input: z.infer<typeof resetPasswordSchema>,
 ) {
   const meta = await metadata();
   await rateLimit("reset-finish", meta.ip, 10, 900);
-  const passwordHash = await hashPassword(input.password, 12);
-  await db().transaction(async (tx) => {
-    const c = await one<{ user_id: string }>(
-      sql`DELETE FROM auth_challenges WHERE token_hash=${hash(input.token)} AND kind=1 AND expires_at>now() RETURNING user_id`,
+  const changed = await db().transaction(async (tx) => {
+    const c = await one<{
+      id: string;
+      user_id: string;
+      email: string;
+      token_hash: string;
+    }>(
+      sql`SELECT c.id,c.user_id,c.token_hash,u.email FROM auth_challenges c JOIN users u ON u.id=c.user_id JOIN roles r ON r.id=u.role_id WHERE c.id=${input.challenge} AND c.kind=1 AND c.expires_at>now() AND c.attempts<5 AND u.deleted_at IS NULL AND NOT u.locked AND r.active FOR UPDATE OF u,c`,
       tx,
     );
-    if (!c) throw new AppError("reset", 400);
+    if (!c) return false;
+    if (
+      !safeCode(
+        c.token_hash,
+        keyedHash("reset:" + c.id + ":" + c.email + ":" + input.code),
+      )
+    ) {
+      await tx.execute(
+        sql`UPDATE auth_challenges SET attempts=attempts+1 WHERE id=${c.id}`,
+      );
+      return false;
+    }
+    const passwordHash = await hashPassword(input.password, 12);
     await tx.execute(
       sql`UPDATE users SET password_hash=${passwordHash},force_password_change=false,failed_attempts=0,locked_until=null WHERE id=${c.user_id}`,
     );
@@ -272,7 +286,9 @@ export async function resetPassword(
     await audit(tx, c.user_id, meta, 12, 0, c.user_id, {
       password: { changed: true },
     });
+    return true;
   });
+  if (!changed) throw new AppError("reset", 400);
   return { message: ar.auth.resetDone };
 }
 export async function changePassword(
