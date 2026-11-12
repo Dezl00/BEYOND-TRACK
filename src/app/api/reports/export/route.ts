@@ -1,3 +1,4 @@
+import { fromRequest } from "@/messages/request";
 import { requireActor } from "@/server/auth";
 import { requirePermission } from "@/server/access";
 import { consumptionPage, reportContext } from "@/server/reports";
@@ -14,6 +15,7 @@ function csv(value: unknown) {
 }
 export async function GET(request: Request) {
   try {
+    const {m:ar,unit,number,percent}=fromRequest(request);
     const actor = await requireActor();
     requirePermission(actor, "reports.export");
     const parsed = reportQuerySchema.parse(
@@ -71,7 +73,7 @@ export async function GET(request: Request) {
                 row.code,
                 row.boq_name,
                 row.name,
-                row.unit_name,
+                unit(row.unit_name),
                 number(row.allocated, digits),
                 number(row.requested, digits),
                 number(row.received, digits),
@@ -110,6 +112,6 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error,request);
   }
 }

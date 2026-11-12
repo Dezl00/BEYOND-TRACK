@@ -1,9 +1,11 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useState, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
 import { ChevronLeft, ChevronRight, X, CalendarDays } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { useDigits } from "./format-context";
 import { number } from "@/lib/format";
 import { Button } from "./form-controls";
@@ -26,6 +28,8 @@ export function Modal({
   onOpenChange?: (v: boolean) => void;
   className?: string;
 }) {
+  const { m: msg } = useLanguage();
+  
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? <Dialog.Trigger asChild>{trigger}</Dialog.Trigger> : null}
@@ -41,7 +45,7 @@ export function Modal({
               <Button
                 type="button"
                 className="icon"
-                aria-label={ar.common.close}
+                aria-label={msg.common.close}
               >
                 <X size={18} />
               </Button>
@@ -60,17 +64,19 @@ export function DateInput({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const { m: msg, number, dir, intl } = useLanguage();
+  
   const digits = useDigits();
   const [open, setOpen] = useState(false),
     [month, setMonth] = useState(
       () => new Date(value ? `${value}T12:00:00` : Date.now()),
     );
   const year = month.getFullYear(),
-    m = month.getMonth(),
-    first = new Date(year, m, 1).getDay(),
-    days = new Date(year, m + 1, 0).getDate();
+    monthIndex = month.getMonth(),
+    first = new Date(year, monthIndex, 1).getDay(),
+    days = new Date(year, monthIndex + 1, 0).getDate();
   const weekdays = Array.from({ length: 7 }, (_, i) =>
-    new Intl.DateTimeFormat("ar-SA", { weekday: "short" }).format(
+    new Intl.DateTimeFormat(intl(), { weekday: "short" }).format(
       new Date(2024, 0, 7 + i),
     ),
   );
@@ -83,7 +89,7 @@ export function DateInput({
           onClick={() => setOpen(!open)}
           aria-expanded={open}
         >
-          <bdi>{value || ar.common.date}</bdi>
+          <bdi>{value || msg.common.date}</bdi>
           <CalendarDays size={16} />
         </button>
       </Popover.Trigger>
@@ -94,30 +100,28 @@ export function DateInput({
           align="start"
           sideOffset={6}
           collisionPadding={12}
-          dir="rtl"
+          dir={dir}
         >
           <div className="row between">
             <Button
               type="button"
               className="icon small"
-              aria-label={ar.common.previous}
-              onClick={() => setMonth(new Date(year, m - 1, 1))}
+              aria-label={msg.common.previous}
+              onClick={() => setMonth(new Date(year, monthIndex - 1, 1))}
             >
               <ChevronRight size={16} />
             </Button>
             <span>
               {new Intl.DateTimeFormat(
-                digits
-                  ? "ar-SA-u-ca-gregory-nu-arab"
-                  : "ar-SA-u-ca-gregory-nu-latn",
+                intl(digits),
                 { month: "long", year: "numeric" },
               ).format(month)}
             </span>
             <Button
               type="button"
               className="icon small"
-              aria-label={ar.common.next}
-              onClick={() => setMonth(new Date(year, m + 1, 1))}
+              aria-label={msg.common.next}
+              onClick={() => setMonth(new Date(year, monthIndex + 1, 1))}
             >
               <ChevronLeft size={16} />
             </Button>
@@ -132,7 +136,7 @@ export function DateInput({
               <span key={`e${i}`} />
             ))}
             {Array.from({ length: days }, (_, i) => {
-              const date = `${year}-${String(m + 1).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`;
+              const date = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`;
               return (
                 <button
                   type="button"
@@ -161,6 +165,8 @@ export function FilePicker({
   accept: string;
   onChange: (file: File | null) => void;
 }) {
+  const { m: msg } = useLanguage();
+  
   const ref = useRef<HTMLInputElement>(null),
     [name, setName] = useState("");
   return (
@@ -177,9 +183,9 @@ export function FilePicker({
         }}
       />
       <Button type="button" onClick={() => ref.current?.click()}>
-        {ar.files.choose}
+        {msg.files.choose}
       </Button>
-      <span className="muted">{name || ar.files.none}</span>
+      <span className="muted">{name || msg.files.none}</span>
     </div>
   );
 }

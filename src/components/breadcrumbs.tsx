@@ -1,10 +1,14 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 
 export default function Breadcrumbs({ title }: { title: string }) {
+  const { m: msg } = useLanguage();
+  
   const path = usePathname(),
     params = useSearchParams();
   const parts = path.split("/").filter(Boolean);
@@ -13,21 +17,21 @@ export default function Breadcrumbs({ title }: { title: string }) {
     value + (project ? `?project=${project}` : "");
   const parents: { label: string; href: string }[] = [];
   if (parts[0] !== "dashboard")
-    parents.push({ label: ar.nav.dashboard, href: href("/dashboard") });
+    parents.push({ label: msg.nav.dashboard, href: href("/dashboard") });
   if (parts[0] === "materials" || parts[0] === "units") {
-    parents.push({ label: ar.nav.boq, href: href("/boq") });
+    parents.push({ label: msg.nav.boq, href: href("/boq") });
   } else if (parts.length > 1) {
-    const key = parts[0] as keyof typeof ar.nav;
-    if (ar.nav[key])
-      parents.push({ label: ar.nav[key], href: href(`/${parts[0]}`) });
+    const key = parts[0] as keyof typeof msg.nav;
+    if (msg.nav[key])
+      parents.push({ label: msg.nav[key], href: href(`/${parts[0]}`) });
     if (parts[0] === "requests" && parts.length > 2)
       parents.push({
-        label: ar.requests.detail,
+        label: msg.requests.detail,
         href: href(`/requests/${parts[1]}`),
       });
   }
   return (
-    <nav className="breadcrumbs" aria-label={ar.common.breadcrumbs}>
+    <nav className="breadcrumbs" aria-label={msg.common.breadcrumbs}>
       <ol>
         {parents.map((parent) => (
           <li key={parent.href}>

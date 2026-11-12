@@ -150,6 +150,7 @@ export type Actor = {
   is_owner: boolean;
   force_password_change: boolean;
   theme: number;
+  locale?: string | null;
   otp_enabled: boolean;
   otp_exempt: boolean;
   permissions: string[];

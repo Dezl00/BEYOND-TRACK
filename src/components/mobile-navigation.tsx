@@ -1,4 +1,6 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { type Actor } from "@/lib/domain";
@@ -7,13 +9,15 @@ import {
   navigationHref,
   navigationKey,
 } from "@/lib/navigation";
-import { ar } from "@/messages/ar";
+
 import { navigationIcons } from "./navigation-icons";
 export default function MobileNavigation({
   actor,
 }: {
   actor: Pick<Actor, "permissions" | "is_owner" | "force_password_change">;
 }) {
+  const { m: msg } = useLanguage();
+  
   const path = usePathname(),
     params = useSearchParams();
   if (actor.force_password_change) return null;
@@ -24,7 +28,7 @@ export default function MobileNavigation({
   return (
     <nav
       className="mobile-bottom-nav no-print"
-      aria-label={ar.mobile.navigation}
+      aria-label={msg.mobile.navigation}
     >
       {tabs.map((key) => {
         const Icon = navigationIcons[key],
@@ -43,7 +47,7 @@ export default function MobileNavigation({
             <span className="mobile-nav-icon">
               <Icon size={22} strokeWidth={active ? 2 : 1.7} />
             </span>
-            <span>{ar.mobile[key]}</span>
+            <span>{msg.mobile[key]}</span>
           </Link>
         );
       })}

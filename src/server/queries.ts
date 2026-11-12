@@ -1,3 +1,6 @@
+import {unitSearchAliases} from "@/messages/units";
+import { language } from "@/messages/catalog";
+import { parseLocale, type Locale } from "@/messages/types";
 import { attachmentVisibility } from "./attachments";
 import { canManageUnits, stageStatuses } from "@/lib/domain";
 import type { Quote } from "@/lib/quotations";
@@ -114,7 +117,7 @@ export async function requestDetail(a: Actor, id: string, cursor?: string) {
       sql`SELECT l.id,l.material_id,l.quantity,l.notes,l.review_status,l.review_note,${canViewPrices(a) ? sql`l.price` : sql`null`} price,l.overage_approved_by,m.name material_name,m.quantity material_limit,b.code,b.name boq_name,b.description,un.name unit_name,COALESCE(rec.accepted,0)::text accepted,COALESCE(rec.returned,0)::text returned,COALESCE(rec.damaged,0)::text damaged,COALESCE(rec.rejected,0)::text rejected,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests pr ON pr.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (pr.status BETWEEN 1 AND 6 OR pr.status IN(9,10,11,12,13,14,15))),0 )>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id JOIN units un ON un.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL(SELECT SUM(accepted) accepted,SUM(returned) returned,SUM(damaged) damaged,SUM(rejected) rejected FROM receipt_lines WHERE request_line_id=l.id)rec ON true WHERE l.request_id=${id} ORDER BY b.code,m.name LIMIT 100`,
     ),
     rows<RecordRow>(
-      sql`SELECT t.id,t.from_status,t.to_status,t.created_at,t.note,COALESCE(u.name,'النظام') user_name FROM request_timeline t LEFT JOIN users u ON u.id=t.user_id WHERE t.request_id=${id} ${c ? sql`AND(t.created_at,t.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY t.created_at DESC,t.id DESC LIMIT 26`,
+      sql`SELECT t.id,t.from_status,t.to_status,t.created_at,t.note,u.name user_name FROM request_timeline t LEFT JOIN users u ON u.id=t.user_id WHERE t.request_id=${id} ${c ? sql`AND(t.created_at,t.id)<(${c.at}::timestamptz,${c.id}::uuid)` : sql``} ORDER BY t.created_at DESC,t.id DESC LIMIT 26`,
     ),
     rows<RecordRow>(
       sql`SELECT id,name,bytes,format,created_at,purpose,pricing_revision,payment_id FROM attachments WHERE request_id=${id} AND ${attachmentVisibility(a)} ORDER BY EXISTS(SELECT 1 FROM request_quotes q WHERE q.request_id=${id} AND q.revision=${r.pricing_revision} AND q.selected AND attachments.id=ANY(q.attachment_ids)) DESC,created_at DESC,id DESC LIMIT 100`,
@@ -200,12 +203,13 @@ export async function listResource(
     );
   }
   if (resource === "units") {
+    const aliases=unitSearchAliases(q.q);
     if (!q.selectable && !canManageUnits(a))
       throw new AppError("forbidden", 403);
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT * FROM units WHERE ${q.selectable ? sql`active=true AND` : sql``} (${q.q}='' OR name ILIKE ${"%" + q.q + "%"}) ${after()} ORDER BY id LIMIT 26`,
+        sql`SELECT * FROM units WHERE ${q.selectable ? sql`active=true AND` : sql``} (${q.q}='' OR name ILIKE ${"%" + q.q + "%"} OR symbol ILIKE ${"%" + q.q + "%"} ${aliases.length?sql`OR name IN (${sql.join(aliases.map(v=>sql`${v}`),sql`,`)})`:sql``}) ${after()} ORDER BY id LIMIT 26`,
       ),
     );
   }
@@ -227,7 +231,8 @@ export async function listResource(
   }
   throw new AppError("notFound", 404);
 }
-export async function notifications(a: Actor, cursor?: string, q = "") {
+export async function notifications(a: Actor, cursor?: string, q = "", locale:Locale="ar") {
+  const {m:ar}=language(locale);
   const c = decodeCursor(cursor);
   return page(
     await rows<RecordRow>(

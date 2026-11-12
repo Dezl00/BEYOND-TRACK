@@ -1,3 +1,4 @@
+import { requestLanguage } from "@/server/language";
 import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import {
@@ -12,7 +13,7 @@ import { requirePageActor } from "@/server/page-auth";
 import { dashboard } from "@/server/queries";
 import { listQuerySchema } from "@/lib/validation";
 import { can } from "@/lib/domain";
-import { ar } from "@/messages/ar";
+
 import { number } from "@/lib/format";
 import { one, sql } from "@/db";
 import { Heading, Empty } from "@/components/common";
@@ -22,6 +23,8 @@ export default async function Dashboard({
 }: {
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg, number, unit } = await requestLanguage();
+  
   const a = await requirePageActor(),
     q = listQuerySchema.parse(await searchParams),
     [data, settings] = await Promise.all([
@@ -31,14 +34,14 @@ export default async function Dashboard({
   const d = settings?.digits || 0;
   return (
     <>
-      <Heading title={ar.dashboard.title} eyebrow={ar.dashboard.overview}>
+      <Heading title={msg.dashboard.title} eyebrow={msg.dashboard.overview}>
         {can(a, "requests.create") ? (
           <Link
             className="btn green"
             href={`/requests/new${q.project ? `?project=${q.project}` : ""}`}
           >
             <Plus size={17} />
-            {ar.requests.new}
+            {msg.requests.new}
           </Link>
         ) : null}
       </Heading>
@@ -53,7 +56,7 @@ export default async function Dashboard({
         ).map(([key, Icon]) => (
           <div className={`stat stat-${key}`} key={key}>
             <div className="stat-top">
-              <span>{ar.dashboard[key]}</span>
+              <span>{msg.dashboard[key]}</span>
               <span className="stat-icon">
                 <Icon size={27} strokeWidth={1.6} />
               </span>
@@ -65,9 +68,9 @@ export default async function Dashboard({
       <div className="dashboard-grid">
         <section className="panel">
           <div className="panel-heading">
-            <h2>{ar.dashboard.latest}</h2>
+            <h2>{msg.dashboard.latest}</h2>
             <Link className="btn link small" href="/requests">
-              {ar.common.all}
+              {msg.common.all}
               <ArrowLeft size={14} />
             </Link>
           </div>
@@ -75,19 +78,19 @@ export default async function Dashboard({
         </section>
         <section className="panel">
           <div className="panel-heading">
-            <h2>{ar.dashboard.quantities}</h2>
+            <h2>{msg.dashboard.quantities}</h2>
           </div>
           {data.quantities.length ? (
             data.quantities.map((item) => (
               <div className="quantity-block" key={item.id}>
-                <h3>{item.name}</h3>
+                <h3>{unit(item.name)}</h3>
                 <div className="quantity-values">
                   <span>
-                    <span className="muted">{ar.dashboard.requested}</span>{" "}
+                    <span className="muted">{msg.dashboard.requested}</span>{" "}
                     <bdi>{number(item.requested, d)}</bdi>
                   </span>
                   <span>
-                    <span className="muted">{ar.dashboard.received}</span>{" "}
+                    <span className="muted">{msg.dashboard.received}</span>{" "}
                     <bdi>{number(item.received, d)}</bdi>
                   </span>
                 </div>

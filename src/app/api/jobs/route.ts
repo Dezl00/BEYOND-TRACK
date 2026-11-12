@@ -1,8 +1,10 @@
+import { fromRequest } from "@/messages/request";
 import { timingSafeEqual } from "node:crypto";
 import { processJobs, maintain } from "@/server/jobs";
 import { ar } from "@/messages/ar";
 export const maxDuration = 60;
 export async function GET(req: Request) {
+  const {m:ar}=fromRequest(req);
   const expected = `Bearer ${process.env.CRON_SECRET || ""}`,
     actual = req.headers.get("authorization") || "";
   if (

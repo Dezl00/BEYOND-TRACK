@@ -1,23 +1,27 @@
+"use client";
+import { useLanguage } from "@/components/language-context";
 import Link from "next/link";
 import { Inbox, ArrowLeft, Plus } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import Breadcrumbs from "./breadcrumbs";
 export function Brand() {
+  const { m: msg } = useLanguage();
+  
   return (
-    <div className="brand" aria-label={ar.brand}>
+    <div className="brand" aria-label={msg.brand}>
       <span className="brand-images">
         <img
           src="/logo.svg"
           width="162"
           height="54"
-          alt={ar.company}
+          alt={msg.company}
           className="brand-image brand-light"
         />
         <img
           src="/logo-dark.svg"
           width="162"
           height="54"
-          alt={ar.company}
+          alt={msg.company}
           className="brand-image brand-dark"
         />
       </span>
@@ -25,19 +29,23 @@ export function Brand() {
   );
 }
 export function StatusBadge({ status }: { status: number }) {
+  const { m: msg } = useLanguage();
+  
   return (
     <span
       className={`badge status-badge ${status === 5 || status === 6 ? "green" : status === 7 || status === 8 ? "red" : status > 0 ? "blue" : ""}`}
     >
-      {ar.statuses[status]}
+      {msg.statuses[status]}
     </span>
   );
 }
 export function Empty() {
+  const { m: msg } = useLanguage();
+  
   return (
     <div className="empty">
       <Inbox size={30} />
-      <span>{ar.common.empty}</span>
+      <span>{msg.common.empty}</span>
     </div>
   );
 }
@@ -69,6 +77,8 @@ export function Pagination({
   base: string;
   query?: Record<string, string | undefined>;
 }) {
+  const { m: msg } = useLanguage();
+  
   const params = new URLSearchParams(
     Object.entries(query || {}).filter((e): e is [string, string] => !!e[1]),
   );
@@ -89,12 +99,12 @@ export function Pagination({
             )
           }
         >
-          {ar.common.reset}
+          {msg.common.reset}
         </Link>
       ) : null}
       {next ? (
         <Link className="btn small" href={`${base}?${params}`}>
-          {ar.common.next}
+          {msg.common.next}
           <ArrowLeft size={15} />
         </Link>
       ) : null}
@@ -102,5 +112,7 @@ export function Pagination({
   );
 }
 export function Riyal() {
-  return <span className="riyal" role="img" aria-label={ar.currency} />;
+  const { m: msg } = useLanguage();
+  
+  return <span className="riyal" role="img" aria-label={msg.currency} />;
 }

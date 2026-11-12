@@ -115,7 +115,7 @@ describe("Installable ERP application", () => {
     );
   });
   it("serves a functional offline screen without account information or scripts", async () => {
-    const response = offline(),
+    const response = offline(new Request("https://example.com/offline")),
       html = await response.text();
     expect(response.status).toBe(200);
     expect(html).toContain('lang="ar" dir="rtl"');
@@ -131,12 +131,14 @@ describe("Service worker isolation", () => {
     await sw.dispatch("activate").done;
     expect(sw.cache.addAll).toHaveBeenCalledWith([
       "/offline",
+      "/offline?lang=en",
       "/icon.svg",
       "/pwa-192.png",
       "/pwa-512.png",
       "/pwa-maskable.png",
     ]);
-    expect(sw.cacheApi.delete).toHaveBeenCalledTimes(1);
+    expect(sw.cacheApi.delete).toHaveBeenCalledTimes(2);
+    expect(sw.cacheApi.delete).toHaveBeenCalledWith("bt-public-v1");
     expect(sw.cacheApi.delete).toHaveBeenCalledWith("bt-public-v0");
     expect(sw.clients.claim).toHaveBeenCalled();
   });

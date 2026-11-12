@@ -1,4 +1,6 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { Actor } from "@/lib/domain";
@@ -8,12 +10,14 @@ import {
   mobileNavigation,
   navigationHref,
 } from "@/lib/navigation";
-import { ar } from "@/messages/ar";
+
 import { navigationIcons } from "./navigation-icons";
 import { LogoutButton } from "./account-menu";
 import ProjectSelector from "./project-selector";
 import { InstallApp } from "./pwa";
 export default function MoreNavigation({ actor }: { actor: Actor }) {
+  const { m: msg } = useLanguage();
+  
   const params = useSearchParams(),
     project = params.get("project") || "";
   const primary = mobileNavigation(actor);
@@ -30,7 +34,7 @@ export default function MoreNavigation({ actor }: { actor: Actor }) {
               <span>
                 <Icon size={23} strokeWidth={1.7} />
               </span>
-              {ar.nav[key]}
+              {msg.nav[key]}
             </Link>
           );
         })}
@@ -39,7 +43,7 @@ export default function MoreNavigation({ actor }: { actor: Actor }) {
         <InstallApp />
         {can(actor, "projects.view") ? (
           <div className="more-project">
-            <span>{ar.common.project}</span>
+            <span>{msg.common.project}</span>
             <ProjectSelector />
           </div>
         ) : null}

@@ -1,3 +1,7 @@
+import { language } from "@/messages/catalog";
+import { parseLocale, type Locale } from "@/messages/types";
+import { en } from "@/messages/en";
+import { unitLabel } from "@/messages/units";
 import readWorkbook from "read-excel-file/node";
 import writeExcelFile from "write-excel-file/node";
 import { parse as parseCsv } from "csv-parse/sync";
@@ -59,7 +63,7 @@ export async function parseImport(file: File) {
       headers.length !== 5 ||
       ar.boq.headers.some((h, i) => {
         const value = String(headers[i] ?? "").trim();
-        return h !== value && !(i === 2 && value === "القسم الفرعي2");
+        return h !== value && en.boq.headers[i]!==value && !(i === 2 && value === "القسم الفرعي2");
       })
     )
       throw new AppError("import");
@@ -113,10 +117,10 @@ export async function importBoq(
     const unitIds = new Map<string, string>();
     const newUnits = [];
     for (const label of new Set(data.map((row) => row[4]))) {
-      const exact = units.filter((u) => u.name === label);
+      const exact = units.filter((u) => u.name === label || unitLabel(u.name,"en").toLowerCase()===label.toLowerCase());
       const matches = exact.length
         ? exact
-        : units.filter((u) => u.symbol === label);
+        : units.filter((u) => u.symbol === label || unitLabel(u.symbol,"en",true).toLowerCase()===label.toLowerCase());
       if (
         matches.length > 1 ||
         matches[0]?.active === false ||
@@ -216,7 +220,8 @@ export async function importBoq(
     return result;
   });
 }
-export async function importTemplate() {
+export async function importTemplate(locale: Locale = "ar") {
+  const {m:ar}=language(locale);
   const data = [
     ar.boq.headers,
     [
@@ -232,12 +237,12 @@ export async function importTemplate() {
       row.map((value) => ({
         value,
         fontWeight: i === 0 ? ("bold" as const) : undefined,
-        align: "right" as const,
+        align: locale==="en" ? "left" as const : "right" as const,
       })),
     ),
     {
       sheet: ar.boq.title,
-      rightToLeft: true,
+      rightToLeft: locale==="ar",
       stickyRowsCount: 1,
       columns: [24, 24, 28, 48, 15].map((width) => ({ width })),
     },

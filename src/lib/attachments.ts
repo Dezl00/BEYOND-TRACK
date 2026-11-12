@@ -1,3 +1,4 @@
+import type { MessageCatalog } from "@/messages/types";
 export const attachmentPurposes = [
   "request",
   "receipt",
@@ -13,10 +14,4 @@ export type RequestAttachment = {
   pricing_revision: number | null;
   payment_id: string | null;
 };
-export const attachmentLabels: Record<AttachmentPurpose, string> = {
-  request: "مرفق الطلب",
-  receipt: "مرفق الاستلام",
-  quotation: "عرض السعر",
-  alternative: "عروض أسعار أخرى",
-  payment: "إيصال الدفع",
-};
+export const attachmentLabels = (m:MessageCatalog): Record<AttachmentPurpose,string> => ({request:m.interface.requestFile,receipt:m.interface.receiptFile,quotation:m.interface.quotation,alternative:m.interface.otherQuotes,payment:m.interface.paymentReceipt});

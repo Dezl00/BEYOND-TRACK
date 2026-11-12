@@ -1,4 +1,6 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import {
   createContext,
   useCallback,
@@ -6,7 +8,7 @@ import {
   useEffect,
   useState,
 } from "react";
-import { ar } from "@/messages/ar";
+
 
 const LoginReady = createContext<() => void>(() => {});
 export function useLoginReady() {
@@ -33,6 +35,8 @@ export default function LoginEntry({
 }: {
   children: React.ReactNode;
 }) {
+  const { m: msg } = useLanguage();
+  
   const [formReady, setFormReady] = useState(false),
     [assetsReady, setAssetsReady] = useState(false),
     [elapsed, setElapsed] = useState(false),
@@ -75,7 +79,7 @@ export default function LoginEntry({
         <div
           className="entry-splash"
           role="status"
-          aria-label={ar.brand}
+          aria-label={msg.brand}
           data-exiting={exiting}
         >
           <div className="entry-splash-mark" aria-hidden="true">

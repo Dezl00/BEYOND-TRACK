@@ -40,13 +40,14 @@ type User = {
   username: string;
   whatsapp_number: string | null;
   theme: number;
+  locale?: string | null;
   force_password_change: boolean;
 };
 export const currentActor = cache(async (): Promise<Actor | null> => {
   const value = (await cookies()).get(sessionCookie)?.value;
   if (!value || !/^[a-f0-9]{64}$/.test(value)) return null;
   const a = await one<Actor>(
-    sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.role_id,u.is_owner,u.force_password_change,u.theme,u.otp_enabled,u.otp_exempt,r.name role_name,r.unit_supervisor,r.workflow_role,s.id session_id,s.expires_at,s.remember,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions FROM sessions s JOIN users u ON u.id=s.user_id JOIN roles r ON r.id=u.role_id WHERE (s.token_hash=${hash(value)} OR (s.previous_token_hash=${hash(value)} AND s.previous_until>now())) AND s.expires_at>now() AND u.deleted_at IS NULL AND r.active=true AND (u.locked=false OR u.is_owner=true) LIMIT 1`,
+    sql`SELECT u.id,u.name,u.email,u.username,u.job_title,u.role_id,u.is_owner,u.force_password_change,u.theme,u.locale,u.otp_enabled,u.otp_exempt,r.name role_name,r.unit_supervisor,r.workflow_role,s.id session_id,s.expires_at,s.remember,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions FROM sessions s JOIN users u ON u.id=s.user_id JOIN roles r ON r.id=u.role_id WHERE (s.token_hash=${hash(value)} OR (s.previous_token_hash=${hash(value)} AND s.previous_until>now())) AND s.expires_at>now() AND u.deleted_at IS NULL AND r.active=true AND (u.locked=false OR u.is_owner=true) LIMIT 1`,
   );
   return a || null;
 });
@@ -62,12 +63,14 @@ async function setSessionCookie(
   expires: Date,
   remember: boolean,
   theme: number,
+  locale?: string | null,
 ) {
   const jar = await cookies();
   jar.set(sessionCookie, value, {
     ...cookieOptions,
     ...(remember ? { expires } : {}),
   });
+  if(locale) jar.set("bt-locale",locale,{...cookieOptions,maxAge:31536000});
   jar.set("bt-theme", String(theme), {
     ...cookieOptions,
     maxAge: 60 * 60 * 24 * 365,
@@ -87,7 +90,10 @@ async function makeSession(
     sql`INSERT INTO sessions(user_id,token_hash,expires_at,remember,ip,user_agent) VALUES (${u.id},${hash(value)},${expires},${remember},${meta.ip},${meta.userAgent})`,
   );
   await audit(conn, u.id, meta, 4, 0, u.id);
+  const locale = u.locale || ((await cookies()).get("bt-locale")?.value === "en" ? "en" : "ar");
+  if(!u.locale) await conn.execute(sql`UPDATE users SET locale=${locale} WHERE id=${u.id} AND locale IS NULL`);
   return {
+    locale,
     value,
     expires,
     remember,
@@ -182,6 +188,7 @@ export async function login(input: z.infer<typeof loginSchema>) {
     result.session.expires,
     result.session.remember,
     result.session.theme,
+    result.session.locale,
   );
   return {
     redirect: result.session.force ? "/settings/security" : "/dashboard",
@@ -229,6 +236,7 @@ export async function verifyOtp(input: z.infer<typeof otpSchema>) {
     result.expires,
     result.remember,
     result.theme,
+    result.locale,
   );
   return { redirect: result.force ? "/settings/security" : "/dashboard" };
 }

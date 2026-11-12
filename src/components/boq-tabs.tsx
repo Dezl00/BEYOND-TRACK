@@ -1,5 +1,7 @@
+"use client";
+import { useLanguage } from "@/components/language-context";
 import Link from "next/link";
-import { ar } from "@/messages/ar";
+
 export default function BoqTabs({
   current,
   project,
@@ -15,14 +17,16 @@ export default function BoqTabs({
   mains?: string[];
   seconds?: string[];
 }) {
+  const { m: msg } = useLanguage();
+  
   const tabs = [
-    { key: "boq", label: ar.nav.boq, path: "/boq" },
-    { key: "materials", label: ar.boq.materials, path: "/materials" },
+    { key: "boq", label: msg.nav.boq, path: "/boq" },
+    { key: "materials", label: msg.boq.materials, path: "/materials" },
     ...(canUnits
-      ? [{ key: "units", label: ar.boq.units, path: "/units" }]
+      ? [{ key: "units", label: msg.boq.units, path: "/units" }]
       : []),
     ...(canImport
-      ? [{ key: "import", label: ar.common.import, path: "/boq/import" }]
+      ? [{ key: "import", label: msg.common.import, path: "/boq/import" }]
       : []),
   ];
   function href(tab: (typeof tabs)[number]) {
@@ -35,7 +39,7 @@ export default function BoqTabs({
     return params.size ? tab.path + "?" + params : tab.path;
   }
   return (
-    <nav className="resource-tabs" aria-label={ar.nav.boq}>
+    <nav className="resource-tabs" aria-label={msg.nav.boq}>
       {tabs.map((tab) => (
         <Link
           key={tab.key}

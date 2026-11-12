@@ -1,6 +1,8 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useState } from "react";
-import { ar } from "@/messages/ar";
+
 import { date } from "@/lib/format";
 import { Modal, Button, Message, command } from "./ui";
 import { useDigits } from "./format-context";
@@ -11,6 +13,8 @@ type Session = {
   expires_at: string;
 };
 export default function UserSessions({ userId }: { userId: string }) {
+  const { m: msg, date } = useLanguage();
+  
   const [open, setOpen] = useState(false),
     [items, setItems] = useState<Session[]>([]),
     [next, setNext] = useState<string | null>(null),
@@ -35,13 +39,13 @@ export default function UserSessions({ userId }: { userId: string }) {
   }
   return (
     <Modal
-      title={ar.auth.sessions}
+      title={msg.auth.sessions}
       open={open}
       onOpenChange={(value) => {
         setOpen(value);
         if (value) void load();
       }}
-      trigger={<Button className="small">{ar.auth.sessions}</Button>}
+      trigger={<Button className="small">{msg.auth.sessions}</Button>}
     >
       <div className="stack">
         <Message error={error} />
@@ -63,17 +67,17 @@ export default function UserSessions({ userId }: { userId: string }) {
                   }
                 }}
               >
-                {ar.auth.revoke}
+                {msg.auth.revoke}
               </Button>
             </div>
           </div>
         ))}
         {next ? (
           <Button pending={busy} onClick={() => void load(next)}>
-            {ar.common.more}
+            {msg.common.more}
           </Button>
         ) : !items.length ? (
-          <p className="muted">{busy ? ar.common.loading : ar.common.empty}</p>
+          <p className="muted">{busy ? msg.common.loading : msg.common.empty}</p>
         ) : null}
       </div>
     </Modal>

@@ -1,3 +1,5 @@
+import { language } from "@/messages/catalog";
+import { parseLocale, type Locale } from "@/messages/types";
 import { departmentScope } from "./access";
 import { requestLink } from "@/lib/request-links";
 import { prepareRequestEmail } from "./request-email";
@@ -70,6 +72,7 @@ export async function processJobs(limit = 20) {
               id: string;
               is_owner: boolean;
               permissions: string[];
+              locale: string | null;
               workflow_role: string | null;
               email: string;
               in_app: boolean | null;
@@ -79,10 +82,11 @@ export async function processJobs(limit = 20) {
               whatsapp_country_code: string;
               whatsapp_number: string | null;
             }>(
-              sql`SELECT u.id,u.is_owner,enabled_role.workflow_role,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions,u.email,u.whatsapp_country_code,u.whatsapp_number,u.whatsapp_enabled,np.in_app,np.email email_enabled,np.whatsapp whatsapp_preference FROM users u JOIN roles enabled_role ON enabled_role.id=u.role_id AND enabled_role.active LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.deleted_at IS NULL AND u.locked=false AND u.id<>${actorId} AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) ORDER BY u.id LIMIT 1000`,
+              sql`SELECT u.id,u.locale,u.is_owner,enabled_role.workflow_role,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions,u.email,u.whatsapp_country_code,u.whatsapp_number,u.whatsapp_enabled,np.in_app,np.email email_enabled,np.whatsapp whatsapp_preference FROM users u JOIN roles enabled_role ON enabled_role.id=u.role_id AND enabled_role.active LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.deleted_at IS NULL AND u.locked=false AND u.id<>${actorId} AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) ORDER BY u.id LIMIT 1000`,
               tx,
             );
             for (const u of users) {
+              const {m:ar}=language(parseLocale(u.locale));
               const department = departmentScope(u);
               if (
                 !u.is_owner &&

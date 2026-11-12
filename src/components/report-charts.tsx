@@ -1,16 +1,19 @@
-import { ar } from "@/messages/ar";
+import { requestLanguage } from "@/server/language";
+
 import { number } from "@/lib/format";
 import { consumption, percent } from "@/lib/reporting";
 import type { ReportOverview } from "@/server/reports";
 import { Empty } from "./common";
 
-export default function ReportCharts({
+export default async function ReportCharts({
   overview,
   digits,
 }: {
   overview: ReportOverview;
   digits: number;
 }) {
+  const { m: msg, number, percent, intl, locale } = await requestLanguage();
+  
   const top = overview.top.map((row) => ({ ...row, ...consumption(row) }));
   const scale = Math.max(
     100,
@@ -22,11 +25,11 @@ export default function ReportCharts({
   const categories = [
     {
       key: "within",
-      label: ar.reports.withinLimit,
+      label: msg.reports.withinLimit,
       count: overview.within_limit,
     },
-    { key: "over", label: ar.reports.overLimit, count: overview.received_over },
-    { key: "unused", label: ar.reports.noReceipts, count: overview.untouched },
+    { key: "over", label: msg.reports.overLimit, count: overview.received_over },
+    { key: "unused", label: msg.reports.noReceipts, count: overview.untouched },
   ];
   let offset = 0;
   const max =
@@ -38,21 +41,21 @@ export default function ReportCharts({
     ) * 2;
   const monthLabel = (month: string) =>
     new Intl.DateTimeFormat(
-      digits ? "ar-SA-u-ca-gregory-nu-arab" : "ar-SA-u-ca-gregory-nu-latn",
+      intl(digits),
       { month: "short", year: "numeric" },
     ).format(new Date(`${month}-15T12:00:00Z`));
-  const x = (index: number) => 630 - index * (570 / 11),
+  const x = (index: number) => locale === "en" ? 60 + index * (570 / 11) : 630 - index * (570 / 11),
     y = (count: number) => 152 - (count / max) * 120;
   return (
     <div className="report-charts">
       <section className="panel consumption-chart">
         <div className="panel-heading">
-          <h2>{ar.reports.highestConsumption}</h2>
+          <h2>{msg.reports.highestConsumption}</h2>
           <div className="chart-legend">
             <span className="legend-requested">
-              {ar.reports.requestedLegend}
+              {msg.reports.requestedLegend}
             </span>
-            <span className="legend-received">{ar.reports.receivedLegend}</span>
+            <span className="legend-received">{msg.reports.receivedLegend}</span>
           </div>
         </div>
         {top.length ? (
@@ -74,12 +77,12 @@ export default function ReportCharts({
                 <div
                   className="comparison-bars"
                   role="img"
-                  aria-label={`${row.name} · ${ar.reports.requestedLegend} ${percent(row.requestedRate, digits)} · ${ar.reports.receivedLegend} ${percent(row.receivedRate, digits)}`}
+                  aria-label={`${row.name} · ${msg.reports.requestedLegend} ${percent(row.requestedRate, digits)} · ${msg.reports.receivedLegend} ${percent(row.receivedRate, digits)}`}
                 >
                   <span
                     className="reference-line"
                     style={{ insetInlineStart: `${(100 / scale) * 100}%` }}
-                    title={ar.reports.reference}
+                    title={msg.reports.reference}
                   />
                   <div>
                     <i
@@ -106,18 +109,18 @@ export default function ReportCharts({
         )}
         <div className="chart-reference">
           <span />
-          {ar.reports.reference} <bdi>{percent(100, digits)}</bdi>
+          {msg.reports.reference} <bdi>{percent(100, digits)}</bdi>
         </div>
       </section>
       <section className="panel distribution-chart">
         <div className="panel-heading">
-          <h2>{ar.reports.distribution}</h2>
+          <h2>{msg.reports.distribution}</h2>
         </div>
         <div className="distribution-ring">
           <svg
             viewBox="0 0 120 120"
             role="img"
-            aria-label={ar.reports.distribution}
+            aria-label={msg.reports.distribution}
           >
             <circle className="ring-track" cx="60" cy="60" r="48" />
             {categories.map((category) => {
@@ -143,7 +146,7 @@ export default function ReportCharts({
           </svg>
           <div>
             <bdi>{number(overview.materials, digits, 0)}</bdi>
-            <span>{ar.reports.materialsCount}</span>
+            <span>{msg.reports.materialsCount}</span>
           </div>
         </div>
         <ul className="distribution-legend">
@@ -165,14 +168,14 @@ export default function ReportCharts({
       </section>
       <section className="panel trend-chart">
         <div className="panel-heading">
-          <h2>{ar.reports.trend}</h2>
+          <h2>{msg.reports.trend}</h2>
           <div className="chart-legend">
-            <span className="legend-requested">{ar.reports.requestCount}</span>
-            <span className="legend-received">{ar.reports.receiptCount}</span>
+            <span className="legend-requested">{msg.reports.requestCount}</span>
+            <span className="legend-received">{msg.reports.receiptCount}</span>
           </div>
         </div>
         <div className="trend-canvas">
-          <svg viewBox="0 0 680 196" role="img" aria-label={ar.reports.trend}>
+          <svg viewBox="0 0 680 196" role="img" aria-label={msg.reports.trend}>
             {[0, 0.5, 1].map((tick) => (
               <g key={tick}>
                 <line
@@ -207,7 +210,7 @@ export default function ReportCharts({
                   cy={y(point.requests)}
                   r="3"
                 >
-                  <title>{`${monthLabel(point.month)} · ${ar.reports.requestCount}: ${number(point.requests, digits, 0)}`}</title>
+                  <title>{`${monthLabel(point.month)} · ${msg.reports.requestCount}: ${number(point.requests, digits, 0)}`}</title>
                 </circle>
                 <circle
                   className="trend-receipt-dot"
@@ -215,13 +218,11 @@ export default function ReportCharts({
                   cy={y(point.receipts)}
                   r="3"
                 >
-                  <title>{`${monthLabel(point.month)} · ${ar.reports.receiptCount}: ${number(point.receipts, digits, 0)}`}</title>
+                  <title>{`${monthLabel(point.month)} · ${msg.reports.receiptCount}: ${number(point.receipts, digits, 0)}`}</title>
                 </circle>
                 <text x={x(i)} y="181" textAnchor="middle">
                   {new Intl.DateTimeFormat(
-                    digits
-                      ? "ar-SA-u-ca-gregory-nu-arab"
-                      : "ar-SA-u-ca-gregory-nu-latn",
+                    intl(digits),
                     { month: "short" },
                   ).format(new Date(`${point.month}-15T12:00:00Z`))}
                 </text>
@@ -230,12 +231,12 @@ export default function ReportCharts({
           </svg>
         </div>
         <table className="sr-only">
-          <caption>{ar.reports.trend}</caption>
+          <caption>{msg.reports.trend}</caption>
           <thead>
             <tr>
-              <th>{ar.common.date}</th>
-              <th>{ar.reports.requestCount}</th>
-              <th>{ar.reports.receiptCount}</th>
+              <th>{msg.common.date}</th>
+              <th>{msg.reports.requestCount}</th>
+              <th>{msg.reports.receiptCount}</th>
             </tr>
           </thead>
           <tbody>

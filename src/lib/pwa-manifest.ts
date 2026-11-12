@@ -1,13 +1,16 @@
+import {language} from "@/messages/catalog";
+import type {Locale} from "@/messages/types";
 import type { MetadataRoute } from "next";
 import { ar } from "@/messages/ar";
-export function appManifest(): MetadataRoute.Manifest {
+export function appManifest(locale:Locale="ar"): MetadataRoute.Manifest {
+  const {m:ar,dir}=language(locale);
   return {
     id: "/",
     name: ar.brand,
     short_name: ar.brand,
     description: ar.app,
-    lang: "ar",
-    dir: "rtl",
+    lang:locale,
+    dir,
     start_url: "/",
     scope: "/",
     display: "standalone",

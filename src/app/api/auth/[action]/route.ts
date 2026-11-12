@@ -1,3 +1,4 @@
+import { fromRequest } from "@/messages/request";
 import { after } from "next/server";
 import { z } from "zod";
 import {
@@ -42,6 +43,7 @@ export async function POST(
       z.object({}).strict().parse(input);
       result = await rotate(await requireActor(true));
     } else throw new AppError("notFound", 404);
+    if(result && typeof result==="object" && "message" in result){const {m}=fromRequest(req); if(action==="forgot")result.message=m.auth.resetSent; if(action==="reset") result.message=m.auth.resetDone;}
     after(async () => {
       try {
         await processJobs(50);
@@ -51,6 +53,6 @@ export async function POST(
     });
     return Response.json(result);
   } catch (e) {
-    return errorResponse(e);
+    return errorResponse(e,req);
   }
 }

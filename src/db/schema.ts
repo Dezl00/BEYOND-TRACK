@@ -79,6 +79,7 @@ export const users = pgTable(
       .default(true)
       .notNull(),
     theme: smallint("theme").default(0).notNull(),
+    locale: varchar("locale", { length: 2 }),
     createdAt: time("created_at"),
   },
   (t) => [

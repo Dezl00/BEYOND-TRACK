@@ -1,15 +1,19 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useEffect, useState } from "react";
-import { ar } from "@/messages/ar";
+
 import LoginIllustration from "./login-illustrations";
 
 export default function LoginShowcase() {
+  const { m: msg,dir } = useLanguage();
+  
   const [active, setActive] = useState(0),
     [eligible, setEligible] = useState(false),
     [visible, setVisible] = useState(true),
     [hovered, setHovered] = useState(false),
     [focused, setFocused] = useState(false);
-  const slides = ar.loginStory.steps;
+  const slides = msg.loginStory.steps;
   useEffect(() => {
     const query = window.matchMedia(
       "(min-width: 768px) and (prefers-reduced-motion: no-preference)",
@@ -40,8 +44,8 @@ export default function LoginShowcase() {
     <aside
       className="login-showcase"
       role="region"
-      aria-roledescription={ar.loginStory.carousel}
-      aria-label={ar.loginStory.title}
+      aria-roledescription={msg.loginStory.carousel}
+      aria-label={msg.loginStory.title}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocusCapture={() => setFocused(true)}
@@ -52,7 +56,7 @@ export default function LoginShowcase() {
       onKeyDown={(event) => {
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault();
-          choose(active + (event.key === "ArrowLeft" ? 1 : -1));
+          choose(active + (event.key === (dir==="rtl"?"ArrowLeft":"ArrowRight") ? 1 : -1));
         }
       }}
     >
@@ -65,7 +69,7 @@ export default function LoginShowcase() {
             aria-hidden={active !== index}
             inert={active !== index}
             role="group"
-            aria-roledescription={ar.loginStory.slide}
+            aria-roledescription={msg.loginStory.slide}
             aria-label={slide.title}
           >
             <div className="login-art">

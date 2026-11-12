@@ -1,3 +1,4 @@
+import { requestLanguage } from "@/server/language";
 import RequestTimeline from "@/components/request-timeline";
 import { attachmentLabels, type RequestAttachment } from "@/lib/attachments";
 import { currentSettings } from "@/server/settings";
@@ -8,7 +9,7 @@ import { requestDetail } from "@/server/queries";
 import { uuid, cursorSchema } from "@/lib/validation";
 import { canViewPrices, can, editable } from "@/lib/domain";
 import { date, number, requestCode } from "@/lib/format";
-import { ar } from "@/messages/ar";
+
 import { one, sql } from "@/db";
 import {
   Heading,
@@ -27,6 +28,8 @@ export default async function RequestPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg, date, number, unit } = await requestLanguage();
+  
   const a = await requirePageActor(),
     id = uuid.parse((await params).id),
     raw = await searchParams,
@@ -42,7 +45,7 @@ export default async function RequestPage({
         eyebrow={
           <Link href="/requests" className="row gap-sm">
             <ChevronRight size={14} />
-            {ar.requests.title}
+            {msg.requests.title}
           </Link>
         }
       >
@@ -55,7 +58,7 @@ export default async function RequestPage({
           (r.created_by === a.id && editable(r.submitted_at, r.status))) ? (
           <Link className="btn edit-button" href={`/requests/${id}/edit`}>
             <Pencil size={15} />
-            {ar.common.edit}
+            {msg.common.edit}
           </Link>
         ) : null}
       </Heading>
@@ -63,27 +66,27 @@ export default async function RequestPage({
         <section className="panel panel-body">
           <dl className="detail-values">
             <div>
-              <dt>{ar.common.project}</dt>
+              <dt>{msg.common.project}</dt>
               <dd>{String(r.project_name)}</dd>
             </div>
             <div>
-              <dt>{ar.fields.createdBy}</dt>
+              <dt>{msg.fields.createdBy}</dt>
               <dd>{String(r.created_by_name)}</dd>
             </div>
             <div>
-              <dt>{ar.fields.createdAt}</dt>
+              <dt>{msg.fields.createdAt}</dt>
               <dd>{date(r.created_at, d, true)}</dd>
             </div>
             <div>
-              <dt>{ar.fields.supplier}</dt>
+              <dt>{msg.fields.supplier}</dt>
               <dd>{String(r.supplier_name || "—")}</dd>
             </div>
             <div>
-              <dt>{ar.fields.expectedAt}</dt>
+              <dt>{msg.fields.expectedAt}</dt>
               <dd>{r.expected_at ? date(r.expected_at, d) : "—"}</dd>
             </div>
             <div>
-              <dt>نطاق الاستخدام</dt>
+              <dt>{msg.interface.usage}</dt>
               <dd className="break">{r.notes || "—"}</dd>
             </div>
           </dl>
@@ -136,20 +139,20 @@ export default async function RequestPage({
           <div className="stack">
             <section className="panel">
               <div className="panel-heading">
-                <h2>{ar.requests.lines}</h2>
+                <h2>{msg.requests.lines}</h2>
               </div>
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>{ar.fields.material}</th>
-                      <th>{ar.fields.unit}</th>
-                      <th>{ar.fields.requested}</th>
-                      <th>{ar.fields.net}</th>
-                      <th>{ar.fields.damaged}</th>
-                      <th>{ar.fields.rejected}</th>
-                      <th>{ar.fields.returned}</th>
-                      {pricing ? <th>{ar.fields.price}</th> : null}
+                      <th>{msg.fields.material}</th>
+                      <th>{msg.fields.unit}</th>
+                      <th>{msg.fields.requested}</th>
+                      <th>{msg.fields.net}</th>
+                      <th>{msg.fields.damaged}</th>
+                      <th>{msg.fields.rejected}</th>
+                      <th>{msg.fields.returned}</th>
+                      {pricing ? <th>{msg.fields.price}</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -177,8 +180,8 @@ export default async function RequestPage({
                               }
                             >
                               {Number(l.review_status) === 1
-                                ? "معتمد فنيًا"
-                                : "مرفوض فنيًا"}
+                                ? msg.interface.technicalApproved
+                                : msg.interface.technicalRejected}
                             </span>
                           ) : null}
                           {l.description ? (
@@ -191,12 +194,12 @@ export default async function RequestPage({
                               className={`badge ${l.overage_approved_by ? "green" : "red"}`}
                             >
                               {l.overage_approved_by
-                                ? ar.common.verified
-                                : ar.requests.overage}
+                                ? msg.common.verified
+                                : msg.requests.overage}
                             </span>
                           ) : null}
                         </td>
-                        <td>{String(l.unit_name)}</td>
+                        <td>{unit(l.unit_name)}</td>
                         <td>
                           <bdi>{number(String(l.quantity), d)}</bdi>
                         </td>
@@ -234,9 +237,9 @@ export default async function RequestPage({
             </section>
             <section className="panel">
               <div className="panel-heading">
-                <h2>{ar.requests.receipts}</h2>
+                <h2>{msg.requests.receipts}</h2>
                 <Link className="btn small" href={`/requests/${id}/receipts`}>
-                  {ar.common.all}
+                  {msg.common.all}
                 </Link>
               </div>
               {r.receipts.length ? (
@@ -244,9 +247,9 @@ export default async function RequestPage({
                   <table>
                     <thead>
                       <tr>
-                        <th>{ar.fields.receivedBy}</th>
-                        <th>{ar.common.date}</th>
-                        <th>{ar.fields.notes}</th>
+                        <th>{msg.fields.receivedBy}</th>
+                        <th>{msg.common.date}</th>
+                        <th>{msg.fields.notes}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -266,12 +269,12 @@ export default async function RequestPage({
             </section>
             <section className="panel">
               <div className="panel-heading">
-                <h2>{ar.fields.attachments}</h2>
+                <h2>{msg.fields.attachments}</h2>
                 <Link
                   className="btn small"
                   href={`/requests/${id}/attachments`}
                 >
-                  {ar.common.all}
+                  {msg.common.all}
                 </Link>
               </div>
               <div className="panel-body stack">
@@ -289,7 +292,7 @@ export default async function RequestPage({
                         {String(f.name)}
                         <small className="cell-sub">
                           {
-                            attachmentLabels[
+                            attachmentLabels(msg)[
                               f.purpose as RequestAttachment["purpose"]
                             ]
                           }
@@ -305,7 +308,7 @@ export default async function RequestPage({
           </div>
           <aside className="panel">
             <div className="panel-heading">
-              <h2>{ar.requests.timeline}</h2>
+              <h2>{msg.requests.timeline}</h2>
             </div>
             <RequestTimeline
               items={

@@ -1,2 +1,2 @@
 import { appManifest } from "@/lib/pwa-manifest";
-export default appManifest;
+export default function manifest(){return appManifest("ar")}

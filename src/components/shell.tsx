@@ -1,11 +1,14 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
-import { ar } from "@/messages/ar";
+
 import { type Actor, can } from "@/lib/domain";
 import { date } from "@/lib/format";
 import { Brand } from "./common";
+import { DisplayTools } from "./display-preferences";
 import LiveNotifications from "./live-notifications";
 import { FormatContext } from "./format-context";
 import AccountMenu, { LogoutButton } from "./account-menu";
@@ -31,6 +34,8 @@ export default function Shell({
   projectChoices?: { id: string; name: string }[];
   digits: number;
 }) {
+  const { m: msg, date } = useLanguage();
+  
   const path = usePathname(),
     params = useSearchParams(),
     router = useRouter();
@@ -52,7 +57,7 @@ export default function Shell({
   const navigation = (
     <>
       <Brand />
-      <nav className="nav" aria-label={ar.common.actions}>
+      <nav className="nav" aria-label={msg.common.actions}>
         {permittedNavigation(actor).map(({ key }) => {
           const Icon = navigationIcons[key];
           const active = navigationKey(path) === key;
@@ -76,7 +81,7 @@ export default function Shell({
                 }
               >
                 <Icon size={19} strokeWidth={1.6} />
-                {ar.nav[key]}
+                {msg.nav[key]}
               </Link>
             </div>
           );
@@ -115,12 +120,13 @@ export default function Shell({
                           project,
                         )
                   }
-                  aria-label={ar.brand}
+                  aria-label={msg.brand}
                 >
                   <Brand />
                 </Link>
               </div>
               <div className="topbar-actions">
+                <DisplayTools/>
                 <span className="topbar-label topbar-date">
                   {date(new Date(), digits)}
                 </span>

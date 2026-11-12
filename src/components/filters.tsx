@@ -1,8 +1,10 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search, Download } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { SelectBox, DateInput, Field, MultiLookup, Lookup } from "./ui";
 import { Heading } from "./common";
 type Values = {
@@ -50,6 +52,8 @@ export default function Filters({
   project?: string;
   sectionLabels?: Record<string, string>;
 }) {
+  const { m: msg } = useLanguage();
+  
   const router = useRouter(),
     path = usePathname(),
     params = useSearchParams(),
@@ -125,15 +129,15 @@ export default function Filters({
         <Search size={16} />
         <input
           className="input"
-          aria-label={ar.common.search}
-          placeholder={ar.common.search}
+          aria-label={msg.common.search}
+          placeholder={msg.common.search}
           value={values.q}
           onChange={(event) => change("q", event.target.value)}
         />
       </div>
       {audit ? (
         <>
-          <Field label={ar.fields.user}>
+          <Field label={msg.fields.user}>
             <Lookup
               resource="users"
               value={values.user}
@@ -142,39 +146,39 @@ export default function Filters({
               includeInactive
             />
           </Field>
-          <Field label={ar.fields.action}>
+          <Field label={msg.fields.action}>
             <SelectBox
               value={values.action}
               onChange={(value) => change("action", value)}
               options={[
-                { value: "all", label: ar.common.all },
-                ...ar.auditActions.map((label, i) => ({
+                { value: "all", label: msg.common.all },
+                ...msg.auditActions.map((label, i) => ({
                   value: String(i),
                   label,
                 })),
               ]}
             />
           </Field>
-          <Field label={ar.fields.entity}>
+          <Field label={msg.fields.entity}>
             <SelectBox
               value={values.entity}
               onChange={(value) => change("entity", value)}
               options={[
-                { value: "all", label: ar.common.all },
-                ...ar.auditEntities.map((label, i) => ({
+                { value: "all", label: msg.common.all },
+                ...msg.auditEntities.map((label, i) => ({
                   value: String(i),
                   label,
                 })),
               ]}
             />
           </Field>
-          <Field label={ar.fields.from}>
+          <Field label={msg.fields.from}>
             <DateInput
               value={values.from}
               onChange={(value) => change("from", value)}
             />
           </Field>
-          <Field label={ar.fields.to}>
+          <Field label={msg.fields.to}>
             <DateInput
               value={values.to}
               onChange={(value) => change("to", value)}
@@ -190,7 +194,7 @@ export default function Filters({
       href={`/api/export?${params.toString()}&resource=${path.split("/")[1]}`}
     >
       <Download size={15} />
-      {ar.common.export}
+      {msg.common.export}
     </a>
   ) : null;
   return (
@@ -221,7 +225,7 @@ export default function Filters({
                 <Field
                   key={key}
                   label={
-                    ["القسم الرئيسي", "القسم الثانوي", "القسم الفرعي"][index]
+                    [msg.boq.headers[0], msg.boq.headers[1], msg.boq.headers[2]][index]
                   }
                 >
                   <MultiLookup
@@ -233,7 +237,7 @@ export default function Filters({
                     mains={index > 0 ? values.mains : undefined}
                     seconds={index > 1 ? values.seconds : undefined}
                     values={values[key] ? values[key].split(",") : []}
-                    placeholder={ar.common.all}
+                    placeholder={msg.common.all}
                     onChange={(ids) => change(key, ids.join(","))}
                   />
                 </Field>
@@ -245,14 +249,14 @@ export default function Filters({
         <div
           className="request-status-tabs"
           role="tablist"
-          aria-label={ar.fields.status}
+          aria-label={msg.fields.status}
           aria-busy={pending || undefined}
         >
           {[
-            { value: "all", label: ar.common.all },
+            { value: "all", label: msg.common.all },
             ...[0, 1, 9, 2, 10, 11, 3, 4, 5, 6, 7, 8].map((status) => ({
               value: String(status),
-              label: ar.statuses[status],
+              label: msg.statuses[status],
             })),
           ].map((tab) => (
             <button

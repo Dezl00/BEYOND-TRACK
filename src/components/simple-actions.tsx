@@ -1,10 +1,14 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { Button, command, Message } from "./ui";
 export function NotificationRead({ id }: { id?: string }) {
+  const { m: msg } = useLanguage();
+  
   const router = useRouter(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -31,13 +35,15 @@ export function NotificationRead({ id }: { id?: string }) {
         onClick={() => void read()}
       >
         <Check size={14} />
-        {id ? ar.common.markRead : ar.common.markAllRead}
+        {id ? msg.common.markRead : msg.common.markAllRead}
       </Button>
       <Message error={error} />
     </>
   );
 }
 export function Revoke({ id }: { id: string }) {
+  const { m: msg } = useLanguage();
+  
   const router = useRouter(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -59,7 +65,7 @@ export function Revoke({ id }: { id: string }) {
           }
         }}
       >
-        {ar.auth.revoke}
+        {msg.auth.revoke}
       </Button>
       <Message error={error} />
     </>

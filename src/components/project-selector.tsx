@@ -1,14 +1,18 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { createContext, useContext } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Building2 } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { Lookup } from "./dropdown";
 export const ProjectContext = createContext<{
   name?: string;
   choices: { id: string; name: string }[];
 }>({ choices: [] });
 export default function ProjectSelector() {
+  const { m: msg } = useLanguage();
+  
   const { name, choices } = useContext(ProjectContext);
   const path = usePathname(),
     params = useSearchParams(),
@@ -24,7 +28,7 @@ export default function ProjectSelector() {
           name || (choices.length === 1 ? choices[0].name : undefined)
         }
         allowNone={choices.length !== 1}
-        allLabel={ar.common.allProjects}
+        allLabel={msg.common.allProjects}
         onChange={(value) => {
           const next = new URLSearchParams(params.toString());
           for (const key of ["cursor", "mains", "seconds", "leaves"])

@@ -1,8 +1,12 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useEffect, useState } from "react";
-import { ar } from "@/messages/ar";
+
 import { Checkbox, Message } from "./form-controls";
 export default function PushSettings() {
+  const { m: msg } = useLanguage();
+  
   const [enabled, setEnabled] = useState(false),
     [available, setAvailable] = useState(false),
     [busy, setBusy] = useState(false),
@@ -27,7 +31,7 @@ export default function PushSettings() {
     setEnabled(value);
     try {
       if (value && (await Notification.requestPermission()) !== "granted")
-        throw new Error(ar.live.denied);
+        throw new Error(msg.live.denied);
       const registration = await navigator.serviceWorker.register("/sw.js");
       await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
@@ -35,7 +39,7 @@ export default function PushSettings() {
         const response = await fetch("/api/push");
         const data = await response.json();
         if (!response.ok || !data.publicKey)
-          throw new Error(ar.errors.configured);
+          throw new Error(msg.errors.configured);
         if (!subscription) {
           const raw = atob(
             data.publicKey.replace(/-/g, "+").replace(/_/g, "/"),
@@ -72,13 +76,13 @@ export default function PushSettings() {
   return (
     <div className="stack">
       <Checkbox
-        label={ar.live.push}
+        label={msg.live.push}
         checked={enabled}
         disabled={!available || busy}
         onChange={(e) => void toggle(e.target.checked)}
       />
       <Message error={error} />
-      {!available ? <span className="muted">{ar.live.unavailable}</span> : null}
+      {!available ? <span className="muted">{msg.live.unavailable}</span> : null}
     </div>
   );
 }

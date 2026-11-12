@@ -1,11 +1,14 @@
+import { requestLanguage } from "@/server/language";
 import Link from "next/link";
-import { ar } from "@/messages/ar";
-export default function NotFound() {
+
+export default async function NotFound() {
+  const { m: msg } = await requestLanguage();
+  
   return (
     <main className="empty">
-      <h1>{ar.errors.notFound}</h1>
+      <h1>{msg.errors.notFound}</h1>
       <Link className="btn" href="/dashboard">
-        {ar.common.back}
+        {msg.common.back}
       </Link>
     </main>
   );

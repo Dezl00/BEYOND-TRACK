@@ -1,3 +1,4 @@
+import { requestLanguage } from "@/server/language";
 import Decimal from "decimal.js";
 import { requirePageActor } from "@/server/page-auth";
 import { currentSettings } from "@/server/settings";
@@ -12,7 +13,7 @@ import { requestPrintSchema, printSectionKeys } from "@/lib/reporting";
 import { uuid } from "@/lib/validation";
 import { type Actor, can, canViewPrices } from "@/lib/domain";
 import { date, number, requestCode } from "@/lib/format";
-import { ar } from "@/messages/ar";
+
 import { Riyal } from "@/components/common";
 import DocumentActions from "@/components/document-actions";
 import { DocumentHeader, SectionComplete } from "@/components/print-document";
@@ -28,31 +29,33 @@ async function Materials({
   digits: number;
   prices: boolean;
 }) {
+  const { m: msg, number, unit } = await requestLanguage();
+  
   const lines = await printRequestLines(actor, id, prices);
   return (
     <section className="document-section">
-      <h2 className="document-section-title">{ar.printing.materials}</h2>
+      <h2 className="document-section-title">{msg.printing.materials}</h2>
       <table className="document-table request-materials-table">
         <thead>
           <tr>
-            <th className="serial">{ar.printing.serial}</th>
+            <th className="serial">{msg.printing.serial}</th>
             <th>
-              {ar.printing.material} / {ar.printing.item}
+              {msg.printing.material} / {msg.printing.item}
             </th>
-            <th>{ar.fields.unit}</th>
-            <th>{ar.fields.quantity}</th>
-            <th>{ar.fields.net}</th>
+            <th>{msg.fields.unit}</th>
+            <th>{msg.fields.quantity}</th>
+            <th>{msg.fields.net}</th>
             {prices ? (
               <>
                 <th>
-                  {ar.fields.price} <Riyal />
+                  {msg.fields.price} <Riyal />
                 </th>
                 <th>
-                  {ar.fields.total} <Riyal />
+                  {msg.fields.total} <Riyal />
                 </th>
               </>
             ) : null}
-            <th>{ar.fields.notes}</th>
+            <th>{msg.fields.notes}</th>
           </tr>
         </thead>
         <tbody>
@@ -67,7 +70,7 @@ async function Materials({
                   <bdi className="code">{line.code}</bdi> · {line.boq_name}
                 </small>
               </td>
-              <td>{line.unit_name}</td>
+              <td>{unit(line.unit_name)}</td>
               <td className="numeric">
                 <bdi>{number(line.quantity, digits)}</bdi>
               </td>
@@ -120,21 +123,23 @@ async function Receipts({
   cursor?: string;
   offset?: number;
 }) {
+  const { m: msg, date, number, unit } = await requestLanguage();
+  
   const data = await printReceipts(actor, id, cursor);
   return (
     <>
       {!offset && !data.items.length ? (
-        <p className="document-empty">{ar.common.empty}</p>
+        <p className="document-empty">{msg.common.empty}</p>
       ) : null}
       {data.items.map((receipt, index) => (
         <section className="document-receipt" key={receipt.id}>
           <div className="document-receipt-heading">
             <h3>
-              {ar.printing.receiptNumber}{" "}
+              {msg.printing.receiptNumber}{" "}
               <bdi>{number(offset + index + 1, digits, 0)}</bdi>
             </h3>
             <span>
-              {ar.fields.receivedBy}: {receipt.received_by}
+              {msg.fields.receivedBy}: {receipt.received_by}
             </span>
             <bdi>{date(receipt.created_at, digits, true)}</bdi>
           </div>
@@ -145,14 +150,14 @@ async function Receipts({
             <thead>
               <tr>
                 <th>
-                  {ar.printing.material} / {ar.fields.code}
+                  {msg.printing.material} / {msg.fields.code}
                 </th>
-                <th>{ar.fields.unit}</th>
-                <th>{ar.fields.accepted}</th>
-                <th>{ar.fields.damaged}</th>
-                <th>{ar.fields.rejected}</th>
-                <th>{ar.fields.returned}</th>
-                <th>{ar.printing.net}</th>
+                <th>{msg.fields.unit}</th>
+                <th>{msg.fields.accepted}</th>
+                <th>{msg.fields.damaged}</th>
+                <th>{msg.fields.rejected}</th>
+                <th>{msg.fields.returned}</th>
+                <th>{msg.printing.net}</th>
               </tr>
             </thead>
             <tbody>
@@ -164,7 +169,7 @@ async function Receipts({
                       <bdi className="code">{line.code}</bdi> · {line.boq_name}
                     </small>
                   </td>
-                  <td>{line.unit_name}</td>
+                  <td>{unit(line.unit_name)}</td>
                   {[
                     line.accepted,
                     line.damaged,
@@ -207,12 +212,14 @@ async function HistoryRows({
   digits: number;
   cursor?: string;
 }) {
+  const { m: msg, date } = await requestLanguage();
+  
   const data = await printHistory(actor, id, cursor);
   return (
     <>
       {!cursor && !data.items.length ? (
         <tr>
-          <td colSpan={5}>{ar.common.empty}</td>
+          <td colSpan={5}>{msg.common.empty}</td>
         </tr>
       ) : null}
       {data.items.map((item) => (
@@ -220,11 +227,11 @@ async function HistoryRows({
           <td>
             <bdi>{date(item.created_at, digits, true)}</bdi>
           </td>
-          <td>{item.user_name}</td>
+          <td>{item.user_name ?? msg.interface.systemActor}</td>
           <td>
-            {item.from_status === null ? "—" : ar.statuses[item.from_status]}
+            {item.from_status === null ? "—" : msg.statuses[item.from_status]}
           </td>
-          <td>{ar.statuses[item.to_status]}</td>
+          <td>{msg.statuses[item.to_status]}</td>
           <td className="print-notes">{item.note || "—"}</td>
         </tr>
       ))}
@@ -253,20 +260,22 @@ async function AttachmentBatches({
   cursor?: string;
   offset?: number;
 }) {
+  const { m: msg, date, number } = await requestLanguage();
+  
   const data = await printAttachments(actor, id, cursor);
   return (
     <>
       {!offset && !data.items.length ? (
-        <p className="document-empty">{ar.common.empty}</p>
+        <p className="document-empty">{msg.common.empty}</p>
       ) : null}
       {data.items.length ? (
         <table className="document-table attachment-print-table">
           <thead>
             <tr>
-              <th className="serial">{ar.printing.serial}</th>
-              <th>{ar.printing.fileName}</th>
-              <th>{ar.printing.fileType}</th>
-              <th>{ar.common.date}</th>
+              <th className="serial">{msg.printing.serial}</th>
+              <th>{msg.printing.fileName}</th>
+              <th>{msg.printing.fileType}</th>
+              <th>{msg.common.date}</th>
             </tr>
           </thead>
           <tbody>
@@ -333,6 +342,8 @@ export default async function RequestPrintPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg, date } = await requestLanguage();
+  
   const actor = await requirePageActor(),
     id = uuid.parse((await params).id),
     options = requestPrintSchema.parse(await searchParams);
@@ -349,7 +360,7 @@ export default async function RequestPrintPage({
       <DocumentActions back={`/requests/${id}`} sections={[...sections]} />
       <article className="print-document request-document">
         <DocumentHeader
-          title={ar.printing.document}
+          title={msg.printing.document}
           reference={requestCode(request.number)}
           project={request.project_name}
           code={request.project_code}
@@ -360,25 +371,25 @@ export default async function RequestPrintPage({
         />
         <dl className="document-metadata request-document-metadata">
           <div>
-            <dt>{ar.fields.createdBy}</dt>
+            <dt>{msg.fields.createdBy}</dt>
             <dd>{request.created_by_name}</dd>
           </div>
           <div>
-            <dt>{ar.fields.createdAt}</dt>
+            <dt>{msg.fields.createdAt}</dt>
             <dd>
               <bdi>{date(request.created_at, digits, true)}</bdi>
             </dd>
           </div>
           <div>
-            <dt>{ar.fields.status}</dt>
-            <dd>{ar.statuses[request.status]}</dd>
+            <dt>{msg.fields.status}</dt>
+            <dd>{msg.statuses[request.status]}</dd>
           </div>
           <div>
-            <dt>{ar.fields.supplier}</dt>
+            <dt>{msg.fields.supplier}</dt>
             <dd>{request.supplier_name || "—"}</dd>
           </div>
           <div>
-            <dt>{ar.fields.expectedAt}</dt>
+            <dt>{msg.fields.expectedAt}</dt>
             <dd>
               <bdi>
                 {request.expected_at
@@ -388,7 +399,7 @@ export default async function RequestPrintPage({
             </dd>
           </div>
           <div>
-            <dt>{ar.fields.submittedAt}</dt>
+            <dt>{msg.fields.submittedAt}</dt>
             <dd>
               <bdi>
                 {request.submitted_at
@@ -400,7 +411,7 @@ export default async function RequestPrintPage({
         </dl>
         {request.notes ? (
           <div className="document-request-notes">
-            <b>{ar.fields.notes}</b>
+            <b>{msg.fields.notes}</b>
             <span>{request.notes}</span>
           </div>
         ) : null}
@@ -409,14 +420,14 @@ export default async function RequestPrintPage({
         ) : null}
         {options.receipts === "1" ? (
           <section className="document-section">
-            <h2 className="document-section-title">{ar.printing.receipts}</h2>
+            <h2 className="document-section-title">{msg.printing.receipts}</h2>
             <Receipts actor={actor} id={id} digits={digits} />
           </section>
         ) : null}
         {options.attachments === "1" ? (
           <section className="document-section">
             <h2 className="document-section-title">
-              {ar.printing.attachments}
+              {msg.printing.attachments}
             </h2>
             <AttachmentBatches
               actor={actor}
@@ -428,15 +439,15 @@ export default async function RequestPrintPage({
         ) : null}
         {options.timeline === "1" ? (
           <section className="document-section">
-            <h2 className="document-section-title">{ar.printing.timeline}</h2>
+            <h2 className="document-section-title">{msg.printing.timeline}</h2>
             <table className="document-table timeline-print-table">
               <thead>
                 <tr>
-                  <th>{ar.common.date}</th>
-                  <th>{ar.fields.user}</th>
-                  <th>{ar.fields.before}</th>
-                  <th>{ar.fields.after}</th>
-                  <th>{ar.fields.notes}</th>
+                  <th>{msg.common.date}</th>
+                  <th>{msg.fields.user}</th>
+                  <th>{msg.fields.before}</th>
+                  <th>{msg.fields.after}</th>
+                  <th>{msg.fields.notes}</th>
                 </tr>
               </thead>
               <tbody>
@@ -446,7 +457,7 @@ export default async function RequestPrintPage({
           </section>
         ) : null}
         <footer className="document-footer">
-          <span>{ar.company}</span>
+          <span>{msg.company}</span>
           <bdi className="code">{requestCode(request.number)}</bdi>
           <span>{request.project_name}</span>
         </footer>

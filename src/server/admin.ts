@@ -507,7 +507,7 @@ export async function savePreferences(
     if (global?.otp_required && !a.otp_exempt && !v.otpEnabled && !a.is_owner)
       throw new AppError("forbidden", 403);
     await tx.execute(
-      sql`UPDATE users SET theme=${v.theme},otp_enabled=${v.otpEnabled} WHERE id=${a.id}`,
+      sql`UPDATE users SET theme=COALESCE(${v.theme ?? null}::smallint,theme),otp_enabled=${v.otpEnabled} WHERE id=${a.id}`,
     );
     for (const p of v.preferences) {
       const policy = await one<{
@@ -541,7 +541,7 @@ export async function savePreferences(
           preferences: previousPreferences,
         },
         {
-          theme: v.theme,
+          theme: v.theme ?? a.theme,
           otp_enabled: v.otpEnabled,
           preferences: v.preferences
             .map((p) => ({

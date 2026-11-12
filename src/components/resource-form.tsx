@@ -1,10 +1,12 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { NumberField } from "./number-field";
 import { decimalText } from "@/lib/format";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Pencil } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { modules, actionsForModule, type Actor } from "@/lib/domain";
 import * as v from "@/lib/validation";
 import {
@@ -42,6 +44,8 @@ export default function ResourceForm({
   project?: string;
   actor?: Pick<Actor, "is_owner">;
 }) {
+  const { m: msg, unit, role } = useLanguage();
+  
   const router = useRouter(),
     [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false),
@@ -130,7 +134,7 @@ export default function ResourceForm({
       setError(
         "issues" in (e as object)
           ? (e as { issues: { message: string }[] }).issues[0]?.message ||
-              ar.errors.invalid
+              msg.errors.invalid
           : (e as Error).message,
       );
     } finally {
@@ -141,7 +145,7 @@ export default function ResourceForm({
     projectIds = state.projectIds as string[];
   return (
     <Modal
-      title={initial ? ar.common.edit : ar.common.create}
+      title={initial ? msg.common.edit : msg.common.create}
       open={open}
       onOpenChange={(value) => {
         setOpen(value);
@@ -157,35 +161,35 @@ export default function ResourceForm({
           className={initial ? "small edit-button" : ""}
         >
           {initial ? <Pencil size={14} /> : <Plus size={16} />}
-          <span>{initial ? ar.common.edit : ar.common.create}</span>
+          <span>{initial ? msg.common.edit : msg.common.create}</span>
         </Button>
       }
     >
       <form className="stack" onSubmit={save} noValidate>
         <Message error={error} />
         <div className="fields">
-          {text("name", ar.fields.name, { maxLength: 200 })}
+          {text("name", msg.fields.name, { maxLength: 200 })}
           {resource === "project" ? (
             <>
-              {text("code", ar.fields.code, {
+              {text("code", msg.fields.code, {
                 maxLength: 30,
                 placeholder: "KS",
               })}
-              {text("location", ar.fields.location)}
-              {text("client", "العميل", { maxLength: 200 })}
-              <Field label="تاريخ البدء">
+              {text("location", msg.fields.location)}
+              {text("client", msg.interface.client, { maxLength: 200 })}
+              <Field label={msg.interface.startDate}>
                 <DateInput
                   value={String(state.startDate)}
                   onChange={(value) => set("startDate", value)}
                 />
               </Field>
-              <Field label="تاريخ الانتهاء">
+              <Field label={msg.interface.endDate}>
                 <DateInput
                   value={String(state.endDate)}
                   onChange={(value) => set("endDate", value)}
                 />
               </Field>
-              <Field wide label="تفاصيل المشروع">
+              <Field wide label={msg.interface.projectDetails}>
                 <textarea
                   className="input"
                   value={String(state.details)}
@@ -193,19 +197,19 @@ export default function ResourceForm({
                   onChange={(e) => set("details", e.target.value)}
                 />
               </Field>
-              {initial ? check("archived", ar.common.archive) : null}
+              {initial ? check("archived", msg.common.archive) : null}
             </>
           ) : null}
-          {resource === "supplier" ? check("active", ar.common.active) : null}
+          {resource === "supplier" ? check("active", msg.common.active) : null}
           {resource === "unit" ? (
             <>
-              {text("symbol", ar.fields.symbol)}
-              {check("active", ar.common.active)}
+              {text("symbol", msg.fields.symbol)}
+              {check("active", msg.common.active)}
             </>
           ) : null}
           {resource === "boq" ? (
             <>
-              <Field label={ar.common.project}>
+              <Field label={msg.common.project}>
                 <Lookup
                   resource="projects"
                   value={String(state.projectId)}
@@ -216,7 +220,7 @@ export default function ResourceForm({
                   }}
                 />
               </Field>
-              <Field label={ar.fields.level}>
+              <Field label={msg.fields.level}>
                 <SelectBox
                   value={String(state.level)}
                   onChange={(value) => {
@@ -224,13 +228,13 @@ export default function ResourceForm({
                     set("parentId", null);
                     if (value !== "3") set("description", "");
                   }}
-                  options={[ar.boq.main, ar.boq.secondary, ar.boq.sub].map(
+                  options={[msg.boq.main, msg.boq.secondary, msg.boq.sub].map(
                     (label, i) => ({ value: String(i + 1), label }),
                   )}
                 />
               </Field>
               {Number(state.level) > 1 ? (
-                <Field label={ar.fields.parent}>
+                <Field label={msg.fields.parent}>
                   <Lookup
                     resource="boq"
                     project={String(state.projectId)}
@@ -243,20 +247,20 @@ export default function ResourceForm({
               ) : null}
               {Number(state.level) === 3 ? (
                 <>
-                  <Field label={ar.fields.unit}>
+                  <Field label={msg.fields.unit}>
                     <Lookup
                       resource="units"
                       value={String(state.unitId)}
-                      initialLabel={String(initial?.unit_name || "")}
+                      initialLabel={unit(initial?.unit_name)}
                       onChange={(value) => set("unitId", value)}
                     />
                   </Field>
                   <NumberField
-                    label={ar.fields.quantity}
+                    label={msg.fields.quantity}
                     value={String(state.quantity)}
                     onChange={(value) => set("quantity", value)}
                   />
-                  <Field wide label={ar.fields.description}>
+                  <Field wide label={msg.fields.description}>
                     <textarea
                       className="input"
                       value={String(state.description)}
@@ -270,7 +274,7 @@ export default function ResourceForm({
           ) : null}
           {resource === "material" ? (
             <>
-              <Field label={ar.fields.boqItem}>
+              <Field label={msg.fields.boqItem}>
                 <Lookup
                   resource="boq"
                   project={project}
@@ -280,41 +284,41 @@ export default function ResourceForm({
                   onChange={(value) => set("boqItemId", value)}
                 />
               </Field>
-              <Field label={ar.fields.unit}>
+              <Field label={msg.fields.unit}>
                 <Lookup
                   resource="units"
                   value={String(state.unitId || "")}
-                  initialLabel={String(initial?.unit_name || "")}
+                  initialLabel={unit(initial?.unit_name)}
                   onChange={(value) => set("unitId", value)}
                 />
               </Field>
               <NumberField
-                label={ar.fields.materialLimit}
+                label={msg.fields.materialLimit}
                 value={String(state.quantity)}
                 onChange={(value) => set("quantity", value)}
               />
-              {check("active", ar.common.active)}
+              {check("active", msg.common.active)}
             </>
           ) : null}
           {resource === "user" ? (
             <>
-              {text("email", ar.fields.email, {
+              {text("email", msg.fields.email, {
                 type: "email",
                 autoComplete: "off",
               })}
-              {text("username", ar.auth.username, { autoComplete: "off" })}
-              {text("jobTitle", ar.auth.jobTitle)}
-              <Field label={ar.whatsapp.countryCode}>
+              {text("username", msg.auth.username, { autoComplete: "off" })}
+              {text("jobTitle", msg.auth.jobTitle)}
+              <Field label={msg.whatsapp.countryCode}>
                 <SelectBox
                   value={String(state.whatsappCountryCode)}
                   onChange={(value) => set("whatsappCountryCode", value)}
                   options={[
-                    { value: "+966", label: ar.whatsapp.saudi },
-                    { value: "+20", label: ar.whatsapp.egypt },
+                    { value: "+966", label: msg.whatsapp.saudi },
+                    { value: "+20", label: msg.whatsapp.egypt },
                   ]}
                 />
               </Field>
-              <Field label={ar.whatsapp.number}>
+              <Field label={msg.whatsapp.number}>
                 <input
                   className="input numeric"
                   type="tel"
@@ -332,23 +336,23 @@ export default function ResourceForm({
                   aria-describedby="whatsapp-number-hint"
                 />
                 <span className="muted" id="whatsapp-number-hint">
-                  {ar.whatsapp.numberHint}
+                  {msg.whatsapp.numberHint}
                 </span>
               </Field>
-              {check("whatsappEnabled", ar.whatsapp.enableAccount)}
-              <Field label={ar.fields.role}>
+              {check("whatsappEnabled", msg.whatsapp.enableAccount)}
+              <Field label={msg.fields.role}>
                 <Lookup
                   resource="roles"
                   value={String(state.roleId)}
-                  initialLabel={String(initial?.role_name || "")}
+                  initialLabel={role(initial?.role_name)}
                   onChange={(value) => set("roleId", value)}
                 />
               </Field>
-              {text("password", ar.auth.password, {
+              {text("password", msg.auth.password, {
                 type: "password",
                 autoComplete: "new-password",
               })}
-              <Field wide label={ar.fields.projects}>
+              <Field wide label={msg.fields.projects}>
                 <MultiLookup
                   resource="projects"
                   values={projectIds}
@@ -367,10 +371,10 @@ export default function ResourceForm({
                   onChange={(values) => set("projectIds", values)}
                 />
               </Field>
-              {check("locked", ar.auth.locked, !!initial?.is_owner)}
-              {check("forcePasswordChange", ar.auth.forcePassword)}
-              {check("otpEnabled", ar.auth.otpEnabled)}
-              {actor?.is_owner ? check("otpExempt", ar.auth.otpExempt) : null}
+              {check("locked", msg.auth.locked, !!initial?.is_owner)}
+              {check("forcePasswordChange", msg.auth.forcePassword)}
+              {check("otpEnabled", msg.auth.otpEnabled)}
+              {actor?.is_owner ? check("otpExempt", msg.auth.otpExempt) : null}
             </>
           ) : null}
         </div>
@@ -380,7 +384,7 @@ export default function ResourceForm({
               .filter((mod) => mod !== "audit")
               .map((mod) => (
                 <div className="permission-group" key={mod}>
-                  <h3>{ar.nav[mod]}</h3>
+                  <h3>{msg.nav[mod]}</h3>
                   <div className="row">
                     {actionsForModule(mod).map((action) => {
                       const key = `${mod}.${action}`;
@@ -389,8 +393,8 @@ export default function ResourceForm({
                           key={key}
                           label={
                             mod === "reports" && action === "export"
-                              ? ar.reports.exportPrint
-                              : ar.permissionActions[action]
+                              ? msg.reports.exportPrint
+                              : msg.permissionActions[action]
                           }
                           checked={perms.includes(key)}
                           onChange={(e) =>
@@ -414,10 +418,10 @@ export default function ResourceForm({
                 key={key}
                 label={
                   key === "projects.all"
-                    ? ar.common.allProjects
+                    ? msg.common.allProjects
                     : key === "requests.view_all"
-                      ? ar.permissionActions.view_all
-                      : ar.permissionActions.manage
+                      ? msg.permissionActions.view_all
+                      : msg.permissionActions.manage
                 }
                 checked={perms.includes(key)}
                 onChange={(e) =>
@@ -434,10 +438,10 @@ export default function ResourceForm({
         ) : null}
         <div className="form-footer">
           <Button type="button" onClick={() => setOpen(false)}>
-            {ar.common.cancel}
+            {msg.common.cancel}
           </Button>
           <Button intent="green" type="submit" pending={busy}>
-            {ar.common.save}
+            {msg.common.save}
           </Button>
         </div>
       </form>

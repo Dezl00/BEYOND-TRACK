@@ -1,10 +1,12 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { NumberField } from "./number-field";
 import { decimalText } from "@/lib/format";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Send } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { requestSchema } from "@/lib/validation";
 import { Button, Field, Lookup, Message, command } from "./ui";
 type Line = {
@@ -30,6 +32,8 @@ export default function RequestForm({
     lines: Record<string, unknown>[];
   };
 }) {
+  const { m: msg } = useLanguage();
+  
   const router = useRouter(),
     [projectId, setProject] = useState(initial?.project_id || project),
     [notes, setNotes] = useState(initial?.notes || ""),
@@ -52,7 +56,7 @@ export default function RequestForm({
   }
   async function save(submit: boolean) {
     if (submit && !notes.trim()) {
-      setError(ar.errors.usageScope);
+      setError(msg.errors.usageScope);
       return;
     }
     setError("");
@@ -71,7 +75,7 @@ export default function RequestForm({
       router.refresh();
     } catch (e) {
       setError(
-        "issues" in (e as object) ? ar.errors.invalid : (e as Error).message,
+        "issues" in (e as object) ? msg.errors.invalid : (e as Error).message,
       );
     } finally {
       setBusy(false);
@@ -89,7 +93,7 @@ export default function RequestForm({
       <Message error={error} />
       <section className="panel panel-body">
         <div className="fields">
-          <Field label={ar.common.project}>
+          <Field label={msg.common.project}>
             <Lookup
               resource="projects"
               value={projectId}
@@ -108,7 +112,7 @@ export default function RequestForm({
               }}
             />
           </Field>
-          <Field label="نطاق الاستخدام">
+          <Field label={msg.interface.usage}>
             <textarea
               className="input"
               value={notes}
@@ -121,7 +125,7 @@ export default function RequestForm({
       </section>
       <section className="panel">
         <div className="panel-heading">
-          <h2>{ar.requests.lines}</h2>
+          <h2>{msg.requests.lines}</h2>
           <Button
             type="button"
             className="small"
@@ -139,13 +143,13 @@ export default function RequestForm({
             disabled={lines.length >= 100}
           >
             <Plus size={16} />
-            {ar.requests.addLine}
+            {msg.requests.addLine}
           </Button>
         </div>
         <div className="panel-body stack">
           {lines.map((line) => (
             <div className="line-editor" key={line.key}>
-              <Field label={ar.fields.material}>
+              <Field label={msg.fields.material}>
                 <Lookup
                   resource="materials"
                   project={projectId || undefined}
@@ -158,7 +162,7 @@ export default function RequestForm({
                 />
               </Field>
               <NumberField
-                label={ar.fields.quantity}
+                label={msg.fields.quantity}
                 value={line.quantity}
                 onChange={(value) => update(line.key, "quantity", value)}
               />
@@ -166,7 +170,7 @@ export default function RequestForm({
                 {line.reviewNote ? (
                   <p className="review-note text-red">{line.reviewNote}</p>
                 ) : null}
-                <Field label={ar.fields.notes}>
+                <Field label={msg.fields.notes}>
                   <input
                     className="input"
                     value={line.notes}
@@ -179,7 +183,7 @@ export default function RequestForm({
                 type="button"
                 className="icon line-remove"
                 intent="red"
-                aria-label={ar.requests.removeLine}
+                aria-label={msg.requests.removeLine}
                 onClick={() =>
                   setLines((prev) => prev.filter((l) => l.key !== line.key))
                 }
@@ -194,14 +198,14 @@ export default function RequestForm({
       <div className="row end">
         {!initial || initial.status === 0 ? (
           <Button type="button" pending={busy} onClick={() => void save(false)}>
-            {ar.common.draft}
+            {msg.common.draft}
           </Button>
         ) : null}
         <Button intent="blue" type="submit" pending={busy}>
           <Send size={16} />
           {initial && ![0, 14].includes(initial.status)
-            ? ar.common.save
-            : ar.common.submit}
+            ? msg.common.save
+            : msg.common.submit}
         </Button>
       </div>
     </form>

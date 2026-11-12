@@ -1,7 +1,10 @@
 "use client";
+import {useLanguage} from "./language-context";
+import { browserLanguage } from "@/messages/catalog";
+
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { ar } from "@/messages/ar";
+
 export function Button({
   children,
   pending = false,
@@ -84,9 +87,10 @@ export function Message({
   error?: string;
   success?: string;
 }) {
+  const {message}=useLanguage();
   return error ? (
     <p className="error-message" role="alert">
-      {error}
+      {message(error)}
     </p>
   ) : success ? (
     <p className="success-message" role="status">
@@ -95,13 +99,15 @@ export function Message({
   ) : null;
 }
 export async function command(name: string, data: unknown) {
+  const { m: msg } = browserLanguage();
+  
   const r = await fetch("/api/commands", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ command: name, data }),
   });
   const result = await r.json();
-  if (!r.ok) throw new Error(result.error || ar.common.failed);
+  if (!r.ok) throw new Error(result.error || msg.common.failed);
   window.dispatchEvent(new Event("siteflow-update"));
   return result as { id?: string; requestId?: string; redirect?: string };
 }

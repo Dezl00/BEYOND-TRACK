@@ -1,3 +1,5 @@
+import { language } from "@/messages/catalog";
+import { parseLocale, type Locale } from "@/messages/types";
 import webpush from "web-push";
 import { db, one, sql } from "@/db";
 import { ar } from "@/messages/ar";
@@ -46,6 +48,7 @@ export async function deliverPush(
   );
   if (!pref?.enabled) return;
   if (!pushConfigured()) throw new Error("Push not configured");
+  const {m:ar}=language(parseLocale(user.locale));
   try {
     await webpush.sendNotification(
       {

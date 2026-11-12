@@ -213,6 +213,7 @@ beforeAll(async () => {
     "drizzle/generated/0009_oval_corsair.sql",
     "drizzle/generated/0010_request_stage_history.sql",
     "drizzle/generated/0011_omniscient_chimera.sql",
+    "drizzle/generated/0012_account_language.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",

@@ -64,7 +64,7 @@ export type ReceiptPrintRow = {
 export type HistoryPrintRow = {
   id: string;
   created_at: Date;
-  user_name: string;
+  user_name: string | null;
   from_status: number | null;
   to_status: number;
   note: string;
@@ -98,7 +98,7 @@ export async function printHistory(actor: Actor, id: string, cursor?: string) {
   await requireRequest(actor, id);
   const c = decodeCursor(cursor);
   return page(
-    await rows<HistoryPrintRow>(sql`SELECT t.id,t.created_at,t.from_status,t.to_status,t.note,COALESCE(u.name,'النظام') user_name
+    await rows<HistoryPrintRow>(sql`SELECT t.id,t.created_at,t.from_status,t.to_status,t.note,u.name user_name
     FROM request_timeline t LEFT JOIN users u ON u.id=t.user_id WHERE t.request_id=${id}::uuid
     ${c ? sql`AND(t.created_at,t.id)>(${c.at}::timestamptz,${c.id}::uuid)` : sql``}
     ORDER BY t.created_at,t.id LIMIT 26`),

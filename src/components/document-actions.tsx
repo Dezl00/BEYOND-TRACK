@@ -1,9 +1,11 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Printer, ChevronRight } from "lucide-react";
 import { Button } from "./form-controls";
-import { ar } from "@/messages/ar";
+
 
 export default function DocumentActions({
   back,
@@ -12,6 +14,8 @@ export default function DocumentActions({
   back: string;
   sections: string[];
 }) {
+  const { m: msg } = useLanguage();
+  
   const [ready, setReady] = useState(false);
   const key = sections.join(",");
   useEffect(() => {
@@ -59,7 +63,7 @@ export default function DocumentActions({
     <div className="document-actions no-print">
       <Link className="btn export-button" href={back}>
         <ChevronRight size={16} />
-        {ar.common.back}
+        {msg.common.back}
       </Link>
       <Button
         className="export-button"
@@ -67,7 +71,7 @@ export default function DocumentActions({
         onClick={() => window.print()}
       >
         <Printer size={16} />
-        {ar.common.print}
+        {msg.common.print}
       </Button>
     </div>
   );

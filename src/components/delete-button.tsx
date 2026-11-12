@@ -1,8 +1,10 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { Button, Modal, Message, command } from "./ui";
 export default function DeleteButton({
   resource,
@@ -11,20 +13,22 @@ export default function DeleteButton({
   resource: string;
   id: string;
 }) {
+  const { m: msg } = useLanguage();
+  
   const router = useRouter(),
     [open, setOpen] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   return (
     <Modal
-      title={ar.common.confirmDelete}
+      title={msg.common.confirmDelete}
       open={open}
       onOpenChange={setOpen}
       trigger={
         <Button
           intent="red"
           className="small icon"
-          aria-label={ar.common.delete}
+          aria-label={msg.common.delete}
         >
           <Trash2 size={14} />
         </Button>
@@ -33,7 +37,7 @@ export default function DeleteButton({
       <div className="stack">
         <Message error={error} />
         <div className="row end">
-          <Button onClick={() => setOpen(false)}>{ar.common.cancel}</Button>
+          <Button onClick={() => setOpen(false)}>{msg.common.cancel}</Button>
           <Button
             intent="red"
             pending={busy}
@@ -50,7 +54,7 @@ export default function DeleteButton({
               }
             }}
           >
-            {ar.common.delete}
+            {msg.common.delete}
           </Button>
         </div>
       </div>

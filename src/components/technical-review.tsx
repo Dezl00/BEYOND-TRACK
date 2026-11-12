@@ -1,8 +1,10 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useState, useEffect } from "react";
 import { Check, X } from "lucide-react";
 import { technicalReviewSchema } from "@/lib/validation";
-import { ar } from "@/messages/ar";
+
 import { number } from "@/lib/format";
 import { useDigits } from "./format-context";
 import type { RequestLine } from "./quotation-editor";
@@ -18,6 +20,8 @@ export default function TechnicalReview({
   onDone: () => void;
   onBusyChange: (value: boolean) => void;
 }) {
+  const { m: msg, number, unit } = useLanguage();
+  
   const digits = useDigits();
   const [review, setReview] = useState(() =>
     lines.map((line) => ({
@@ -62,7 +66,7 @@ export default function TechnicalReview({
       setError(
         error instanceof Error && !("issues" in error)
           ? error.message
-          : ar.errors.invalid,
+          : msg.errors.invalid,
       );
     } finally {
       setBusy(false);
@@ -81,18 +85,16 @@ export default function TechnicalReview({
             )
           }
         >
-          <Check size={17} />
-          اعتماد الكل
-        </Button>
+          <Check size={17} />{msg.interface.approveAll} </Button>
       </div>
       <div className="table-wrap">
         <table className="technical-review-table">
           <thead>
             <tr>
-              <th>المادة</th>
-              <th>الكمية</th>
-              <th>الإجراء</th>
-              <th>ملاحظة الرفض</th>
+              <th>{msg.fields.material}</th>
+              <th>{msg.fields.quantity}</th>
+              <th>{msg.fields.action}</th>
+              <th>{msg.interface.rejectionNote}</th>
             </tr>
           </thead>
           <tbody>
@@ -100,7 +102,7 @@ export default function TechnicalReview({
               <tr key={line.id}>
                 <td className="wrap">{line.material_name}</td>
                 <td>
-                  {number(line.quantity, digits)} {line.unit_name}
+                  {number(line.quantity, digits)} {unit(line.unit_name)}
                 </td>
                 <td>
                   <div className="row gap-sm">
@@ -108,35 +110,31 @@ export default function TechnicalReview({
                       type="button"
                       className="small"
                       intent={review[i].approved === true ? "green" : undefined}
-                      aria-label={"اعتماد " + line.material_name}
+                      aria-label={msg.common.approve + " " + line.material_name}
                       aria-pressed={review[i].approved === true}
                       disabled={busy}
                       onClick={() =>
                         update(line.id, { approved: true, note: "" })
                       }
                     >
-                      <Check size={16} />
-                      اعتماد
-                    </Button>
+                      <Check size={16} />{msg.common.approve} </Button>
                     <Button
                       type="button"
                       className="small"
                       intent={review[i].approved === false ? "red" : undefined}
-                      aria-label={"رفض " + line.material_name}
+                      aria-label={msg.common.reject + " " + line.material_name}
                       aria-pressed={review[i].approved === false}
                       disabled={busy}
                       onClick={() => update(line.id, { approved: false })}
                     >
-                      <X size={16} />
-                      رفض
-                    </Button>
+                      <X size={16} />{msg.common.reject} </Button>
                   </div>
                 </td>
                 <td>
                   {review[i].approved === false ? (
                     <textarea
                       className="input"
-                      aria-label={"ملاحظة رفض " + line.material_name}
+                      aria-label={msg.interface.rejectNotePrefix + " " + line.material_name}
                       value={review[i].note}
                       required
                       maxLength={1000}
@@ -153,12 +151,8 @@ export default function TechnicalReview({
         </table>
       </div>
       <div className="form-footer">
-        <Button type="button" disabled={busy} onClick={onDone}>
-          إلغاء
-        </Button>
-        <Button type="submit" intent="blue" pending={busy} disabled={!complete}>
-          حفظ المراجعة
-        </Button>
+        <Button type="button" disabled={busy} onClick={onDone}>{msg.common.cancel} </Button>
+        <Button type="submit" intent="blue" pending={busy} disabled={!complete}>{msg.interface.saveReview} </Button>
       </div>
     </form>
   );

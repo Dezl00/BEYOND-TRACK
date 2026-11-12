@@ -1,7 +1,9 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ar } from "@/messages/ar";
+
 import { Checkbox, command, Message } from "./form-controls";
 export default function ActivationSwitch({
   resource,
@@ -16,6 +18,8 @@ export default function ActivationSwitch({
   disabled?: boolean;
   name: string;
 }) {
+  const { m: msg } = useLanguage();
+  
   const router = useRouter(),
     [value, setValue] = useState(active),
     [saving, setSaving] = useState(false),
@@ -43,7 +47,7 @@ export default function ActivationSwitch({
   return (
     <div className="table-activation">
       <Checkbox
-        label={`${value ? ar.common.disable : ar.common.enable} · ${name}`}
+        label={`${value ? msg.common.disable : msg.common.enable} · ${name}`}
         hideLabel
         checked={value}
         disabled={disabled || saving}

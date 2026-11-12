@@ -1,3 +1,4 @@
+import { requestLanguage } from "@/server/language";
 import Link from "next/link";
 import {
   Layers3,
@@ -9,7 +10,7 @@ import {
 } from "lucide-react";
 import { requirePageActor } from "@/server/page-auth";
 import { can } from "@/lib/domain";
-import { ar } from "@/messages/ar";
+
 import { reportQuerySchema, riyadhToday } from "@/lib/reporting";
 import {
   reportContext,
@@ -32,6 +33,8 @@ export default async function ReportsPage({
 }: {
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg, date, number } = await requestLanguage();
+  
   const actor = await requirePageActor(),
     raw = await searchParams,
     q = reportQuerySchema.parse(raw);
@@ -45,7 +48,7 @@ export default async function ReportsPage({
         <ReportFilters query={q} exportable={false} />
         <section
           className="report-projects"
-          aria-label={ar.reports.projectSelect}
+          aria-label={msg.reports.projectSelect}
         >
           {projects.items.length ? (
             projects.items.map((project) => (
@@ -81,19 +84,19 @@ export default async function ReportsPage({
     period = !!q.from,
     asOf = q.to || riyadhToday();
   const stats = [
-    { label: ar.reports.itemsCount, value: overview.items, Icon: Layers3 },
+    { label: msg.reports.itemsCount, value: overview.items, Icon: Layers3 },
     {
-      label: ar.reports.materialsCount,
+      label: msg.reports.materialsCount,
       value: overview.materials,
       Icon: Boxes,
     },
     {
-      label: ar.reports.overRequestedCount,
+      label: msg.reports.overRequestedCount,
       value: overview.requested_over,
       Icon: ArrowUpRight,
     },
     {
-      label: ar.reports.overReceivedCount,
+      label: msg.reports.overReceivedCount,
       value: overview.received_over,
       Icon: PackageCheck,
     },
@@ -108,21 +111,21 @@ export default async function ReportsPage({
       />
       <div className="report-meta-strip">
         <span>
-          {ar.reports.cumulativeThrough}{" "}
+          {msg.reports.cumulativeThrough}{" "}
           <bdi>{date(`${asOf}T12:00:00Z`, digits)}</bdi>
         </span>
         <span>
-          {ar.reports.scope}:{" "}
+          {msg.reports.scope}:{" "}
           {can(actor, "requests.view_all")
-            ? ar.permissionActions.view_all
-            : ar.requests.my}
+            ? msg.permissionActions.view_all
+            : msg.requests.my}
         </span>
         <span>
-          {ar.reports.periodMovement}:{" "}
+          {msg.reports.periodMovement}:{" "}
           <bdi>{number(overview.request_count, digits, 0)}</bdi>{" "}
-          {ar.reports.requestCount} ·{" "}
+          {msg.reports.requestCount} ·{" "}
           <bdi>{number(overview.receipt_count, digits, 0)}</bdi>{" "}
-          {ar.reports.receiptCount}
+          {msg.reports.receiptCount}
         </span>
       </div>
       <div className="stats report-stats">
@@ -143,9 +146,9 @@ export default async function ReportsPage({
       <ReportCharts overview={overview} digits={digits} />
       <section className="panel consumption-panel">
         <div className="panel-heading">
-          <h2>{ar.reports.consumptionTable}</h2>
+          <h2>{msg.reports.consumptionTable}</h2>
           <span className="muted">
-            {ar.reports.materials}{" "}
+            {msg.reports.materials}{" "}
             <bdi>{number(overview.materials, digits, 0)}</bdi>
           </span>
         </div>

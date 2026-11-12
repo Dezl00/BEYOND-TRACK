@@ -1,7 +1,9 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useEffect, useState } from "react";
 import { orderSchema } from "@/lib/validation";
-import { ar } from "@/messages/ar";
+
 import type { Quote } from "@/lib/quotations";
 import StageAttachments, { type UploadState } from "./stage-attachments";
 import { QuoteSummary, type RequestLine } from "./quotation-editor";
@@ -19,6 +21,8 @@ export default function PaymentForm({
   onDone: () => void;
   onBusyChange: (busy: boolean) => void;
 }) {
+  const { m: msg } = useLanguage();
+  
   const [key] = useState(() => crypto.randomUUID()),
     [files, setFiles] = useState<UploadState>({
       ids: [],
@@ -51,7 +55,7 @@ export default function PaymentForm({
       setError(
         error instanceof Error && !("issues" in error)
           ? error.message
-          : ar.errors.invalid,
+          : msg.errors.invalid,
       );
     } finally {
       setBusy(false);
@@ -65,7 +69,7 @@ export default function PaymentForm({
         requestId={request.id}
         uploadKey={key}
         purpose="payment"
-        label="إيصال الدفع"
+        label={msg.interface.paymentReceipt}
         onChange={setFiles}
         disabled={busy}
       />
@@ -74,17 +78,13 @@ export default function PaymentForm({
           type="button"
           onClick={onDone}
           disabled={busy || files.uploading}
-        >
-          إلغاء
-        </Button>
+        >{msg.common.cancel} </Button>
         <Button
           type="submit"
           intent="green"
           pending={busy}
           disabled={!files.ready || !files.ids.length}
-        >
-          تأكيد الدفع
-        </Button>
+        >{msg.interface.confirmPayment} </Button>
       </div>
     </form>
   );

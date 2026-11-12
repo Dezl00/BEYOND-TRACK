@@ -30,6 +30,6 @@ export async function GET(req: Request) {
         : await listResource(a, resource, q);
     return Response.json(result);
   } catch (e) {
-    return errorResponse(e);
+    return errorResponse(e,req);
   }
 }

@@ -1,3 +1,4 @@
+import { requestLanguage } from "@/server/language";
 import ActivationSwitch from "@/components/activation-switch";
 import BoqTabs from "@/components/boq-tabs";
 import { currentSettings } from "@/server/settings";
@@ -12,7 +13,7 @@ import {
   notifications,
 } from "@/server/queries";
 import { listQuerySchema } from "@/lib/validation";
-import { ar } from "@/messages/ar";
+
 import RequestPurge from "@/components/request-purge";
 import { can, canManageUnits, requestModules } from "@/lib/domain";
 import { number, date, requestCode } from "@/lib/format";
@@ -35,12 +36,6 @@ const resources = {
   users: "user",
   roles: "role",
 } as const;
-const title = (key: string) =>
-  key === "materials"
-    ? ar.boq.materials
-    : key === "units"
-      ? ar.boq.units
-      : ar.nav[key as keyof typeof ar.nav];
 export default async function ResourcePage({
   params,
   searchParams,
@@ -48,6 +43,14 @@ export default async function ResourcePage({
   params: Promise<{ module: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg,locale, date, number, unit, role } = await requestLanguage();
+  
+const title = (key: string) =>
+  key === "materials"
+    ? msg.boq.materials
+    : key === "units"
+      ? msg.boq.units
+      : msg.nav[key as keyof typeof msg.nav];
   const { module } = await params;
   if (
     ![
@@ -74,7 +77,7 @@ export default async function ResourcePage({
     module === "audit"
       ? await auditList(a, q)
       : module === "notifications"
-        ? await notifications(a, q.cursor, q.q)
+        ? await notifications(a, q.cursor, q.q,locale)
         : (requestModules as readonly string[]).includes(module)
           ? await listRequests(a, q, module)
           : await listResource(a, module, q);
@@ -124,55 +127,55 @@ export default async function ResourcePage({
                 <tr>
                   {module === "audit" ? (
                     <>
-                      <th>{ar.fields.user}</th>
-                      <th>{ar.fields.action}</th>
-                      <th>{ar.fields.entity}</th>
-                      <th>{ar.common.project}</th>
-                      <th>{ar.common.date}</th>
-                      <th>{ar.fields.diff}</th>
+                      <th>{msg.fields.user}</th>
+                      <th>{msg.fields.action}</th>
+                      <th>{msg.fields.entity}</th>
+                      <th>{msg.common.project}</th>
+                      <th>{msg.common.date}</th>
+                      <th>{msg.fields.diff}</th>
                     </>
                   ) : module === "notifications" ? (
                     <>
-                      <th>{ar.fields.type}</th>
-                      <th>{ar.fields.requestNumber}</th>
-                      <th>{ar.common.date}</th>
-                      <th>{ar.common.actions}</th>
+                      <th>{msg.fields.type}</th>
+                      <th>{msg.fields.requestNumber}</th>
+                      <th>{msg.common.date}</th>
+                      <th>{msg.common.actions}</th>
                     </>
                   ) : (
                     <>
-                      <th>{ar.fields.name}</th>
+                      <th>{msg.fields.name}</th>
                       {module === "projects" && (
                         <>
-                          <th>العميل</th>
-                          <th>تاريخ البدء</th>
-                          <th>تاريخ الانتهاء</th>
-                          <th>تفاصيل المشروع</th>
+                          <th>{msg.interface.client}</th>
+                          <th>{msg.interface.startDate}</th>
+                          <th>{msg.interface.endDate}</th>
+                          <th>{msg.interface.projectDetails}</th>
                         </>
                       )}
                       {["projects", "boq", "materials"].includes(module) ? (
-                        <th>{ar.fields.code}</th>
+                        <th>{msg.fields.code}</th>
                       ) : null}
                       {["boq", "materials"].includes(module) ? (
                         <>
-                          <th>{ar.fields.unit}</th>
-                          <th>{ar.fields.quantity}</th>
+                          <th>{msg.fields.unit}</th>
+                          <th>{msg.fields.quantity}</th>
                         </>
                       ) : null}
                       {module === "boq" ? (
                         <>
-                          <th>{ar.fields.level}</th>
-                          <th>{ar.fields.description}</th>
+                          <th>{msg.fields.level}</th>
+                          <th>{msg.fields.description}</th>
                         </>
                       ) : null}
                       {module === "users" ? (
                         <>
-                          <th>{ar.fields.email}</th>
-                          <th>{ar.whatsapp.number}</th>
-                          <th>{ar.fields.role}</th>
-                          <th>{ar.fields.status}</th>
+                          <th>{msg.fields.email}</th>
+                          <th>{msg.whatsapp.number}</th>
+                          <th>{msg.fields.role}</th>
+                          <th>{msg.fields.status}</th>
                         </>
                       ) : null}
-                      {module === "units" ? <th>{ar.fields.symbol}</th> : null}
+                      {module === "units" ? <th>{msg.fields.symbol}</th> : null}
                       {[
                         "suppliers",
                         "projects",
@@ -181,9 +184,9 @@ export default async function ResourcePage({
                         "roles",
                         "units",
                       ].includes(module) ? (
-                        <th>{ar.fields.status}</th>
+                        <th>{msg.fields.status}</th>
                       ) : null}
-                      <th>{ar.common.actions}</th>
+                      <th>{msg.common.actions}</th>
                     </>
                   )}
                 </tr>
@@ -194,9 +197,9 @@ export default async function ResourcePage({
                     {module === "audit" ? (
                       <>
                         <td>{String(row.user_name || "—")}</td>
-                        <td>{ar.auditActions[Number(row.action)]}</td>
+                        <td>{msg.auditActions[Number(row.action)]}</td>
                         <td>
-                          {ar.auditEntities[Number(row.entity)]}
+                          {msg.auditEntities[Number(row.entity)]}
                           <span className="cell-sub code">
                             {String(row.entity_id || "")}
                           </span>
@@ -205,9 +208,9 @@ export default async function ResourcePage({
                         <td>{date(String(row.created_at), digits, true)}</td>
                         <td className="wrap">
                           <details>
-                            <summary>{ar.common.details}</summary>
+                            <summary>{msg.common.details}</summary>
                             <pre className="audit-diff break">
-                              {JSON.stringify(translateDiff(row.diff), null, 2)}
+                              {JSON.stringify(translateDiff(row.diff, msg), null, 2)}
                             </pre>
                             <bdi className="code">{String(row.ip)}</bdi>
                           </details>
@@ -219,7 +222,7 @@ export default async function ResourcePage({
                           <span
                             className={row.read_at ? "muted" : "cell-title"}
                           >
-                            {ar.notificationTypes[Number(row.type)]}
+                            {msg.notificationTypes[Number(row.type)]}
                           </span>
                         </td>
                         <td>
@@ -240,7 +243,7 @@ export default async function ResourcePage({
                     ) : (
                       <>
                         <td className="wrap">
-                          <span className="cell-title">{String(row.name)}</span>
+                          <span className="cell-title">{module === "units" ? unit(row.name) : module === "roles" ? role(row.name) : String(row.name)}</span>
                           {row.location || row.job_title || row.boq_name ? (
                             <span className="cell-sub">
                               {String(
@@ -265,7 +268,7 @@ export default async function ResourcePage({
                             <td className="wrap">
                               {row.details ? (
                                 <details>
-                                  <summary>{ar.common.details}</summary>
+                                  <summary>{msg.common.details}</summary>
                                   <p className="break">{String(row.details)}</p>
                                 </details>
                               ) : (
@@ -281,7 +284,7 @@ export default async function ResourcePage({
                         ) : null}
                         {["boq", "materials"].includes(module) ? (
                           <>
-                            <td>{String(row.unit_name ?? "—")}</td>
+                            <td>{unit(row.unit_name ?? "—")}</td>
                             <td>
                               <bdi>
                                 {row.quantity == null
@@ -295,7 +298,7 @@ export default async function ResourcePage({
                           <>
                             <td>
                               {
-                                [ar.boq.main, ar.boq.secondary, ar.boq.sub][
+                                [msg.boq.main, msg.boq.secondary, msg.boq.sub][
                                   Number(row.level) - 1
                                 ]
                               }
@@ -319,8 +322,8 @@ export default async function ResourcePage({
                                   </bdi>
                                   <span className="cell-sub">
                                     {row.whatsapp_enabled
-                                      ? ar.whatsapp.ready
-                                      : ar.whatsapp.accountDisabled}
+                                      ? msg.whatsapp.ready
+                                      : msg.whatsapp.accountDisabled}
                                   </span>
                                 </>
                               ) : (
@@ -329,8 +332,8 @@ export default async function ResourcePage({
                             </td>
                             <td>
                               {row.is_owner
-                                ? ar.auth.owner
-                                : String(row.role_name)}
+                                ? msg.auth.owner
+                                : role(row.role_name)}
                             </td>
                             <td>
                               <ActivationSwitch
@@ -346,7 +349,7 @@ export default async function ResourcePage({
                           </>
                         ) : null}
                         {module === "units" ? (
-                          <td>{String(row.symbol)}</td>
+                          <td>{unit(row.symbol,true)}</td>
                         ) : null}
                         {[
                           "suppliers",
@@ -387,7 +390,7 @@ export default async function ResourcePage({
                               <Link
                                 className="btn icon small export-button"
                                 href={`/reports?project=${row.id}`}
-                                aria-label={ar.reports.title}
+                                aria-label={msg.reports.title}
                               >
                                 <ChartNoAxesCombined size={17} />
                               </Link>

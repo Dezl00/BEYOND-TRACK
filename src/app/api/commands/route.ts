@@ -125,7 +125,7 @@ export async function POST(req: Request) {
       case "preferences": {
         const parsed = v.preferencesSchema.parse(data);
         result = await admin.savePreferences(a, parsed, m);
-        (await cookies()).set("bt-theme", String(parsed.theme), {
+        if(parsed.theme!==undefined)(await cookies()).set("bt-theme", String(parsed.theme), {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           sameSite: "lax",
@@ -164,6 +164,6 @@ export async function POST(req: Request) {
     });
     return Response.json(result);
   } catch (e) {
-    return errorResponse(e);
+    return errorResponse(e,req);
   }
 }

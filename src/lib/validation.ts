@@ -114,7 +114,7 @@ export const technicalReviewSchema = z
             note: z.string().trim().max(1000).default(""),
           })
           .refine((v) => v.approved || v.note.length > 0, {
-            message: "ملاحظة الرفض مطلوبة",
+            message: ar.errors.rejectionNote,
             path: ["note"],
           }),
       )
@@ -200,7 +200,7 @@ export const projectSchema = z
     archived: z.boolean().default(false),
   })
   .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
-    message: "تاريخ الانتهاء يسبق تاريخ البدء",
+    message: ar.interface.projectDates,
     path: ["endDate"],
   });
 const boqFields = z.object({
@@ -316,7 +316,7 @@ export const settingsSchema = z
   .refine((v) => new Set(v.policies.map((p) => p.type)).size === 3);
 export const preferencesSchema = z
   .object({
-    theme: z.number().int().min(0).max(1),
+    theme: z.number().int().min(0).max(1).optional(),
     otpEnabled: z.boolean(),
     preferences: z
       .array(

@@ -1,3 +1,4 @@
+import { requestLanguage } from "@/server/language";
 import { requirePageActor } from "@/server/page-auth";
 import { requirePermission } from "@/server/access";
 import {
@@ -13,7 +14,7 @@ import {
 } from "@/lib/reporting";
 import { can, type Actor } from "@/lib/domain";
 import { AppError } from "@/server/errors";
-import { ar } from "@/messages/ar";
+
 import { date, number } from "@/lib/format";
 import DocumentActions from "@/components/document-actions";
 import { DocumentHeader } from "@/components/print-document";
@@ -58,6 +59,8 @@ export default async function ReportPrintPage({
 }: {
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg, date, number } = await requestLanguage();
+  
   const actor = await requirePageActor();
   requirePermission(actor, "reports.export");
   const parsed = reportQuerySchema.parse(await searchParams);
@@ -82,7 +85,7 @@ export default async function ReportPrintPage({
       <DocumentActions back={`/reports?${params}`} sections={["report"]} />
       <article className="print-document report-document">
         <DocumentHeader
-          title={ar.reports.consumptionTable}
+          title={msg.reports.consumptionTable}
           project={context.name}
           code={context.code}
           location={context.location}
@@ -92,60 +95,60 @@ export default async function ReportPrintPage({
         />
         <dl className="document-metadata report-document-filters">
           <div>
-            <dt>{ar.reports.period}</dt>
+            <dt>{msg.reports.period}</dt>
             <dd>
               {query.from ? (
                 <bdi>{date(`${query.from}T12:00:00Z`, digits)}</bdi>
               ) : (
-                ar.reports.allTime
+                msg.reports.allTime
               )}{" "}
-              · {ar.reports.through}{" "}
+              · {msg.reports.through}{" "}
               <bdi>{date(`${asOf}T12:00:00Z`, digits)}</bdi>
             </dd>
           </div>
           <div>
-            <dt>{ar.reports.items}</dt>
+            <dt>{msg.reports.items}</dt>
             <dd>
               {context.selected.length
                 ? context.selected.map((item) => item.code).join("، ")
-                : ar.reports.allItems}
+                : msg.reports.allItems}
             </dd>
           </div>
           <div>
-            <dt>{ar.reports.scope}</dt>
+            <dt>{msg.reports.scope}</dt>
             <dd>
               {can(actor, "requests.view_all")
-                ? ar.permissionActions.view_all
-                : ar.requests.my}
+                ? msg.permissionActions.view_all
+                : msg.requests.my}
             </dd>
           </div>
           {query.q ? (
             <div>
-              <dt>{ar.common.search}</dt>
+              <dt>{msg.common.search}</dt>
               <dd>{query.q}</dd>
             </div>
           ) : null}
         </dl>
         <div className="document-summary">
           <span>
-            {ar.reports.itemsCount}
+            {msg.reports.itemsCount}
             <bdi>{number(overview.items, digits, 0)}</bdi>
           </span>
           <span>
-            {ar.reports.materialsCount}
+            {msg.reports.materialsCount}
             <bdi>{number(overview.materials, digits, 0)}</bdi>
           </span>
           <span>
-            {ar.reports.overRequestedCount}
+            {msg.reports.overRequestedCount}
             <bdi>{number(overview.requested_over, digits, 0)}</bdi>
           </span>
           <span>
-            {ar.reports.overReceivedCount}
+            {msg.reports.overReceivedCount}
             <bdi>{number(overview.received_over, digits, 0)}</bdi>
           </span>
         </div>
         <h2 className="document-section-title">
-          {ar.reports.cumulativeThrough}{" "}
+          {msg.reports.cumulativeThrough}{" "}
           <bdi>{date(`${asOf}T12:00:00Z`, digits)}</bdi>
         </h2>
         <table className="document-table consumption-table">
@@ -154,15 +157,15 @@ export default async function ReportPrintPage({
             <ReportPrintRows actor={actor} query={query} digits={digits} />
             {!overview.materials ? (
               <tr>
-                <td colSpan={8}>{ar.common.empty}</td>
+                <td colSpan={8}>{msg.common.empty}</td>
               </tr>
             ) : null}
           </tbody>
         </table>
         <footer className="document-footer">
-          <span>{ar.company}</span>
+          <span>{msg.company}</span>
           <bdi className="code">{context.code}</bdi>
-          <span>{ar.reports.title}</span>
+          <span>{msg.reports.title}</span>
         </footer>
       </article>
     </div>

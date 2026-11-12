@@ -1,9 +1,11 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useState } from "react";
 import Link from "next/link";
 import { Printer, ArrowUpLeft } from "lucide-react";
 import { Button, Checkbox, Modal, Message } from "./ui";
-import { ar } from "@/messages/ar";
+
 import {
   printSectionKeys,
   requestPrintSchema,
@@ -17,6 +19,8 @@ export default function RequestPrintOptions({
   id: string;
   canPrice: boolean;
 }) {
+  const { m: msg } = useLanguage();
+  
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<RequestPrintOptions>({
     materials: "1",
@@ -33,13 +37,13 @@ export default function RequestPrintOptions({
   }
   return (
     <Modal
-      title={ar.printing.options}
+      title={msg.printing.options}
       open={open}
       onOpenChange={setOpen}
       trigger={
         <Button>
           <Printer size={16} />
-          {ar.common.print}
+          {msg.common.print}
         </Button>
       }
     >
@@ -47,29 +51,29 @@ export default function RequestPrintOptions({
         {printSectionKeys.map((key) => (
           <Checkbox
             key={key}
-            label={ar.printing[key]}
+            label={msg.printing[key]}
             checked={options[key] === "1"}
             onChange={(event) => toggle(key, event.target.checked)}
           />
         ))}
         {canPrice ? (
           <Checkbox
-            label={ar.printing.prices}
+            label={msg.printing.prices}
             checked={options.prices === "1"}
             disabled={options.materials !== "1"}
             onChange={(event) => toggle("prices", event.target.checked)}
           />
         ) : null}
         <Checkbox
-          label={ar.printing.photos}
+          label={msg.printing.photos}
           checked={options.photos === "1"}
           disabled={options.attachments !== "1"}
           onChange={(event) => toggle("photos", event.target.checked)}
         />
       </div>
-      <Message error={!valid.success ? ar.printing.noSections : ""} />
+      <Message error={!valid.success ? msg.printing.noSections : ""} />
       <div className="form-footer">
-        <Button onClick={() => setOpen(false)}>{ar.common.cancel}</Button>
+        <Button onClick={() => setOpen(false)}>{msg.common.cancel}</Button>
         {valid.success ? (
           <Link
             className="btn blue"
@@ -79,10 +83,10 @@ export default function RequestPrintOptions({
             onClick={() => setOpen(false)}
           >
             <ArrowUpLeft size={16} />
-            {ar.printing.preview}
+            {msg.printing.preview}
           </Link>
         ) : (
-          <Button disabled>{ar.printing.preview}</Button>
+          <Button disabled>{msg.printing.preview}</Button>
         )}
       </div>
     </Modal>

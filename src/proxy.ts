@@ -1,3 +1,4 @@
+import { fromRequest } from "@/messages/request";
 import { NextResponse, type NextRequest } from "next/server";
 import { loginPath } from "@/lib/request-links";
 import { ar } from "@/messages/ar";
@@ -19,6 +20,7 @@ export function proxy(request: NextRequest) {
     "/pwa-512.png",
     "/pwa-maskable.png",
     "/manifest.webmanifest",
+    "/en.webmanifest",
     "/offline",
   ].includes(path);
   const publicPath =
@@ -32,7 +34,7 @@ export function proxy(request: NextRequest) {
   let response: NextResponse;
   if (!publicPath && !request.cookies.has(cookie))
     response = path.startsWith("/api/")
-      ? NextResponse.json({ error: ar.errors.forbidden }, { status: 401 })
+      ? NextResponse.json({ error: fromRequest(request).m.errors.forbidden }, { status: 401 })
       : NextResponse.redirect(new URL(loginPath(path), request.url));
   else response = NextResponse.next({ request: { headers: h } });
   response.headers.set("Content-Security-Policy", csp);

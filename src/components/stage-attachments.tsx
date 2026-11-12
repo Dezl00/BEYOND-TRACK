@@ -1,7 +1,9 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useEffect, useRef, useState } from "react";
 import { Upload, X, RotateCw, FileText } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import type { AttachmentPurpose } from "@/lib/attachments";
 import { Button, Field } from "./ui";
 
@@ -31,6 +33,8 @@ export default function StageAttachments({
   disabled?: boolean;
   onChange: (state: UploadState) => void;
 }) {
+  const { m: msg } = useLanguage();
+  
   const input = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<Item[]>(() =>
     initial.map((f) => ({ ...f, key: f.id, uploading: false })),
@@ -63,7 +67,7 @@ export default function StageAttachments({
             "application/pdf",
           ].includes(file.type))
       )
-        throw Error(ar.errors.file);
+        throw Error(msg.errors.file);
       const body = new FormData();
       body.set("requestId", requestId);
       body.set("uploadKey", uploadKey);
@@ -121,16 +125,14 @@ export default function StageAttachments({
           disabled={disabled || uploading || items.length >= 20}
           onClick={() => input.current?.click()}
         >
-          <Upload size={17} />
-          رفع المرفقات
-        </Button>
+          <Upload size={17} />{msg.interface.uploadAttachments} </Button>
         {items.map((item) => (
           <div className="attachment" key={item.key}>
             <FileText size={18} />
             <span className="attachment-name">
               {item.name}
               {item.uploading ? (
-                <small className="cell-sub">جارٍ الرفع</small>
+                <small className="cell-sub">{msg.interface.uploading}</small>
               ) : null}
               {item.error ? (
                 <small className="error-message" role="alert">
@@ -142,7 +144,7 @@ export default function StageAttachments({
               <Button
                 type="button"
                 className="icon small"
-                aria-label={"إعادة رفع " + item.name}
+                aria-label={msg.interface.reupload + " " + item.name}
                 disabled={disabled || uploading}
                 onClick={() => void upload(item)}
               >
@@ -152,7 +154,7 @@ export default function StageAttachments({
             <Button
               type="button"
               className="icon small"
-              aria-label={"إزالة " + item.name}
+              aria-label={msg.interface.remove + " " + item.name}
               disabled={disabled || uploading}
               onClick={() =>
                 setItems((prev) => prev.filter((f) => f.key !== item.key))

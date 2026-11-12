@@ -1,31 +1,34 @@
+import { requestLanguage } from "@/server/language";
 import { Fragment } from "react";
-import { ar } from "@/messages/ar";
+
 import { number } from "@/lib/format";
 import { consumption, percent, type ConsumptionRow } from "@/lib/reporting";
 
-export function ConsumptionHead({ period }: { period: boolean }) {
+export async function ConsumptionHead({ period }: { period: boolean }) {
+  const { m: msg } = await requestLanguage();
+  
   return (
     <thead>
       <tr>
-        <th>{ar.printing.material}</th>
-        <th>{ar.fields.unit}</th>
-        <th>{ar.reports.allocated}</th>
+        <th>{msg.printing.material}</th>
+        <th>{msg.fields.unit}</th>
+        <th>{msg.reports.allocated}</th>
         <th>
-          {ar.reports.requested}
-          {period ? <small>{ar.reports.periodRequested}</small> : null}
+          {msg.reports.requested}
+          {period ? <small>{msg.reports.periodRequested}</small> : null}
         </th>
         <th>
-          {ar.reports.received}
-          {period ? <small>{ar.reports.periodReceived}</small> : null}
+          {msg.reports.received}
+          {period ? <small>{msg.reports.periodReceived}</small> : null}
         </th>
-        <th>{ar.reports.receivedRate}</th>
-        <th>{ar.reports.requestedOverage}</th>
-        <th>{ar.reports.receivedOverage}</th>
+        <th>{msg.reports.receivedRate}</th>
+        <th>{msg.reports.requestedOverage}</th>
+        <th>{msg.reports.receivedOverage}</th>
       </tr>
     </thead>
   );
 }
-export function ConsumptionRows({
+export async function ConsumptionRows({
   items,
   digits,
   period,
@@ -34,6 +37,8 @@ export function ConsumptionRows({
   digits: number;
   period: boolean;
 }) {
+  const { number, percent, unit } = await requestLanguage();
+  
   return (
     <>
       {items.map((row, index) => {
@@ -52,7 +57,7 @@ export function ConsumptionRows({
               <td className="wrap material-cell">
                 <span className="cell-title">{row.name}</span>
               </td>
-              <td>{row.unit_name}</td>
+              <td>{unit(row.unit_name)}</td>
               <td className="numeric">
                 <bdi>{number(row.allocated, digits)}</bdi>
               </td>
@@ -105,7 +110,7 @@ export function ConsumptionRows({
     </>
   );
 }
-function OverageCell({
+async function OverageCell({
   quantity,
   ratio,
   digits,
@@ -114,6 +119,8 @@ function OverageCell({
   ratio: string;
   digits: number;
 }) {
+  const { number, percent } = await requestLanguage();
+  
   return (
     <td
       className={`numeric ${Number(quantity) > 0 ? "quantity-over" : "muted"}`}

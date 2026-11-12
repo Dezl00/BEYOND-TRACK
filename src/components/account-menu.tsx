@@ -1,19 +1,24 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+import { browserLanguage } from "@/messages/catalog";
+
 import Link from "next/link";
 import { useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { ChevronLeft, LogOut, Settings2 } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import type { Actor } from "@/lib/domain";
 import { Button, Message, Modal } from "./ui";
 
 async function logout() {
+  const { m: msg } = browserLanguage();
+  
   const response = await fetch("/api/auth/logout", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  if (!response.ok) throw new Error(ar.common.failed);
+  if (!response.ok) throw new Error(msg.common.failed);
   // Revoke the session before best-effort device cleanup.
   try {
     const registration = await navigator.serviceWorker?.getRegistration("/");
@@ -29,11 +34,13 @@ function LogoutDialog({
   open: boolean;
   setOpen: (value: boolean) => void;
 }) {
+  const { m: msg } = useLanguage();
+  
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   return (
     <Modal
-      title={ar.settings.logoutConfirm}
+      title={msg.settings.logoutConfirm}
       open={open}
       onOpenChange={(value) => {
         if (!busy) {
@@ -49,7 +56,7 @@ function LogoutDialog({
         <Message error={error} />
         <div className="confirmation-actions">
           <Button type="button" disabled={busy} onClick={() => setOpen(false)}>
-            {ar.common.cancel}
+            {msg.common.cancel}
           </Button>
           <Button
             type="button"
@@ -67,7 +74,7 @@ function LogoutDialog({
             }}
           >
             <LogOut size={16} />
-            {ar.common.logout}
+            {msg.common.logout}
           </Button>
         </div>
       </div>
@@ -75,6 +82,8 @@ function LogoutDialog({
   );
 }
 export function LogoutButton() {
+  const { m: msg } = useLanguage();
+  
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -84,7 +93,7 @@ export function LogoutButton() {
         onClick={() => setOpen(true)}
       >
         <LogOut size={17} />
-        {ar.common.logout}
+        {msg.common.logout}
       </Button>
       <LogoutDialog open={open} setOpen={setOpen} />
     </>
@@ -98,6 +107,8 @@ export default function AccountMenu({
     "name" | "is_owner" | "role_name" | "force_password_change"
   >;
 }) {
+  const { m: msg, dir, role } = useLanguage();
+  
   const [open, setOpen] = useState(false),
     [confirm, setConfirm] = useState(false);
   const first = useRef<HTMLAnchorElement>(null);
@@ -108,7 +119,7 @@ export default function AccountMenu({
           <button
             type="button"
             className="account-trigger"
-            aria-label={ar.settings.profile}
+            aria-label={msg.settings.profile}
             aria-haspopup="menu"
             aria-expanded={open}
           >
@@ -119,7 +130,7 @@ export default function AccountMenu({
                   <bdi>{actor.name}</bdi>
                 </div>
                 <div className="profile-role">
-                  {actor.is_owner ? ar.auth.owner : actor.role_name}
+                  {actor.is_owner ? msg.auth.owner : role(actor.role_name)}
                 </div>
               </div>
             </div>
@@ -133,9 +144,9 @@ export default function AccountMenu({
             align="end"
             sideOffset={12}
             collisionPadding={12}
-            dir="rtl"
+            dir={dir}
             role="menu"
-            aria-label={ar.settings.profile}
+            aria-label={msg.settings.profile}
             onOpenAutoFocus={(event) => {
               event.preventDefault();
               first.current?.focus();
@@ -176,7 +187,7 @@ export default function AccountMenu({
               onClick={() => setOpen(false)}
             >
               <Settings2 size={17} />
-              {ar.nav.settings}
+              {msg.nav.settings}
             </Link>
             <button
               type="button"
@@ -188,7 +199,7 @@ export default function AccountMenu({
               }}
             >
               <LogOut size={17} />
-              {ar.common.logout}
+              {msg.common.logout}
             </button>
           </Popover.Content>
         </Popover.Portal>

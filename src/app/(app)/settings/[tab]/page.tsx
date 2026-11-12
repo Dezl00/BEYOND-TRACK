@@ -1,3 +1,6 @@
+import { SlidersHorizontal, ShieldCheck, Bell, Settings2, ChevronLeft } from "lucide-react";
+import { DisplayPreferences } from "@/components/display-preferences";
+import { requestLanguage } from "@/server/language";
 import PushSettings from "@/components/push-settings";
 import RequestPurge from "@/components/request-purge";
 import Link from "next/link";
@@ -5,7 +8,7 @@ import { notFound } from "next/navigation";
 import { requirePageActor } from "@/server/page-auth";
 import { requirePermission } from "@/server/access";
 import { one, rows, sql } from "@/db";
-import { ar } from "@/messages/ar";
+
 import { can } from "@/lib/domain";
 import { date } from "@/lib/format";
 import { Heading, Pagination } from "@/components/common";
@@ -25,6 +28,8 @@ export default async function SettingsTab({
   params: Promise<{ tab: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg, date } = await requestLanguage();
+  
   const { tab } = await params;
   if (!["appearance", "security", "notifications", "system"].includes(tab))
     notFound();
@@ -77,39 +82,23 @@ export default async function SettingsTab({
           )
         : Promise.resolve(undefined),
     ]);
+  const sections=[{key:"appearance",label:msg.common.appearance,hint:msg.interface.appearanceSummary,Icon:SlidersHorizontal},{key:"security",label:msg.common.security,hint:msg.interface.securitySummary,Icon:ShieldCheck},{key:"notifications",label:msg.nav.notifications,hint:msg.interface.notificationsSummary,Icon:Bell},...(can(a,"settings.edit")?[{key:"system",label:msg.settings.system,hint:msg.interface.systemSummary,Icon:Settings2}]:[])].filter(s=>!a.force_password_change||s.key==="security");
   const sessionPage = page(sessions);
   return (
     <>
       <Heading
         title={
           tab === "appearance"
-            ? ar.common.appearance
+            ? msg.common.appearance
             : tab === "security"
-              ? ar.common.security
+              ? msg.common.security
               : tab === "notifications"
-                ? ar.nav.notifications
-                : ar.settings.system
+                ? msg.nav.notifications
+                : msg.settings.system
         }
       />
-      <div className="tabs">
-        {[
-          ["appearance", ar.common.appearance],
-          ["security", ar.common.security],
-          ["notifications", ar.nav.notifications],
-          ...(can(a, "settings.edit") ? [["system", ar.settings.system]] : []),
-        ]
-          .filter(([key]) => !a.force_password_change || key === "security")
-          .map(([key, label]) => (
-            <Link
-              key={key}
-              className={tab === key ? "active" : ""}
-              href={`/settings/${key}`}
-            >
-              {label}
-            </Link>
-          ))}
-      </div>
-      <div className="stack settings-narrow">
+      <div className="settings-layout"><nav className="settings-rail" aria-label={msg.nav.settings}>{sections.map(({key,label,hint,Icon})=><Link key={key} href={"/settings/"+key} aria-current={tab===key?"page":undefined}><Icon size={19}/><span><strong>{label}</strong><small>{hint}</small></span><ChevronLeft className="rail-chevron" size={15}/></Link>)}</nav>
+<section className="settings-content stack">
         {tab === "system" && a.is_owner ? (
           <RequestPurge email={a.email} />
         ) : null}
@@ -119,7 +108,7 @@ export default async function SettingsTab({
               <PushSettings />
             </section>
             <section className="panel panel-body stack">
-              <h2>{ar.whatsapp.title}</h2>
+              <h2>{msg.whatsapp.title}</h2>
               <p>
                 {whatsappAccount?.whatsapp_number ? (
                   <bdi dir="ltr" className="code">
@@ -129,26 +118,26 @@ export default async function SettingsTab({
                     )}
                   </bdi>
                 ) : (
-                  ar.whatsapp.noNumber
+                  msg.whatsapp.noNumber
                 )}
               </p>
-              <p className="muted">{ar.whatsapp.managedByAdmin}</p>
+              <p className="muted">{msg.whatsapp.managedByAdmin}</p>
               <p>
                 {!whatsappConfigured()
-                  ? ar.whatsapp.unavailable
+                  ? msg.whatsapp.unavailable
                   : !settings?.whatsapp_enabled
-                    ? ar.whatsapp.systemDisabled
+                    ? msg.whatsapp.systemDisabled
                     : !whatsappAccount?.whatsapp_enabled
-                      ? ar.whatsapp.accountDisabled
-                      : ar.whatsapp.ready}
+                      ? msg.whatsapp.accountDisabled
+                      : msg.whatsapp.ready}
               </p>
             </section>
           </>
         ) : null}
         {a.force_password_change ? (
-          <p className="error-message">{ar.auth.requiredPassword}</p>
+          <p className="error-message">{msg.auth.requiredPassword}</p>
         ) : null}
-        {tab === "system" ? (
+        {tab === "appearance" ? <DisplayPreferences/> : tab === "system" ? (
           <section className="panel panel-body">
             <SystemSettings
               settings={settings!}
@@ -160,7 +149,7 @@ export default async function SettingsTab({
           <>
             <section className="panel">
               <div className="panel-heading">
-                <h2>{ar.auth.changePassword}</h2>
+                <h2>{msg.auth.changePassword}</h2>
               </div>
               <div className="panel-body">
                 <PasswordForm />
@@ -180,16 +169,16 @@ export default async function SettingsTab({
             ) : null}
             <section className="panel">
               <div className="panel-heading">
-                <h2>{ar.auth.sessions}</h2>
+                <h2>{msg.auth.sessions}</h2>
               </div>
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>{ar.auth.device}</th>
-                      <th>{ar.auth.ip}</th>
-                      <th>{ar.auth.expiry}</th>
-                      <th>{ar.common.actions}</th>
+                      <th>{msg.auth.device}</th>
+                      <th>{msg.auth.ip}</th>
+                      <th>{msg.auth.expiry}</th>
+                      <th>{msg.common.actions}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -198,7 +187,7 @@ export default async function SettingsTab({
                         <td className="wrap">
                           <bdi>{s.user_agent.slice(0, 120)}</bdi>
                           {s.id === a.session_id ? (
-                            <span className="badge">{ar.auth.current}</span>
+                            <span className="badge">{msg.auth.current}</span>
                           ) : null}
                         </td>
                         <td>
@@ -232,7 +221,7 @@ export default async function SettingsTab({
             />
           </section>
         )}
-      </div>
+      </section></div>
     </>
   );
 }

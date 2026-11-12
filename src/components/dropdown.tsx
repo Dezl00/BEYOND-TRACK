@@ -1,8 +1,10 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { number } from "@/lib/format";
 import { useDigits } from "./format-context";
 
@@ -28,7 +30,7 @@ function Dropdown({
   open,
   setOpen,
   label,
-  placeholder = ar.common.select,
+  placeholder: placeholderInput,
   q,
   setQ,
   options,
@@ -41,6 +43,8 @@ function Dropdown({
   more,
   clear,
 }: DropdownProps) {
+  const { m: msg, number, dir } = useLanguage();
+  const placeholder = placeholderInput ?? msg.common.select;
   const digits = useDigits();
   const listId = useId(),
     search = useRef<HTMLInputElement>(null),
@@ -96,7 +100,7 @@ function Dropdown({
           sideOffset={6}
           collisionPadding={12}
           role="presentation"
-          dir="rtl"
+          dir={dir}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             search.current?.focus();
@@ -108,8 +112,8 @@ function Dropdown({
               ref={search}
               value={q}
               onChange={(event) => setQ(event.target.value)}
-              placeholder={ar.common.search}
-              aria-label={ar.common.search}
+              placeholder={msg.common.search}
+              aria-label={msg.common.search}
               role="combobox"
               aria-autocomplete="list"
               aria-expanded={open}
@@ -133,7 +137,7 @@ function Dropdown({
               <button
                 type="button"
                 className="dropdown-clear"
-                aria-label={ar.common.reset}
+                aria-label={msg.common.reset}
                 onClick={() => {
                   setQ("");
                   search.current?.focus();
@@ -177,7 +181,7 @@ function Dropdown({
                 <span className="skeleton" />
               </div>
             ) : !options.length ? (
-              <div className="dropdown-empty">{ar.common.empty}</div>
+              <div className="dropdown-empty">{msg.common.empty}</div>
             ) : null}
           </div>
           {error ? (
@@ -189,12 +193,12 @@ function Dropdown({
             <div className="dropdown-footer">
               {clear && selected.length ? (
                 <button type="button" onClick={clear}>
-                  {ar.common.clearSelection}
+                  {msg.common.clearSelection}
                 </button>
               ) : null}
               {more ? (
                 <button type="button" disabled={busy} onClick={more}>
-                  {ar.common.more}
+                  {msg.common.more}
                 </button>
               ) : null}
             </div>
@@ -209,7 +213,7 @@ export function SelectBox({
   value,
   onChange,
   options,
-  placeholder = ar.common.select,
+  placeholder: placeholderInput,
   disabled = false,
 }: {
   value: string;
@@ -218,6 +222,8 @@ export function SelectBox({
   placeholder?: string;
   disabled?: boolean;
 }) {
+  const { m: msg } = useLanguage();
+  const placeholder = placeholderInput ?? msg.common.select;
   const [open, setOpen] = useState(false),
     [q, setQ] = useState("");
   const visible = options.filter((option) =>
@@ -278,9 +284,9 @@ function RemoteDropdown({
   onChange,
   project,
   initialLabels = {},
-  placeholder = ar.common.select,
+  placeholder: placeholderInput,
   allowNone = false,
-  allLabel = ar.common.all,
+  allLabel: allLabelInput,
   onlyLevel,
   mains,
   seconds,
@@ -289,6 +295,10 @@ function RemoteDropdown({
   includeInactive = false,
   disabled,
 }: RemoteProps) {
+  const { m: msg,unit,role,locale } = useLanguage();
+  const displayName=(value:string)=>resource==="units"?unit(value):resource==="roles"?role(value):value;
+  const placeholder = placeholderInput ?? msg.common.select;
+  const allLabel = allLabelInput ?? msg.common.all;
   const [open, setOpen] = useState(defaultOpen),
     [q, setQ] = useState(""),
     [page, setPage] = useState<Page>({ items: [], next: null }),
@@ -307,6 +317,7 @@ function RemoteDropdown({
     ...(!includeInactive ? { selectable: "1" } : {}),
   });
   const key = params.toString();
+  const cacheKey=locale+":"+key;
   useEffect(() => {
     const invalidate = () => {
       cache.clear();
@@ -314,7 +325,7 @@ function RemoteDropdown({
     };
     window.addEventListener("siteflow-update", invalidate);
     return () => window.removeEventListener("siteflow-update", invalidate);
-  }, [open, key]);
+  }, [open, key, locale]);
   async function load(cursor?: string) {
     controller.current?.abort();
     const abort = new AbortController();
@@ -328,7 +339,7 @@ function RemoteDropdown({
         signal: abort.signal,
       });
       const data: Page & { error?: string } = await response.json();
-      if (!response.ok) throw new Error(data.error || ar.common.failed);
+      if (!response.ok) throw new Error(data.error || msg.common.failed);
       if (token !== sequence.current) return;
       setPage((previous) => ({
         items: cursor
@@ -346,13 +357,13 @@ function RemoteDropdown({
         ...Object.fromEntries(
           data.items.map((item) => [
             item.id,
-            [item.code, item.name].filter(Boolean).join(" · "),
+            [item.code, displayName(item.name)].filter(Boolean).join(" · "),
           ]),
         ),
       }));
       if (!cursor) {
         if (cache.size >= 50) cache.delete(cache.keys().next().value!);
-        cache.set(key, { page: data, at: Date.now() });
+        cache.set(cacheKey, { page: data, at: Date.now() });
       }
       setError("");
     } catch (e) {
@@ -364,7 +375,7 @@ function RemoteDropdown({
   }
   useEffect(() => {
     if (!open) return;
-    const saved = cache.get(key);
+    const saved = cache.get(cacheKey);
     setPage(saved?.page || { items: [], next: null });
     if (saved && Date.now() - saved.at < 15_000) {
       setBusy(false);
@@ -373,7 +384,7 @@ function RemoteDropdown({
         ...Object.fromEntries(
           saved.page.items.map((item) => [
             item.id,
-            [item.code, item.name].filter(Boolean).join(" · "),
+            [item.code, displayName(item.name)].filter(Boolean).join(" · "),
           ]),
         ),
       }));
@@ -385,7 +396,7 @@ function RemoteDropdown({
       sequence.current++;
       controller.current?.abort();
     };
-  }, [open, key]);
+  }, [open, key, locale]);
   useEffect(
     () => () => {
       controller.current?.abort();
@@ -396,13 +407,13 @@ function RemoteDropdown({
     ...(allowNone ? [{ value: "", label: allLabel }] : []),
     ...page.items.map((item) => ({
       value: item.id,
-      label: [item.code, item.name].filter(Boolean).join(" · "),
+      label: [item.code, displayName(item.name)].filter(Boolean).join(" · "),
     })),
   ];
   const label = values.length
     ? values
-        .map((id) => labels[id] || initialLabels[id] || ar.common.select)
-        .join("، ")
+        .map((id) => labels[id] || initialLabels[id] || msg.common.select)
+        .join(locale==="en"?", ":"، ")
     : allowNone
       ? allLabel
       : placeholder;

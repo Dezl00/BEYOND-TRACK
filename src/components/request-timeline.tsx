@@ -1,7 +1,8 @@
+import { requestLanguage } from "@/server/language";
 import { Check, Clock3, X } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { date } from "@/lib/format";
-export default function RequestTimeline({
+export default async function RequestTimeline({
   items,
   currentId,
   digits,
@@ -16,6 +17,8 @@ export default function RequestTimeline({
   currentId: string;
   digits: number;
 }) {
+  const { m: msg, date } = await requestLanguage();
+  
   return (
     <ol className="timeline">
       {items.map((item) => {
@@ -36,16 +39,16 @@ export default function RequestTimeline({
               className="timeline-marker"
               aria-label={
                 stopped
-                  ? "مرفوض أو ملغى"
+                  ? msg.interface.stopped
                   : current
-                    ? "المرحلة الحالية"
-                    : "مكتملة"
+                    ? msg.interface.currentStage
+                    : msg.interface.completeStage
               }
             >
               <Icon size={20} strokeWidth={2.2} />
             </span>
-            <p className="timeline-title">{ar.statuses[status]}</p>
-            <small>{String(item.user_name)}</small>
+            <p className="timeline-title">{msg.statuses[status]}</p>
+            <small>{String(item.user_name ?? msg.interface.systemActor)}</small>
             <p className="cell-sub">
               {date(String(item.created_at), digits, true)}
             </p>

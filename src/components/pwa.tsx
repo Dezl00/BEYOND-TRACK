@@ -1,8 +1,10 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { createContext, useContext, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { Download, Share2, PlusSquare, Menu } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { Button, Message } from "./form-controls";
 const Modal = dynamic(() => import("./ui").then((module) => module.Modal));
 type InstallEvent = Event & {
@@ -23,6 +25,8 @@ const InstallContext = createContext<{
   consumed: () => {},
 });
 export function PwaProvider({ children }: { children: React.ReactNode }) {
+  const {locale}=useLanguage();
+  useEffect(()=>{let current=true;if(navigator.serviceWorker?.ready)void navigator.serviceWorker.ready.then(r=>{if(current)r.active?.postMessage({type:"display-locale",locale});}).catch(()=>{});return ()=>{current=false}},[locale]);
   const [prompt, setPrompt] = useState<InstallEvent | null>(null),
     [installed, setInstalled] = useState(false),
     [ready, setReady] = useState(false),
@@ -84,6 +88,8 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
   );
 }
 export function InstallApp({ className = "" }: { className?: string }) {
+  const { m: msg } = useLanguage();
+  
   const state = useContext(InstallContext),
     [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false),
@@ -101,7 +107,7 @@ export function InstallApp({ className = "" }: { className?: string }) {
       await state.prompt.userChoice;
       state.consumed();
     } catch {
-      setError(ar.common.failed);
+      setError(msg.common.failed);
     } finally {
       setBusy(false);
     }
@@ -114,21 +120,21 @@ export function InstallApp({ className = "" }: { className?: string }) {
         onClick={() => void install()}
       >
         <Download size={17} />
-        {ar.pwa.install}
+        {msg.pwa.install}
       </Button>
       <Message error={error} />
       {open ? (
-        <Modal title={ar.pwa.installTitle} open={open} onOpenChange={setOpen}>
+        <Modal title={msg.pwa.installTitle} open={open} onOpenChange={setOpen}>
           <div className="stack install-options">
             <div>
               {state.ios ? <Share2 size={21} /> : <Menu size={21} />}
-              <span>{state.ios ? ar.pwa.share : ar.pwa.browserMenu}</span>
+              <span>{state.ios ? msg.pwa.share : msg.pwa.browserMenu}</span>
             </div>
             <div>
               <PlusSquare size={21} />
-              <span>{state.ios ? ar.pwa.addHome : ar.pwa.installMenu}</span>
+              <span>{state.ios ? msg.pwa.addHome : msg.pwa.installMenu}</span>
             </div>
-            <Button onClick={() => setOpen(false)}>{ar.common.close}</Button>
+            <Button onClick={() => setOpen(false)}>{msg.common.close}</Button>
           </div>
         </Modal>
       ) : null}

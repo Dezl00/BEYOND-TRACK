@@ -1,7 +1,8 @@
-import { ar } from "@/messages/ar";
+import { requestLanguage } from "@/server/language";
+
 import { date } from "@/lib/format";
 
-export function DocumentHeader({
+export async function DocumentHeader({
   title,
   reference,
   project,
@@ -20,38 +21,40 @@ export function DocumentHeader({
   at: string;
   digits: number;
 }) {
+  const { m: msg, date } = await requestLanguage();
+  
   return (
     <>
       <header className="document-header">
-        <img src="/logo.svg" width="126" height="42" alt={ar.company} />
+        <img src="/logo.svg" width="126" height="42" alt={msg.company} />
         <div className="document-title">
           <h1>{title}</h1>
           {reference ? <bdi className="code">{reference}</bdi> : null}
         </div>
         <div className="document-issued">
-          <span>{ar.printing.generatedAt}</span>
+          <span>{msg.printing.generatedAt}</span>
           <bdi>{date(at, digits, true)}</bdi>
         </div>
       </header>
       <dl className="document-metadata">
         <div>
-          <dt>{ar.common.project}</dt>
+          <dt>{msg.common.project}</dt>
           <dd>{project}</dd>
         </div>
         <div>
-          <dt>{ar.printing.projectCode}</dt>
+          <dt>{msg.printing.projectCode}</dt>
           <dd>
             <bdi className="code">{code}</bdi>
           </dd>
         </div>
         {location ? (
           <div>
-            <dt>{ar.printing.location}</dt>
+            <dt>{msg.printing.location}</dt>
             <dd>{location}</dd>
           </div>
         ) : null}
         <div>
-          <dt>{ar.printing.preparedBy}</dt>
+          <dt>{msg.printing.preparedBy}</dt>
           <dd>{issuedBy}</dd>
         </div>
       </dl>

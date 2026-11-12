@@ -1,3 +1,4 @@
+import { fromRequest } from "@/messages/request";
 import { canManageUnits } from "@/lib/domain";
 import { decimalText } from "@/lib/format";
 import { z } from "zod";
@@ -20,6 +21,7 @@ function csv(value: unknown) {
 }
 export async function GET(req: Request) {
   try {
+    const {m:ar,unit,role}=fromRequest(req);
     const a = await requireActor(),
       params = new URL(req.url).searchParams,
       resource = z
@@ -75,10 +77,10 @@ export async function GET(req: Request) {
       description: ar.fields.description,
       unit_name: ar.fields.unit,
       quantity: ar.fields.quantity,
-      client: "العميل",
-      details: "تفاصيل المشروع",
-      start_date: "تاريخ البدء",
-      end_date: "تاريخ الانتهاء",
+      client: ar.interface.client,
+      details: ar.interface.projectDetails,
+      start_date: ar.interface.startDate,
+      end_date: ar.interface.endDate,
       project_name: ar.common.project,
       number: ar.fields.requestNumber,
       status: ar.fields.status,
@@ -110,8 +112,8 @@ export async function GET(req: Request) {
               csv(
                 k === "quantity"
                   ? decimalText(row[k])
-                  : k === "unit_name"
-                    ? (row[k] ?? "")
+                  : (k === "name" && resource==="units") || k==="symbol" && resource==="units" ? unit(row[k],k==="symbol") : k==="role_name" || k==="name" && resource==="roles" ? role(row[k]) : k === "unit_name"
+                    ? unit(row[k])
                     : k === "status"
                       ? ar.statuses[Number(row[k])]
                       : k === "action"
@@ -176,6 +178,6 @@ export async function GET(req: Request) {
       },
     });
   } catch (e) {
-    return errorResponse(e);
+    return errorResponse(e,req);
   }
 }

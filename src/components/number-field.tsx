@@ -1,4 +1,6 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useEffect, useId, useLayoutEffect, useRef } from "react";
 import Decimal from "decimal.js";
 import { ChevronDown, ChevronUp } from "lucide-react";
@@ -35,6 +37,8 @@ export function NumberField({
   emptyOnBlur = "",
   className = "",
 }: Props) {
+  const { m: msg } = useLanguage();
+  
   const inputId = useId(),
     name = ariaLabel ?? label;
   const upper =
@@ -136,7 +140,7 @@ export function NumberField({
                 type="button"
                 key={direction}
                 aria-label={
-                  (direction === 1 ? "زيادة " : "إنقاص ") + (name ?? "")
+                  (direction === 1 ? msg.interface.increase + " " : msg.interface.decrease + " ") + (name ?? "")
                 }
                 onPointerDown={(e) => start(e, direction)}
                 onPointerUp={stop}

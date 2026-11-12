@@ -1,8 +1,10 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { NumberField } from "./number-field";
 import { useEffect, useRef, useState } from "react";
 import { Camera, Images, X, Check, RotateCw } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { receiptSchema } from "@/lib/validation";
 import {
   changeReceiptQuantity,
@@ -32,6 +34,8 @@ export default function ReceiptForm({
   onDone: () => void;
   onBusyChange?: (value: boolean) => void;
 }) {
+  const { m: msg, number, unit } = useLanguage();
+  
   const digits = useDigits(),
     camera = useRef<HTMLInputElement>(null),
     gallery = useRef<HTMLInputElement>(null);
@@ -77,7 +81,7 @@ export default function ReceiptForm({
           item.file.type,
         )
       )
-        throw Error(ar.errors.file);
+        throw Error(msg.errors.file);
       const form = new FormData();
       form.set("requestId", requestId);
       form.set("receiptKey", key);
@@ -87,7 +91,7 @@ export default function ReceiptForm({
         body: form,
       });
       const data = await response.json();
-      if (!response.ok) throw Error(data.error || ar.common.failed);
+      if (!response.ok) throw Error(data.error || msg.common.failed);
       setFiles((prev) =>
         prev.map((f) =>
           f.key === item.key ? { ...f, id: data.id, uploading: false } : f,
@@ -100,7 +104,7 @@ export default function ReceiptForm({
             ? {
                 ...f,
                 uploading: false,
-                error: e instanceof Error ? e.message : ar.common.failed,
+                error: e instanceof Error ? e.message : msg.common.failed,
               }
             : f,
         ),
@@ -110,7 +114,7 @@ export default function ReceiptForm({
   async function choose(selected: FileList | null) {
     if (!selected?.length || uploadLock.current) return;
     if (files.length + selected.length > 20) {
-      setError("يمكن إرفاق 20 ملفًا كحد أقصى لكل محضر");
+      setError(msg.interface.receiptMax);
       return;
     }
     setError("");
@@ -131,7 +135,7 @@ export default function ReceiptForm({
     e.preventDefault();
     setError("");
     if (!complete) {
-      setError(ar.errors.receiptAttachments);
+      setError(msg.errors.receiptAttachments);
       return;
     }
     setBusy(true);
@@ -150,13 +154,13 @@ export default function ReceiptForm({
           l.returned,
           quantities[l.id],
         );
-        if (err) throw Error(l.material_name + ": " + ar.errors[err]);
+        if (err) throw Error(l.material_name + ": " + msg.errors[err]);
       }
       await command("receipt", input);
       onDone();
     } catch (e) {
       setError(
-        e instanceof Error && !("issues" in e) ? e.message : ar.errors.invalid,
+        e instanceof Error && !("issues" in e) ? e.message : msg.errors.invalid,
       );
     } finally {
       setBusy(false);
@@ -165,10 +169,7 @@ export default function ReceiptForm({
   return (
     <form className="stack" noValidate onSubmit={submit}>
       <Message error={error} />
-      <p className="muted">
-        تم تعبئة المتبقي في المقبول. عدّل المقبول للاستلام الجزئي؛ التالف
-        والمرفوض يُخصمان منه تلقائيًا. المرتجع يُخصم من استلام سابق.
-      </p>
+      <p className="muted">{msg.interface.receiptHelp} </p>
       <fieldset disabled={busy} className="form-fieldset stack">
         {lines.map((l) => {
           const value = quantities[l.id];
@@ -176,13 +177,12 @@ export default function ReceiptForm({
             <section className="receipt-item" key={l.id}>
               <div className="receipt-item-heading">
                 <strong>{l.material_name}</strong>
-                <span className="muted">
-                  المطلوب {number(l.quantity, digits)} · المتبقي{" "}
+                <span className="muted">{msg.fields.requested} {number(l.quantity, digits)} {" · " + msg.fields.remaining}{" "}
                   {number(
                     remainingQuantity(l.quantity, l.accepted, l.returned),
                     digits,
                   )}{" "}
-                  {l.unit_name}
+                  {unit(l.unit_name)}
                 </span>
               </div>
               <div className="receipt-quantities">
@@ -190,8 +190,8 @@ export default function ReceiptForm({
                   (field) => (
                     <NumberField
                       key={field}
-                      label={ar.fields[field]}
-                      ariaLabel={l.material_name + " · " + ar.fields[field]}
+                      label={msg.fields[field]}
+                      ariaLabel={l.material_name + " · " + msg.fields[field]}
                       value={value[field]}
                       emptyOnBlur="0"
                       onChange={(quantity) =>
@@ -212,12 +212,9 @@ export default function ReceiptForm({
           );
         })}
         <section className="receipt-attachments stack">
-          <strong>
-            مرفقات الاستلام <span className="muted">(مطلوبة)</span>
+          <strong>{msg.interface.receiptFiles} <span className="muted">{msg.interface.requiredNote}</span>
           </strong>
-          <p className="muted">
-            صوّر مستند الاستلام أو اختر صورًا وملفات. حد الملف 4 ميجابايت.
-          </p>
+          <p className="muted">{msg.interface.receiptFilesHelp} </p>
           <input
             type="file"
             ref={camera}
@@ -246,17 +243,13 @@ export default function ReceiptForm({
               disabled={uploading}
               onClick={() => camera.current?.click()}
             >
-              <Camera size={17} />
-              الكاميرا
-            </Button>
+              <Camera size={17} />{msg.interface.camera} </Button>
             <Button
               type="button"
               disabled={uploading}
               onClick={() => gallery.current?.click()}
             >
-              <Images size={17} />
-              الاستوديو / الملفات
-            </Button>
+              <Images size={17} />{msg.interface.gallery} </Button>
           </div>
           <div className="stack" aria-live="polite">
             {files.map((f) => (
@@ -264,7 +257,7 @@ export default function ReceiptForm({
                 <span className="break">
                   {f.file.name}
                   <small className={f.error ? "error-message" : "muted"}>
-                    {f.uploading ? "جارٍ الرفع…" : f.error || "تم الرفع"}
+                    {f.uploading ? msg.interface.uploadProgress : f.error || msg.interface.uploaded}
                   </small>
                 </span>
                 {f.id ? <Check size={18} /> : null}
@@ -273,7 +266,7 @@ export default function ReceiptForm({
                     type="button"
                     className="icon small"
                     disabled={uploading}
-                    aria-label={"إعادة رفع " + f.file.name}
+                    aria-label={msg.interface.reupload + " " + f.file.name}
                     onClick={() => void upload(f)}
                   >
                     <RotateCw size={16} />
@@ -283,7 +276,7 @@ export default function ReceiptForm({
                   type="button"
                   className="icon small"
                   disabled={uploading}
-                  aria-label={"حذف " + f.file.name}
+                  aria-label={msg.common.delete + " " + f.file.name}
                   onClick={() =>
                     setFiles((prev) => prev.filter((x) => x.key !== f.key))
                   }
@@ -294,7 +287,7 @@ export default function ReceiptForm({
             ))}
           </div>
         </section>
-        <Field label={ar.fields.notes}>
+        <Field label={msg.fields.notes}>
           <textarea
             className="input"
             maxLength={1000}
@@ -304,17 +297,13 @@ export default function ReceiptForm({
         </Field>
       </fieldset>
       <div className="form-footer">
-        <Button type="button" onClick={onDone} disabled={busy || uploading}>
-          إلغاء
-        </Button>
+        <Button type="button" onClick={onDone} disabled={busy || uploading}>{msg.common.cancel} </Button>
         <Button
           type="submit"
           intent="green"
           pending={busy}
           disabled={!complete || uploading}
-        >
-          تأكيد الاستلام
-        </Button>
+        >{msg.interface.confirmReceipt} </Button>
       </div>
     </form>
   );

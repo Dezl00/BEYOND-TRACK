@@ -1,3 +1,4 @@
+import { requestLanguage } from "@/server/language";
 import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import { Plus } from "lucide-react";
@@ -5,7 +6,7 @@ import { requirePageActor } from "@/server/page-auth";
 import { listRequests } from "@/server/queries";
 import { listQuerySchema } from "@/lib/validation";
 import { can } from "@/lib/domain";
-import { ar } from "@/messages/ar";
+
 import { one, sql } from "@/db";
 import { Pagination } from "@/components/common";
 import RequestTable from "@/components/request-table";
@@ -15,6 +16,8 @@ export default async function RequestsPage({
 }: {
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg } = await requestLanguage();
+  
   const a = await requirePageActor(),
     raw = await searchParams,
     q = listQuerySchema.parse(raw),
@@ -23,7 +26,7 @@ export default async function RequestsPage({
   return (
     <>
       <Filters
-        title={ar.requests.title}
+        title={msg.requests.title}
         statuses
         exportable={can(a, "requests.export")}
         actions={
@@ -33,7 +36,7 @@ export default async function RequestsPage({
               href={`/requests/new${q.project ? `?project=${q.project}` : ""}`}
             >
               <Plus size={17} />
-              {ar.requests.new}
+              {msg.requests.new}
             </Link>
           ) : null
         }

@@ -1,3 +1,5 @@
+import { language } from "@/messages/catalog";
+import { parseLocale, type Locale } from "@/messages/types";
 import { db, one, sql, type Executor } from "@/db";
 import { whatsappRecipient } from "@/lib/whatsapp-phone";
 import { ar } from "@/messages/ar";
@@ -29,10 +31,11 @@ export async function otpRecipient(key: string, conn: Executor = db()) {
       : sql`c.kind=${purpose === "login" ? 0 : 1}`;
   const account = await one<{
     email: string;
+    locale: string | null;
     country: string;
     phone: string | null;
   }>(
-    sql`SELECT u.email,u.whatsapp_country_code country,CASE WHEN s.whatsapp_enabled AND u.whatsapp_enabled THEN u.whatsapp_number END phone
+    sql`SELECT u.email,u.locale,u.whatsapp_country_code country,CASE WHEN s.whatsapp_enabled AND u.whatsapp_enabled THEN u.whatsapp_number END phone
         FROM ${source} JOIN users u ON u.id=c.user_id JOIN roles r ON r.id=u.role_id CROSS JOIN settings s
         WHERE s.id=1 AND c.id=${challenge} AND c.expires_at>now() AND c.attempts<5 AND ${scope}
         AND r.active AND u.deleted_at IS NULL AND (NOT u.locked OR (u.is_owner AND ${purpose === "login"}))`,
@@ -40,7 +43,7 @@ export async function otpRecipient(key: string, conn: Executor = db()) {
   );
   return account
     ? {
-        email: account.email,
+        email: account.email, locale:parseLocale(account.locale),
         phone: whatsappRecipient(account.country, account.phone ?? ""),
       }
     : null;
@@ -56,9 +59,12 @@ export async function queueOtp(
   const key = purpose + ":" + challenge;
   const account = await otpRecipient(key, conn);
   if (!account) throw new AppError("forbidden", 403);
-  await queueEmail(conn, account.email, subject, otpEmail(subject, code), key);
+  const {m}=language(account.locale);
+  if(purpose==="login")subject=m.email.otpSubject;
+  if(purpose==="reset")subject=m.email.resetSubject;
+  await queueEmail(conn, account.email, subject, otpEmail(subject, code,account.locale), key);
   if (account.phone) {
-    const text = ["*" + subject + "*", code, ar.email.otpExpiry].join("\n\n");
+    const text = ["*" + subject + "*", code, m.email.otpExpiry].join("\n\n");
     const payload = {
       otpKey: key,
       key: "wa-" + key,

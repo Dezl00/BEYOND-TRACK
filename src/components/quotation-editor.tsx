@@ -1,10 +1,12 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import type { RequestAttachment } from "@/lib/attachments";
 import StageAttachments, { type UploadState } from "./stage-attachments";
 import { NumberField } from "./number-field";
 import { useEffect, useState } from "react";
 import Decimal from "decimal.js";
-import { ar } from "@/messages/ar";
+
 import { quotationsSchema } from "@/lib/validation";
 import type { Quote } from "@/lib/quotations";
 import { decimalText, number } from "@/lib/format";
@@ -32,19 +34,20 @@ export function QuoteSummary({
   quotes: Quote[];
   lines: RequestLine[];
 }) {
+  const { m: msg, number } = useLanguage();
+  
   const digits = useDigits();
   if (!quotes.length) return null;
   return (
-    <section className="stack" aria-label="عروض الأسعار">
+    <section className="stack" aria-label={msg.interface.quotations}>
       {quotes.map((q, i) => (
         <div className="panel" key={q.id}>
           <div className="panel-heading">
-            <h3>
-              عرض {number(i + 1, digits, 0)} · {q.supplier_name}
+            <h3>{msg.interface.quote} {number(i + 1, digits, 0)} · {q.supplier_name}
             </h3>
             {q.selected ? (
               <span className="badge green">
-                {q.approved_by ? "العرض المعتمد" : "العرض المرشح"}
+                {q.approved_by ? msg.interface.approvedQuote : msg.interface.recommendedQuote}
               </span>
             ) : null}
           </div>
@@ -52,10 +55,10 @@ export function QuoteSummary({
             <table>
               <thead>
                 <tr>
-                  <th>المادة</th>
-                  <th>الكمية</th>
-                  <th>سعر الوحدة</th>
-                  <th>الإجمالي</th>
+                  <th>{msg.fields.material}</th>
+                  <th>{msg.fields.quantity}</th>
+                  <th>{msg.fields.price}</th>
+                  <th>{msg.fields.total}</th>
                 </tr>
               </thead>
               <tbody>
@@ -63,7 +66,7 @@ export function QuoteSummary({
                   <tr key={p.id}>
                     <td className="wrap">
                       {lines.find((l) => l.id === p.id)?.material_name ||
-                        "مادة"}
+                        msg.interface.material}
                     </td>
                     <td>{number(p.quantity, digits)}</td>
                     <td>{number(p.price, digits, 2)}</td>
@@ -80,11 +83,9 @@ export function QuoteSummary({
             </table>
           </div>
           <div className="panel-body row between">
-            <span>
-              التوريد المتوقع: <bdi>{q.expected_at}</bdi>
+            <span>{msg.interface.deliveryDate} <bdi>{q.expected_at}</bdi>
             </span>
-            <strong>
-              الإجمالي:{" "}
+            <strong>{msg.interface.totalLabel}{" "}
               {number(
                 q.prices
                   .reduce(
@@ -95,7 +96,7 @@ export function QuoteSummary({
                 digits,
                 2,
               )}{" "}
-              {ar.currency}
+              {msg.currency}
             </strong>
           </div>
         </div>
@@ -118,6 +119,8 @@ export function QuotationEditor({
   onDone: () => void;
   onBusyChange?: (value: boolean) => void;
 }) {
+  const { m: msg, number, unit } = useLanguage();
+  
   const digits = useDigits();
   const selected = quotes.find((q) => q.selected) || quotes[0];
   const [offer, setOffer] = useState<Offer>(() => ({
@@ -173,7 +176,7 @@ export function QuotationEditor({
       setError(
         error instanceof Error && !("issues" in error)
           ? error.message
-          : ar.errors.invalid,
+          : msg.errors.invalid,
       );
     } finally {
       setBusy(false);
@@ -193,7 +196,7 @@ export function QuotationEditor({
       <Message error={error} />
       <fieldset className="form-fieldset stack" disabled={busy}>
         <div className="fields">
-          <Field label="المورد">
+          <Field label={msg.fields.supplier}>
             <Lookup
               resource="suppliers"
               value={offer.supplierId}
@@ -203,7 +206,7 @@ export function QuotationEditor({
               }
             />
           </Field>
-          <Field label="تاريخ التوريد المتوقع">
+          <Field label={msg.fields.expectedAt}>
             <DateInput
               value={offer.expectedAt}
               onChange={(expectedAt) =>
@@ -216,10 +219,10 @@ export function QuotationEditor({
           <table>
             <thead>
               <tr>
-                <th>المادة</th>
-                <th>الكمية</th>
-                <th>سعر الوحدة</th>
-                <th>الإجمالي</th>
+                <th>{msg.fields.material}</th>
+                <th>{msg.fields.quantity}</th>
+                <th>{msg.fields.price}</th>
+                <th>{msg.fields.total}</th>
               </tr>
             </thead>
             <tbody>
@@ -227,12 +230,12 @@ export function QuotationEditor({
                 <tr key={line.id}>
                   <td className="wrap">{line.material_name}</td>
                   <td>
-                    {number(line.quantity, digits)} {line.unit_name}
+                    {number(line.quantity, digits)} {unit(line.unit_name)}
                   </td>
                   <td>
                     <NumberField
                       className="quote-price"
-                      ariaLabel={"سعر " + line.material_name}
+                      ariaLabel={msg.auditFields.price + " " + line.material_name}
                       precision={2}
                       value={offer.prices[index].price}
                       onChange={(price) =>
@@ -259,15 +262,14 @@ export function QuotationEditor({
             </tbody>
           </table>
         </div>
-        <strong>
-          الإجمالي {number(total.toString(), digits, 2)} {ar.currency}
+        <strong>{msg.fields.total} {number(total.toString(), digits, 2)} {msg.currency}
         </strong>
         <div className="fields">
           <StageAttachments
             requestId={request.id}
             uploadKey={uploadKey}
             purpose="quotation"
-            label="عرض السعر"
+            label={msg.interface.quotation}
             initial={currentFiles.filter((f) => f.purpose === "quotation")}
             onChange={setPrimary}
             disabled={busy}
@@ -276,7 +278,7 @@ export function QuotationEditor({
             requestId={request.id}
             uploadKey={uploadKey}
             purpose="alternative"
-            label="عروض أسعار أخرى"
+            label={msg.interface.otherQuotes}
             initial={currentFiles.filter((f) => f.purpose === "alternative")}
             onChange={setAlternatives}
             disabled={busy}
@@ -284,9 +286,7 @@ export function QuotationEditor({
         </div>
       </fieldset>
       <div className="form-footer">
-        <Button type="button" onClick={onDone} disabled={busy || uploading}>
-          إلغاء
-        </Button>
+        <Button type="button" onClick={onDone} disabled={busy || uploading}>{msg.common.cancel} </Button>
         <Button
           type="submit"
           intent="blue"
@@ -297,9 +297,7 @@ export function QuotationEditor({
             !alternatives.ready ||
             !primary.ids.length
           }
-        >
-          إرسال لمدير الحسابات
-        </Button>
+        >{msg.interface.submitFinance} </Button>
       </div>
     </form>
   );

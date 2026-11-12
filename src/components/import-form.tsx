@@ -1,10 +1,14 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ar } from "@/messages/ar";
+
 import { uuid } from "@/lib/validation";
 import { Button, Field, Lookup, Message, FilePicker } from "./ui";
 export default function ImportForm({ project }: { project?: string }) {
+  const { m: msg } = useLanguage();
+  
   const router = useRouter(),
     [projectId, setProject] = useState(project || ""),
     [file, setFile] = useState<File | null>(null),
@@ -26,7 +30,7 @@ export default function ImportForm({ project }: { project?: string }) {
             file.size > 4 * 1024 * 1024 ||
             !/\.(xlsx|csv)$/i.test(file.name)
           )
-            throw new Error(ar.errors.file);
+            throw new Error(msg.errors.file);
           const form = new FormData();
           form.set("projectId", projectId);
           form.set("file", file);
@@ -34,13 +38,13 @@ export default function ImportForm({ project }: { project?: string }) {
             data = await r.json();
           if (!r.ok) throw new Error(data.error);
           setSuccess(
-            `تمت إضافة ${data.rows} قسم و${data.materials} مادة و${data.units} وحدة.`,
+            msg.interface.importResult.replace("{rows}",String(data.rows)).replace("{materials}",String(data.materials)).replace("{units}",String(data.units)),
           );
           router.refresh();
         } catch (e) {
           setError(
             "issues" in (e as object)
-              ? ar.errors.invalid
+              ? msg.errors.invalid
               : (e as Error).message,
           );
         } finally {
@@ -49,25 +53,21 @@ export default function ImportForm({ project }: { project?: string }) {
       }}
     >
       <Message error={error} success={success} />
-      <p className="muted">
-        كل صف يمثل مادة واحدة. تُقرأ جميع أوراق Excel، وتُنشأ الأكواد والوحدات
-        الجديدة تلقائيًا بكمية ابتدائية صفر. يمكنك إعادة رفع الملف لإضافة المواد
-        الجديدة.
-      </p>
+      <p className="muted">{msg.interface.importHelp} </p>
       <div className="fields">
-        <Field label={ar.common.project}>
+        <Field label={msg.common.project}>
           <Lookup resource="projects" value={projectId} onChange={setProject} />
         </Field>
-        <Field label={ar.fields.file}>
+        <Field label={msg.fields.file}>
           <FilePicker accept=".xlsx,.csv" onChange={setFile} />
         </Field>
       </div>
       <div className="row end">
         <a href="/api/import" className="btn">
-          {ar.common.template}
+          {msg.common.template}
         </a>
         <Button intent="blue" type="submit" pending={busy}>
-          {ar.common.import}
+          {msg.common.import}
         </Button>
       </div>
     </form>

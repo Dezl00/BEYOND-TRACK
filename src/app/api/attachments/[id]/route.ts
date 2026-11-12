@@ -4,7 +4,7 @@ import { cloud } from "@/server/cloudinary";
 import { uuid } from "@/lib/validation";
 import { errorResponse, AppError } from "@/server/errors";
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -32,6 +32,6 @@ export async function GET(
       });
     return Response.redirect(url, 302);
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error,req);
   }
 }

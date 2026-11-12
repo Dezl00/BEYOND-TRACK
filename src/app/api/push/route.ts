@@ -31,14 +31,14 @@ const subscription = z.object({
     auth: z.string().regex(/^[A-Za-z0-9_-]{20,30}$/),
   }),
 });
-export async function GET() {
+export async function GET(req: Request) {
   try {
     await requireActor();
     return Response.json({
       publicKey: pushConfigured() ? process.env.VAPID_PUBLIC_KEY : null,
     });
   } catch (e) {
-    return errorResponse(e);
+    return errorResponse(e,req);
   }
 }
 export async function POST(req: Request) {
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     );
     return Response.json({});
   } catch (e) {
-    return errorResponse(e);
+    return errorResponse(e,req);
   }
 }
 export async function DELETE(req: Request) {
@@ -76,6 +76,6 @@ export async function DELETE(req: Request) {
     );
     return Response.json({});
   } catch (e) {
-    return errorResponse(e);
+    return errorResponse(e,req);
   }
 }

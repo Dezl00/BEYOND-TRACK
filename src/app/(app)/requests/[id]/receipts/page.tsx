@@ -1,3 +1,4 @@
+import { requestLanguage } from "@/server/language";
 import { currentSettings } from "@/server/settings";
 import Link from "next/link";
 import { requirePageActor } from "@/server/page-auth";
@@ -5,7 +6,7 @@ import { requireRequest } from "@/server/access";
 import { rows, one, sql } from "@/db";
 import { uuid, cursorSchema } from "@/lib/validation";
 import { decodeCursor, page } from "@/server/queries";
-import { ar } from "@/messages/ar";
+
 import { date, number } from "@/lib/format";
 import { Heading, Pagination, Empty } from "@/components/common";
 type Receipt = {
@@ -29,6 +30,8 @@ export default async function ReceiptsPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg, date, number } = await requestLanguage();
+  
   const a = await requirePageActor(),
     id = uuid.parse((await params).id),
     q = await searchParams,
@@ -44,9 +47,9 @@ export default async function ReceiptsPage({
   );
   return (
     <>
-      <Heading title={ar.requests.receipts}>
+      <Heading title={msg.requests.receipts}>
         <Link className="btn" href={`/requests/${id}`}>
-          {ar.common.back}
+          {msg.common.back}
         </Link>
       </Heading>
       <div className="stack">
@@ -61,11 +64,11 @@ export default async function ReceiptsPage({
                 <table>
                   <thead>
                     <tr>
-                      <th>{ar.fields.material}</th>
+                      <th>{msg.fields.material}</th>
                       {(
                         ["accepted", "damaged", "rejected", "returned"] as const
                       ).map((key) => (
-                        <th key={key}>{ar.fields[key]}</th>
+                        <th key={key}>{msg.fields[key]}</th>
                       ))}
                     </tr>
                   </thead>
@@ -92,7 +95,7 @@ export default async function ReceiptsPage({
               </div>
               {rec.files.length > 0 && (
                 <div className="panel-body stack">
-                  <h3>{ar.fields.attachments}</h3>
+                  <h3>{msg.fields.attachments}</h3>
                   {rec.files.map((f) => (
                     <a
                       key={f.id}

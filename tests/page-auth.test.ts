@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 const auth = vi.hoisted(() => ({ actor: null as Actor | null }));
-vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers(), cookies: async()=>new Map() }));
 vi.mock("@/server/auth", () => ({ currentActor: async () => auth.actor }));
 vi.mock("next/navigation", () => ({
   redirect: (path: string): never => {

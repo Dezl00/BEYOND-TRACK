@@ -1,8 +1,10 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { requestAfterLogin } from "@/lib/request-links";
 import { useId, useState } from "react";
 import { ArrowLeft, LockKeyhole, UserRound, Eye, EyeOff } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import {
   loginSchema,
   otpSchema,
@@ -26,6 +28,8 @@ function PasswordField({
   autoComplete: string;
   disabled: boolean;
 }) {
+  const { m: msg } = useLanguage();
+  
   const id = useId(),
     [visible, setVisible] = useState(false);
   return (
@@ -49,7 +53,7 @@ function PasswordField({
         <button
           type="button"
           className="login-password-toggle"
-          aria-label={visible ? ar.auth.hidePassword : ar.auth.showPassword}
+          aria-label={visible ? msg.auth.hidePassword : msg.auth.showPassword}
           aria-pressed={visible}
           disabled={disabled}
           onClick={() => setVisible((value) => !value)}
@@ -61,6 +65,8 @@ function PasswordField({
   );
 }
 export default function LoginForm() {
+  const { m: msg } = useLanguage();
+  
   useLoginReady();
   const [mode, setMode] = useState("login"),
     [identifier, setIdentifier] = useState(""),
@@ -79,7 +85,7 @@ export default function LoginForm() {
     setBusy(true);
     try {
       if (mode === "reset" && password !== confirmation)
-        throw new Error(ar.errors.passwordMatch);
+        throw new Error(msg.errors.passwordMatch);
       const data =
         mode === "login"
           ? loginSchema.parse({ identifier, password, remember })
@@ -103,10 +109,10 @@ export default function LoginForm() {
         setPassword("");
         setSuccess(
           mode === "forgot"
-            ? ar.auth.resetSent
+            ? msg.auth.resetSent
             : result.whatsapp
-              ? ar.auth.otpBoth
-              : ar.auth.otpSent,
+              ? msg.auth.otpBoth
+              : msg.auth.otpSent,
         );
       } else if (result.redirect) {
         const requestPath = requestAfterLogin(
@@ -132,7 +138,7 @@ export default function LoginForm() {
       }
     } catch (e) {
       setError(
-        "issues" in (e as object) ? ar.errors.invalid : (e as Error).message,
+        "issues" in (e as object) ? msg.errors.invalid : (e as Error).message,
       );
     } finally {
       setBusy(false);
@@ -143,17 +149,17 @@ export default function LoginForm() {
       <Brand />
       <h1>
         {mode === "login"
-          ? ar.auth.title
+          ? msg.auth.title
           : mode === "otp"
-            ? ar.auth.otp
+            ? msg.auth.otp
             : mode === "forgot"
-              ? ar.auth.resetTitle
-              : ar.auth.changePassword}
+              ? msg.auth.resetTitle
+              : msg.auth.changePassword}
       </h1>
       <form onSubmit={submit} noValidate>
         <Message error={error} success={success} />
         {["login", "forgot"].includes(mode) ? (
-          <Field label={mode === "login" ? ar.auth.identifier : ar.auth.email}>
+          <Field label={mode === "login" ? msg.auth.identifier : msg.auth.email}>
             <div className="login-input-wrap">
               <UserRound
                 size={17}
@@ -163,7 +169,7 @@ export default function LoginForm() {
               <input
                 autoComplete={mode === "forgot" ? "email" : "username"}
                 aria-label={
-                  mode === "login" ? ar.auth.identifier : ar.auth.email
+                  mode === "login" ? msg.auth.identifier : msg.auth.email
                 }
                 className="input numeric"
                 value={identifier}
@@ -172,11 +178,11 @@ export default function LoginForm() {
                 disabled={busy}
               />
             </div>
-            {mode === "login" ? <small>{ar.auth.phoneLoginHint}</small> : null}
+            {mode === "login" ? <small>{msg.auth.phoneLoginHint}</small> : null}
           </Field>
         ) : null}
         {mode === "otp" || mode === "reset" ? (
-          <Field label={ar.auth.otp}>
+          <Field label={msg.auth.otp}>
             <input
               className="input numeric"
               autoComplete="one-time-code"
@@ -191,7 +197,7 @@ export default function LoginForm() {
         {["login", "reset"].includes(mode) ? (
           <PasswordField
             key={mode}
-            label={mode === "login" ? ar.auth.password : ar.auth.newPassword}
+            label={mode === "login" ? msg.auth.password : msg.auth.newPassword}
             autoComplete={
               mode === "login" ? "current-password" : "new-password"
             }
@@ -202,7 +208,7 @@ export default function LoginForm() {
         ) : null}
         {mode === "reset" ? (
           <PasswordField
-            label={ar.auth.confirmPassword}
+            label={msg.auth.confirmPassword}
             autoComplete="new-password"
             value={confirmation}
             onChange={setConfirmation}
@@ -212,7 +218,7 @@ export default function LoginForm() {
         {mode === "login" ? (
           <div className="row between login-options">
             <Checkbox
-              label={ar.auth.remember}
+              label={msg.auth.remember}
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
             />
@@ -227,18 +233,18 @@ export default function LoginForm() {
                 setError("");
               }}
             >
-              {ar.auth.forgot}
+              {msg.auth.forgot}
             </button>
           </div>
         ) : null}
         <Button className="full login-submit" pending={busy} type="submit">
           {mode === "login"
-            ? ar.auth.login
+            ? msg.auth.login
             : mode === "otp"
-              ? ar.auth.verify
+              ? msg.auth.verify
               : mode === "forgot"
-                ? ar.auth.sendReset
-                : ar.auth.changePassword}
+                ? msg.auth.sendReset
+                : msg.auth.changePassword}
           <ArrowLeft size={17} />
         </Button>
       </form>
@@ -259,7 +265,7 @@ export default function LoginForm() {
               setSuccess("");
             }}
           >
-            {ar.auth.returnLogin}
+            {msg.auth.returnLogin}
           </Button>
         </div>
       ) : null}

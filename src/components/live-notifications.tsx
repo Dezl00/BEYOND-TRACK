@@ -1,4 +1,6 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -9,7 +11,7 @@ import {
   startTransition,
 } from "react";
 import { Bell, CheckCheck } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { date, number, requestCode } from "@/lib/format";
 import { useDigits } from "./format-context";
 import { Button, command } from "./form-controls";
@@ -26,6 +28,8 @@ type Snapshot = {
   }[];
 };
 export default function LiveNotifications() {
+  const { m: msg, date, number } = useLanguage();
+  
   const router = useRouter(),
     path = usePathname(),
     params = useSearchParams(),
@@ -153,7 +157,7 @@ export default function LiveNotifications() {
         ref={trigger}
         className="notification-bell"
         type="button"
-        aria-label={`${ar.nav.notifications}${snapshot?.unread ? ` · ${number(snapshot.unread, digits, 0)} ${ar.live.unread}` : ""}`}
+        aria-label={`${msg.nav.notifications}${snapshot?.unread ? ` · ${number(snapshot.unread, digits, 0)} ${msg.live.unread}` : ""}`}
         aria-expanded={open}
         aria-controls="notification-popover"
         onClick={() => setOpen((value) => !value)}
@@ -169,14 +173,14 @@ export default function LiveNotifications() {
         <section
           className="notification-popover"
           id="notification-popover"
-          aria-label={ar.nav.notifications}
+          aria-label={msg.nav.notifications}
         >
           <div className="notification-heading">
-            <h2>{ar.nav.notifications}</h2>
+            <h2>{msg.nav.notifications}</h2>
             {snapshot?.unread ? (
               <Button
                 className="icon small"
-                aria-label={ar.common.markAllRead}
+                aria-label={msg.common.markAllRead}
                 onClick={() => void markRead()}
               >
                 <CheckCheck size={18} />
@@ -208,14 +212,14 @@ export default function LiveNotifications() {
                 >
                   <span className="notification-dot" />
                   <span>
-                    <strong>{ar.notificationTypes[item.type]}</strong>
+                    <strong>{msg.notificationTypes[item.type]}</strong>
                     <bdi className="code">{requestCode(item.number)}</bdi>
                     <time>{date(item.created_at, digits, true)}</time>
                   </span>
                 </Link>
               ))
             ) : (
-              <div className="empty">{ar.common.empty}</div>
+              <div className="empty">{msg.common.empty}</div>
             )}
           </div>
           <Link
@@ -223,7 +227,7 @@ export default function LiveNotifications() {
             className="notification-all"
             onClick={() => setOpen(false)}
           >
-            {ar.live.all}
+            {msg.live.all}
           </Link>
         </section>
       ) : null}

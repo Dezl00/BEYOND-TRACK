@@ -1,7 +1,9 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ar } from "@/messages/ar";
+
 import {
   type Actor,
   can,
@@ -42,6 +44,8 @@ export function RequestActions({
   attachments?: RequestAttachment[];
   pendingOverage: boolean;
 }) {
+  const { m: msg } = useLanguage();
+  
   const router = useRouter();
   const [mode, setMode] = useState(""),
     [busy, setBusy] = useState(false),
@@ -77,7 +81,7 @@ export function RequestActions({
       setError(
         error instanceof Error && !("issues" in error)
           ? error.message
-          : ar.errors.invalid,
+          : msg.errors.invalid,
       );
     } finally {
       setBusy(false);
@@ -92,7 +96,7 @@ export function RequestActions({
       <div className="row">
         {status === 0 && own && can(actor, "requests.create") ? (
           <Button intent="blue" onClick={() => open("12")}>
-            {ar.common.submit}
+            {msg.common.submit}
           </Button>
         ) : null}
         {!pendingOverage && nextApproval[status] !== undefined && approver ? (
@@ -100,79 +104,69 @@ export function RequestActions({
             intent="green"
             onClick={() => open(String(nextApproval[status]))}
           >
-            {status === 5 ? ar.common.finish : ar.common.approve}
+            {status === 5 ? msg.common.finish : msg.common.approve}
           </Button>
         ) : null}
         {!pendingOverage && status === 1 && approver ? (
-          <Button intent="blue" onClick={() => open("technical")}>
-            مراجعة واعتماد البنود
-          </Button>
+          <Button intent="blue" onClick={() => open("technical")}>{msg.interface.reviewApprove} </Button>
         ) : null}
         {status === 12 && approver ? (
-          <Button onClick={() => open("13")}>تعليق الطلب</Button>
+          <Button onClick={() => open("13")}>{msg.interface.holdRequest}</Button>
         ) : null}
         {!pendingOverage &&
         status === 2 &&
         can(actor, "procurement.edit") &&
         approver ? (
-          <Button intent="blue" onClick={() => open("quotes")}>
-            تسجيل عرض السعر
-          </Button>
+          <Button intent="blue" onClick={() => open("quotes")}>{msg.interface.recordQuote} </Button>
         ) : null}
         {status === 10 && approver ? (
           <>
             {!pendingOverage ? (
-              <Button intent="green" onClick={() => open("11")}>
-                اعتماد التسعير
-              </Button>
+              <Button intent="green" onClick={() => open("11")}>{msg.interface.approvePricing} </Button>
             ) : null}
-            <Button onClick={() => open("returnPricing")}>
-              إرجاع للمشتريات
-            </Button>
+            <Button onClick={() => open("returnPricing")}>{msg.interface.returnProcurement} </Button>
           </>
         ) : null}
         {!pendingOverage && status === 11 && approver ? (
-          <Button intent="green" onClick={() => open("payment")}>
-            تأكيد الدفع
-          </Button>
+          <Button intent="green" onClick={() => open("payment")}>{msg.interface.confirmPayment} </Button>
         ) : null}
         {[3, 4, 5].includes(status) && can(actor, "receipts.create") ? (
           <Button intent="green" onClick={() => open("receipt")}>
-            {ar.common.receive}
+            {msg.common.receive}
           </Button>
         ) : null}
         {pendingOverage &&
         [1, 2, 5, 10, 11, 12, 13, 15].includes(status) &&
         canApproveOverage(actor) ? (
           <Button intent="green" onClick={() => open("overage")}>
-            {ar.common.approveOverage}
+            {msg.common.approveOverage}
           </Button>
         ) : null}
         {[12, 13, 15].includes(status) && approver ? (
           <Button intent="red" onClick={() => open("7")}>
-            {ar.common.reject}
+            {msg.common.reject}
           </Button>
         ) : null}
         {transitions[status]?.includes(8) && can(actor, "requests.delete") ? (
           <Button intent="red" onClick={() => open("8")}>
-            {ar.common.cancel}
+            {msg.common.cancel}
           </Button>
         ) : null}
         {status === 7 && own && can(actor, "requests.edit") ? (
-          <Button onClick={() => open("0")}>{ar.common.restore}</Button>
+          <Button onClick={() => open("0")}>{msg.common.restore}</Button>
         ) : null}
       </div>
       <Modal
         title={
           mode === "technical"
-            ? "مراجعة البنود"
+            ? msg.interface.reviewItems
             : mode === "quotes"
-              ? "عرض السعر"
+              ? msg.interface.quotation
               : mode === "payment"
-                ? "الدفع"
+                ? msg.interface.payment
                 : mode === "receipt"
-                  ? ar.requests.newReceipt
-                  : ar.common.confirmation
+                  ? msg.requests.newReceipt
+                  : msg.common.confirmation
         }
         open={!!mode}
         onOpenChange={(value) => {
@@ -217,7 +211,7 @@ export function RequestActions({
           <form className="stack" noValidate onSubmit={submit}>
             <Message error={error} />
             {["7", "8", "13", "returnPricing"].includes(mode) ? (
-              <Field label={ar.fields.reason}>
+              <Field label={msg.fields.reason}>
                 <textarea
                   className="input"
                   value={reason}
@@ -247,8 +241,8 @@ export function RequestActions({
                       rel="noopener noreferrer"
                     >
                       {f.purpose === "alternative"
-                        ? "عرض سعر آخر"
-                        : "عرض السعر"}{" "}
+                        ? msg.interface.otherQuote
+                        : msg.interface.quotation}{" "}
                       · {f.name}
                     </a>
                   ))}
@@ -256,20 +250,20 @@ export function RequestActions({
             ) : (
               <p>
                 {mode === "overage"
-                  ? ar.common.approveOverage
-                  : ar.statuses[Number(mode)]}
+                  ? msg.common.approveOverage
+                  : msg.statuses[Number(mode)]}
               </p>
             )}
             <div className="form-footer">
               <Button type="button" onClick={done} disabled={busy}>
-                {ar.common.cancel}
+                {msg.common.cancel}
               </Button>
               <Button
                 type="submit"
                 intent={["7", "8"].includes(mode) ? "red" : "green"}
                 pending={busy}
               >
-                {ar.common.confirm}
+                {msg.common.confirm}
               </Button>
             </div>
           </form>

@@ -122,6 +122,6 @@ export async function POST(req: Request) {
           type: uploaded.type,
         });
       } catch {}
-    return errorResponse(e);
+    return errorResponse(e,req);
   }
 }

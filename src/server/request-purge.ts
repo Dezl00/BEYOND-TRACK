@@ -1,3 +1,5 @@
+import { language } from "@/messages/catalog";
+import { parseLocale, type Locale } from "@/messages/types";
 import { queueOtp } from "./otp-delivery";
 import { randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { db, one, sql, type Executor } from "@/db";
@@ -66,17 +68,12 @@ export async function issueRequestPurge(
     await tx.execute(
       sql`INSERT INTO request_purge_challenges(id,user_id,session_id,project_id,delete_project,token_hash,expires_at) VALUES(${challenge},${a.id},${a.session_id},${projectId ?? null},${deleteProject},${purgeHash(challenge, a.session_id, code, projectId, deleteProject)},now()+interval '5 minutes')`,
     );
+    const {m}=language(parseLocale(a.locale));
     const delivery = await queueOtp(
       tx,
       "purge",
       challenge,
-      project
-        ? (deleteProject
-            ? "تأكيد حذف المشروع «"
-            : "تأكيد تصفية طلبات المشروع «") +
-            project.name +
-            "»"
-        : ar.settings.purgeSubject,
+      project ? (deleteProject ? m.interface.confirmDeleteSubject : m.interface.confirmPurgeSubject).replace("{name}",project.name) : m.settings.purgeSubject,
       code,
     );
     await audit(tx, a.id, meta, 1, 8, "1", {

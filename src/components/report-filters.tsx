@@ -1,11 +1,13 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Download, Printer, RotateCcw, Search } from "lucide-react";
 import { Heading } from "./common";
 import { Button, DateInput, Field, Lookup, MultiLookup, Message } from "./ui";
-import { ar } from "@/messages/ar";
+
 import { reportQuerySchema, type ReportQuery } from "@/lib/reporting";
 import type { ReportContext } from "@/server/reports";
 
@@ -27,6 +29,8 @@ export default function ReportFilters({
   context?: ReportContext;
   exportable: boolean;
 }) {
+  const { m: msg } = useLanguage();
+  
   const router = useRouter();
   const [values, setValues] = useState(query),
     [error, setError] = useState("");
@@ -77,7 +81,7 @@ export default function ReportFilters({
   return (
     <div className="report-controls" aria-busy={pending || undefined}>
       <Heading
-        title={ar.reports.title}
+        title={msg.reports.title}
         eyebrow={context ? `${context.code} · ${context.name}` : undefined}
       >
         {context && exportable ? (
@@ -89,20 +93,20 @@ export default function ReportFilters({
               href={`/reports/print?${params}`}
             >
               <Printer size={16} />
-              {ar.common.print}
+              {msg.common.print}
             </Link>
             <a
               className="btn export-button"
               href={`/api/reports/export?${params}`}
             >
               <Download size={16} />
-              {ar.common.export}
+              {msg.common.export}
             </a>
           </>
         ) : null}
       </Heading>
       <div className="report-filter-grid">
-        <Field label={ar.common.project}>
+        <Field label={msg.common.project}>
           <Lookup
             resource="report-projects"
             value={values.project || ""}
@@ -115,7 +119,7 @@ export default function ReportFilters({
             includeInactive
           />
         </Field>
-        <Field label={ar.reports.items}>
+        <Field label={msg.reports.items}>
           <MultiLookup
             key={values.project || "none"}
             resource="report-items"
@@ -127,19 +131,19 @@ export default function ReportFilters({
                 `${item.code} · ${item.name}`,
               ]),
             )}
-            placeholder={ar.reports.allItems}
+            placeholder={msg.reports.allItems}
             disabled={!values.project}
             includeInactive
             onChange={(items) => change({ items })}
           />
         </Field>
-        <Field label={ar.reports.from}>
+        <Field label={msg.reports.from}>
           <DateInput
             value={values.from || ""}
             onChange={(from) => change({ from: from || undefined })}
           />
         </Field>
-        <Field label={ar.reports.to}>
+        <Field label={msg.reports.to}>
           <DateInput
             value={values.to || ""}
             onChange={(to) => change({ to: to || undefined })}
@@ -149,15 +153,15 @@ export default function ReportFilters({
           <Search size={16} />
           <input
             className="input"
-            aria-label={ar.common.search}
-            placeholder={ar.common.search}
+            aria-label={msg.common.search}
+            placeholder={msg.common.search}
             value={values.q}
             onChange={(event) => change({ q: event.target.value }, true)}
           />
         </div>
         <Button
           className="icon export-button"
-          aria-label={ar.common.reset}
+          aria-label={msg.common.reset}
           onClick={() =>
             change({ from: undefined, to: undefined, items: [], q: "" })
           }

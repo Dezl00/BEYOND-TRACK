@@ -1,8 +1,10 @@
 "use client";
+import { useLanguage } from "@/components/language-context";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Mail } from "lucide-react";
-import { ar } from "@/messages/ar";
+
 import { purgeConfirmSchema } from "@/lib/validation";
 import { Button, Checkbox, Field, Lookup, Message, Modal, command } from "./ui";
 
@@ -13,7 +15,9 @@ export default function RequestPurge({
   email: string;
   project?: { id: string; name: string };
 }) {
-  const title = project ? "حذف مشروع " + project.name : ar.settings.purge;
+  const { m: msg } = useLanguage();
+  
+  const title = project ? msg.interface.deleteProject + " " + project.name : msg.settings.purge;
   const router = useRouter();
   const [open, setOpen] = useState(false),
     [ack, setAck] = useState(false),
@@ -67,7 +71,7 @@ export default function RequestPurge({
         setChallenge("");
         setCode("");
         setAck(false);
-        setSuccess(project ? "تم حذف المشروع" : ar.settings.purgeDone);
+        setSuccess(project ? msg.interface.deletedProject : msg.settings.purgeDone);
         if (
           project &&
           new URLSearchParams(window.location.search).get("project") ===
@@ -78,7 +82,7 @@ export default function RequestPurge({
       }
     } catch (e) {
       setError(
-        "issues" in (e as object) ? ar.errors.otp : (e as Error).message,
+        "issues" in (e as object) ? msg.errors.otp : (e as Error).message,
       );
     } finally {
       setBusy(false);
@@ -99,14 +103,14 @@ export default function RequestPurge({
       ) : (
         <section className="panel">
           <div className="panel-heading">
-            <h2>{ar.settings.purge}</h2>
+            <h2>{msg.settings.purge}</h2>
           </div>
           <div className="panel-body stack">
             <Message success={success} />
             <div>
               <Button intent="red" onClick={() => close(true)}>
                 <Trash2 size={16} />
-                {ar.settings.purge}
+                {msg.settings.purge}
               </Button>
             </div>
           </div>
@@ -117,7 +121,7 @@ export default function RequestPurge({
           <div className="confirmation-icon">
             <Trash2 size={25} />
           </div>
-          <Field label={ar.settings.purgeEmail}>
+          <Field label={msg.settings.purgeEmail}>
             <bdi className="purge-email">
               <Mail size={15} />
               {email}
@@ -128,18 +132,18 @@ export default function RequestPurge({
             success={
               challenge
                 ? whatsapp
-                  ? ar.auth.otpBoth
-                  : ar.auth.otpSent
+                  ? msg.auth.otpBoth
+                  : msg.auth.otpSent
                 : undefined
             }
           />
           {!project ? (
-            <Field label={ar.settings.purgeProject}>
+            <Field label={msg.settings.purgeProject}>
               <Lookup
                 resource="projects"
                 value={projectId}
                 allowNone
-                allLabel={ar.common.allProjects}
+                allLabel={msg.common.allProjects}
                 includeInactive
                 disabled={!!challenge || busy}
                 onChange={(value) => {
@@ -149,23 +153,21 @@ export default function RequestPurge({
               />
             </Field>
           ) : null}
-          {!project ? <small>{ar.settings.purgeSequenceHint}</small> : null}
+          {!project ? <small>{msg.settings.purgeSequenceHint}</small> : null}
           <Checkbox
             label={
               project
-                ? "أؤكد حذف مشروع «" +
-                  project.name +
-                  "» نهائيًا مع بنوده ومواده وطلباته واستلاماته ومرفقاته."
+                ? msg.interface.confirmDeleteProject.replace("{name}", project.name)
                 : projectId
-                  ? ar.settings.purgeProjectConfirm
-                  : ar.settings.purgeConfirm
+                  ? msg.settings.purgeProjectConfirm
+                  : msg.settings.purgeConfirm
             }
             checked={ack}
             disabled={!!challenge || busy}
             onChange={(event) => setAck(event.target.checked)}
           />
           {challenge ? (
-            <Field label={ar.settings.purgeCode}>
+            <Field label={msg.settings.purgeCode}>
               <input
                 autoFocus
                 className="input numeric otp-input"
@@ -181,7 +183,7 @@ export default function RequestPurge({
           ) : null}
           <div className="confirmation-actions">
             <Button type="button" disabled={busy} onClick={() => close(false)}>
-              {ar.common.cancel}
+              {msg.common.cancel}
             </Button>
             <Button
               type="submit"
@@ -189,7 +191,7 @@ export default function RequestPurge({
               pending={busy}
               disabled={!ack || (!!challenge && code.length !== 6)}
             >
-              {challenge ? ar.common.delete : ar.settings.purgeSend}
+              {challenge ? msg.common.delete : msg.settings.purgeSend}
             </Button>
           </div>
         </form>

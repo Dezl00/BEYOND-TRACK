@@ -1,6 +1,7 @@
-const CACHE = "bt-public-v1";
+const CACHE = "bt-public-v2";
 const PUBLIC_ASSETS = [
   "/offline",
+  "/offline?lang=en",
   "/icon.svg",
   "/pwa-192.png",
   "/pwa-512.png",
@@ -10,7 +11,7 @@ async function trim(cache) {
   const keys = await cache.keys();
   const removable = keys.filter(
     (key) =>
-      !PUBLIC_ASSETS.includes(
+      new URL(typeof key === "string" ? key : key.url).pathname !== "/offline-language" && !PUBLIC_ASSETS.includes(
         new URL(typeof key === "string" ? key : key.url).pathname,
       ),
   );
@@ -42,6 +43,10 @@ self.addEventListener("activate", (event) => {
       .then(() => self.clients.claim()),
   );
 });
+self.addEventListener("message", (event) => {
+  if(event.data?.type!=="display-locale" || !["en","ar"].includes(event.data.locale))return;
+  event.waitUntil(caches.open(CACHE).then(cache=>cache.put("/offline-language",new Response(event.data.locale))));
+});
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
@@ -55,9 +60,7 @@ self.addEventListener("fetch", (event) => {
     // All authenticated pages stay network-only. Offline fallback contains no account data.
     event.respondWith(
       fetch(request).catch(
-        async () =>
-          (await (await caches.open(CACHE)).match("/offline")) ||
-          Response.error(),
+        async () => {const cache=await caches.open(CACHE);const locale=await (await cache.match("/offline-language"))?.text();return await cache.match(locale==="en"?"/offline?lang=en":"/offline") || Response.error();},
       ),
     );
     return;

@@ -1,3 +1,4 @@
+import { requestLanguage } from "@/server/language";
 import { attachmentVisibility } from "@/server/attachments";
 import { attachmentLabels, type AttachmentPurpose } from "@/lib/attachments";
 import Link from "next/link";
@@ -7,7 +8,7 @@ import { requireRequest } from "@/server/access";
 import { rows, sql } from "@/db";
 import { uuid, cursorSchema } from "@/lib/validation";
 import { decodeCursor, page } from "@/server/queries";
-import { ar } from "@/messages/ar";
+
 import { Heading, Pagination, Empty } from "@/components/common";
 export default async function FilesPage({
   params,
@@ -16,6 +17,8 @@ export default async function FilesPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
+  const { m: msg } = await requestLanguage();
+  
   const a = await requirePageActor(),
     id = uuid.parse((await params).id),
     q = await searchParams,
@@ -34,9 +37,9 @@ export default async function FilesPage({
   );
   return (
     <>
-      <Heading title={ar.fields.attachments}>
+      <Heading title={msg.fields.attachments}>
         <Link className="btn" href={`/requests/${id}`}>
-          {ar.common.back}
+          {msg.common.back}
         </Link>
       </Heading>
       <section className="panel">
@@ -54,7 +57,7 @@ export default async function FilesPage({
                 <span>
                   {f.name}
                   <small className="cell-sub">
-                    {attachmentLabels[f.purpose]}
+                    {attachmentLabels(msg)[f.purpose]}
                   </small>
                 </span>
               </a>
