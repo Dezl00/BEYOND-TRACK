@@ -9,6 +9,13 @@ export function normalizeLocalPhone(value: string) {
     .replace(/^0(?!0)/, "");
 }
 
+export function loginPhone(value: string) {
+  const number = normalizeLocalPhone(value);
+  return whatsappRecipient("+20", number) || whatsappRecipient("+966", number)
+    ? number
+    : null;
+}
+
 // Only local mobile numbers are accepted; country prefixes belong in the selector.
 export function whatsappRecipient(countryCode: string, localNumber: string) {
   const number = normalizeLocalPhone(localNumber);

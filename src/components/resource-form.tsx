@@ -48,6 +48,7 @@ export default function ResourceForm({
     [error, setError] = useState("");
   const initialState = (): Data => ({
     id: initial?.id,
+    code: initial?.code || "",
     name: initial?.name || "",
     client: initial?.client || "",
     details: initial?.details || "",
@@ -166,6 +167,10 @@ export default function ResourceForm({
           {text("name", ar.fields.name, { maxLength: 200 })}
           {resource === "project" ? (
             <>
+              {text("code", ar.fields.code, {
+                maxLength: 30,
+                placeholder: "KS",
+              })}
               {text("location", ar.fields.location)}
               {text("client", "العميل", { maxLength: 200 })}
               <Field label="تاريخ البدء">

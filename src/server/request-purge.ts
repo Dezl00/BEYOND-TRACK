@@ -14,10 +14,11 @@ function purgeHash(
   session: string,
   code: string,
   projectId?: string,
+  deleteProject = !!projectId,
 ) {
   return keyedHash(
     projectId
-      ? `project-delete:${projectId}:${challenge}:${session}:${code}`
+      ? `${deleteProject ? "project-delete" : "project-purge"}:${projectId}:${challenge}:${session}:${code}`
       : `purge:${challenge}:${session}:${code}`,
   );
 }
@@ -34,6 +35,7 @@ export async function issueRequestPurge(
   a: Actor,
   meta: Meta,
   projectId?: string,
+  deleteProject = !!projectId,
 ) {
   if (!a.is_owner) throw new AppError("forbidden", 403);
   if (!process.env.RESEND_API_KEY?.trim())
@@ -62,24 +64,32 @@ export async function issueRequestPurge(
     const challenge = randomUUID(),
       code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     await tx.execute(
-      sql`INSERT INTO request_purge_challenges(id,user_id,session_id,project_id,token_hash,expires_at) VALUES(${challenge},${a.id},${a.session_id},${projectId ?? null},${purgeHash(challenge, a.session_id, code, projectId)},now()+interval '5 minutes')`,
+      sql`INSERT INTO request_purge_challenges(id,user_id,session_id,project_id,delete_project,token_hash,expires_at) VALUES(${challenge},${a.id},${a.session_id},${projectId ?? null},${deleteProject},${purgeHash(challenge, a.session_id, code, projectId, deleteProject)},now()+interval '5 minutes')`,
     );
     const delivery = await queueOtp(
       tx,
       "purge",
       challenge,
       project
-        ? "تأكيد حذف المشروع «" + project.name + "»"
+        ? (deleteProject
+            ? "تأكيد حذف المشروع «"
+            : "تأكيد تصفية طلبات المشروع «") +
+            project.name +
+            "»"
         : ar.settings.purgeSubject,
       code,
     );
     await audit(tx, a.id, meta, 1, 8, "1", {
-      request_purge: { requested: true, projectId },
+      request_purge: { requested: true, projectId, deleteProject },
     });
     return { challenge, ...delivery };
   });
 }
-async function deleteProjectData(tx: Executor, projectId: string) {
+async function deleteProjectData(
+  tx: Executor,
+  projectId: string,
+  deleteProject: boolean,
+) {
   const requests = sql`SELECT id FROM purchase_requests WHERE project_id=${projectId}`;
   const sections = sql`SELECT id FROM boq_items WHERE project_id=${projectId}`;
   const project = await one<{ name: string }>(
@@ -87,6 +97,10 @@ async function deleteProjectData(tx: Executor, projectId: string) {
     tx,
   );
   if (!project) throw new AppError("notFound", 404);
+  const count = await one<{ n: number }>(
+    sql`SELECT count(*)::int n FROM purchase_requests WHERE project_id=${projectId}`,
+    tx,
+  );
   await tx.execute(
     sql`SELECT id FROM purchase_requests WHERE project_id=${projectId} ORDER BY id FOR UPDATE`,
   );
@@ -114,6 +128,10 @@ async function deleteProjectData(tx: Executor, projectId: string) {
     sql`DELETE FROM purchase_requests WHERE project_id=${projectId}`,
   );
   await tx.execute(
+    sql`DELETE FROM project_request_counters WHERE project_id=${projectId}`,
+  );
+  if (!deleteProject) return { ...project, deleted: count!.n };
+  await tx.execute(
     sql`DELETE FROM catalog_counters WHERE scope=${projectId} OR scope IN (${sections})`,
   );
   await tx.execute(
@@ -124,20 +142,21 @@ async function deleteProjectData(tx: Executor, projectId: string) {
     sql`DELETE FROM project_users WHERE project_id=${projectId}`,
   );
   await tx.execute(sql`DELETE FROM projects WHERE id=${projectId}`);
-  return project;
+  return { ...project, deleted: count!.n };
 }
 export async function purgeRequests(
   a: Actor,
   input: z.infer<typeof purgeConfirmSchema>,
   meta: Meta,
   projectId?: string,
+  deleteProject = !!projectId,
 ) {
   if (!a.is_owner) throw new AppError("forbidden", 403);
   await rateLimit("purge-confirm", a.id, 10, 900);
   const result = await db().transaction(async (tx) => {
     await ownerSession(a, tx);
     const challenge = await one<{ id: string; token_hash: string }>(
-      sql`SELECT id,token_hash FROM request_purge_challenges WHERE id=${input.challenge} AND user_id=${a.id} AND session_id=${a.session_id} AND project_id IS NOT DISTINCT FROM ${projectId ?? null}::uuid AND expires_at>now() AND attempts<5 AND verified_at IS NULL FOR UPDATE`,
+      sql`SELECT id,token_hash FROM request_purge_challenges WHERE id=${input.challenge} AND user_id=${a.id} AND session_id=${a.session_id} AND project_id IS NOT DISTINCT FROM ${projectId ?? null}::uuid AND delete_project=${deleteProject} AND expires_at>now() AND attempts<5 AND verified_at IS NULL FOR UPDATE`,
       tx,
     );
     if (!challenge) return null;
@@ -149,6 +168,7 @@ export async function purgeRequests(
       a.session_id,
       input.code,
       projectId,
+      deleteProject,
     );
     if (
       candidate.length !== challenge.token_hash.length ||
@@ -162,6 +182,10 @@ export async function purgeRequests(
       });
       return null;
     }
+    // Prevent creation and request writes from racing deletion or counter reset.
+    await tx.execute(
+      sql`LOCK TABLE purchase_requests IN ACCESS EXCLUSIVE MODE`,
+    );
     if (projectId) {
       await tx.execute(
         sql`UPDATE request_purge_challenges SET verified_at=now() WHERE id=${challenge.id}`,
@@ -169,15 +193,20 @@ export async function purgeRequests(
       await tx.execute(
         sql`SELECT set_config('siteflow.purge_challenge',${challenge.id},true)`,
       );
-      const project = await deleteProjectData(tx, projectId);
+      const project = await deleteProjectData(tx, projectId, deleteProject);
       await audit(
         tx,
         a.id,
         meta,
         2,
-        1,
-        projectId,
-        { name: { before: project.name, after: null } },
+        deleteProject ? 1 : 4,
+        deleteProject ? projectId : null,
+        deleteProject
+          ? { name: { before: project.name, after: null } }
+          : {
+              requests: { before: project.deleted, after: 0 },
+              sequence: { after: 0 },
+            },
         projectId,
       );
       await tx.execute(
@@ -186,12 +215,8 @@ export async function purgeRequests(
       await tx.execute(
         sql`DELETE FROM request_purge_challenges WHERE id=${challenge.id}`,
       );
-      return { deleted: 1 };
+      return { deleted: deleteProject ? 1 : project.deleted };
     }
-    // Serialize all request writes, including concurrent creation and receipt entry.
-    await tx.execute(
-      sql`LOCK TABLE purchase_requests IN ACCESS EXCLUSIVE MODE`,
-    );
     const counts = await one<{
       requests: number;
       receipts: number;
@@ -222,6 +247,7 @@ export async function purgeRequests(
       "request_timeline",
       "request_lines",
       "purchase_requests",
+      "project_request_counters",
     ])
       await tx.execute(sql`DELETE FROM ${sql.identifier(table)}`);
     await audit(tx, a.id, meta, 2, 4, null, {

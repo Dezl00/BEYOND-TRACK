@@ -26,9 +26,13 @@ export function decodeCursor(value?: string) {
     throw new AppError("invalid");
   }
 }
-export function page<T extends { id: string }>(data: T[], dated = false) {
-  const more = data.length > pageSize,
-    items = data.slice(0, pageSize),
+export function page<T extends { id: string }>(
+  data: T[],
+  dated = false,
+  size = pageSize,
+) {
+  const more = data.length > size,
+    items = data.slice(0, size),
     last = items.at(-1);
   return {
     items,
@@ -159,7 +163,12 @@ export async function sectionLabels(a: Actor, q: Query) {
   );
   return Object.fromEntries(items.map((v) => [v.id, v.label]));
 }
-export async function listResource(a: Actor, resource: string, q: Query) {
+export async function listResource(
+  a: Actor,
+  resource: string,
+  q: Query,
+  materialPageSize = pageSize,
+) {
   const c = decodeCursor(q.cursor),
     after = (col = sql`id`) => (c ? sql`AND ${col}>${c.id}::uuid` : sql``);
   if (resource === "projects")
@@ -176,8 +185,10 @@ export async function listResource(a: Actor, resource: string, q: Query) {
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT m.*,b.project_id,b.name boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND m.active=true AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR m.code ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`m.id`)} ORDER BY m.id LIMIT 26`,
+        sql`SELECT m.*,b.project_id,b.name boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND m.active=true AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR m.code ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`m.id`)} ORDER BY m.id LIMIT ${materialPageSize + 1}`,
       ),
+      false,
+      materialPageSize,
     );
   }
   if (resource === "suppliers") {

@@ -20,7 +20,7 @@ type Snapshot = {
     id: string;
     type: number;
     request_id: string;
-    number: number;
+    number: string;
     created_at: string;
     read_at: string | null;
   }[];

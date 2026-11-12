@@ -7,6 +7,7 @@ import { listResource, listRequests, auditList } from "@/server/queries";
 import { listQuerySchema } from "@/lib/validation";
 import { ar } from "@/messages/ar";
 import { AppError, errorResponse } from "@/server/errors";
+export const maxDuration = 60;
 function csv(value: unknown) {
   let text =
     value == null
@@ -50,6 +51,8 @@ export async function GET(req: Request) {
     );
     if (resource === "units" && !canManageUnits(a))
       throw new AppError("forbidden", 403);
+    // A material export always starts at the beginning of the filtered catalog.
+    if (resource === "materials") q.cursor = undefined;
     const result =
       resource === "audit"
         ? await auditList(a, q)
@@ -64,7 +67,7 @@ export async function GET(req: Request) {
               "receipts",
             ].includes(resource)
           ? await listRequests(a, q, resource)
-          : await listResource(a, resource, q);
+          : await listResource(a, resource, q, 200);
     const columns: Record<string, string> = {
       id: ar.fields.entityId,
       name: ar.fields.name,
@@ -99,11 +102,9 @@ export async function GET(req: Request) {
     const keys = Object.keys(columns).filter((k) =>
       result.items.some((r) => k in r),
     );
-    const content =
-      "\uFEFF" +
-      [
-        keys.map((k) => csv(columns[k])).join(","),
-        ...result.items.map((row) =>
+    const encodeRows = (items: typeof result.items) =>
+      items
+        .map((row) =>
           keys
             .map((k) =>
               csv(
@@ -125,14 +126,53 @@ export async function GET(req: Request) {
               ),
             )
             .join(","),
-        ),
-      ].join("\r\n");
+        )
+        .join("\r\n");
+    const header = "\uFEFF" + keys.map((k) => csv(columns[k])).join(",");
+    let content: string | ReadableStream<Uint8Array>;
+    if (resource === "materials") {
+      const encoder = new TextEncoder();
+      let current: typeof result | null = result;
+      let first = true;
+      content = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            if (req.signal.aborted) {
+              controller.close();
+              return;
+            }
+            if (!current) current = await listResource(a, resource, q, 200);
+            controller.enqueue(
+              encoder.encode(
+                (first ? header : "") +
+                  (current.items.length
+                    ? "\r\n" + encodeRows(current.items)
+                    : ""),
+              ),
+            );
+            first = false;
+            if (!current.next) controller.close();
+            else {
+              q.cursor = current.next;
+              current = null;
+            }
+          } catch (error) {
+            controller.error(error);
+          }
+        },
+      });
+    } else {
+      content =
+        header + (result.items.length ? "\r\n" + encodeRows(result.items) : "");
+    }
     return new Response(content, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="beyond-${resource}.csv"`,
         "Cache-Control": "private, no-store",
-        ...(result.next ? { "X-Next-Cursor": result.next } : {}),
+        ...(resource !== "materials" && result.next
+          ? { "X-Next-Cursor": result.next }
+          : {}),
       },
     });
   } catch (e) {

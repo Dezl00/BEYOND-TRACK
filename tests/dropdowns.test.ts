@@ -362,6 +362,66 @@ describe("Header, breadcrumbs, and maintenance controls", () => {
     expect(document.querySelector(".panel input")).toBeNull();
     expect(screen.queryByText("تصدير الصفحة")).toBeNull();
   });
+  it("keeps the selected project bound to both purge confirmation steps", async () => {
+    const user = userEvent.setup();
+    const projectId = "22222222-2222-4222-8222-222222222222";
+    const challenge = "11111111-1111-4111-8111-111111111111";
+    const commands: { command: string; data: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, options: RequestInit) => {
+        if (url.startsWith("/api/options"))
+          return Response.json({
+            items: [{ id: projectId, name: "مشروع KS" }],
+            next: null,
+          });
+        const body = JSON.parse(options.body as string);
+        commands.push(body);
+        return Response.json(
+          body.command === "request-purge-code"
+            ? { challenge }
+            : { deleted: 2 },
+        );
+      }),
+    );
+    render(createElement(RequestPurge, { email: "owner@example.com" }));
+    await user.click(screen.getByRole("button", { name: ar.settings.purge }));
+    await user.click(
+      screen.getByRole("switch", { name: ar.settings.purgeConfirm }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: ar.common.allProjects }),
+    );
+    await user.click(await screen.findByRole("option", { name: "مشروع KS" }));
+    const send = screen.getByRole("button", {
+      name: ar.settings.purgeSend,
+    }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    await user.click(
+      screen.getByRole("switch", { name: ar.settings.purgeProjectConfirm }),
+    );
+    await user.click(send);
+    const code = await screen.findByRole("textbox", {
+      name: ar.settings.purgeCode,
+    });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "مشروع KS",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await user.type(code, "123456");
+    await user.click(screen.getByRole("button", { name: ar.common.delete }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(commands).toEqual([
+      { command: "request-purge-code", data: { projectId } },
+      {
+        command: "request-purge-confirm",
+        data: { projectId, challenge, code: "123456" },
+      },
+    ]);
+  });
   it("requires scope acknowledgement and a six-digit emailed code before purging", async () => {
     const user = userEvent.setup();
     const request = vi.fn(async (_url: unknown, options: RequestInit) => {

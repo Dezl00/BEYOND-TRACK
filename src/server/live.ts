@@ -14,7 +14,7 @@ export async function liveSnapshot(actor: Actor, project?: string) {
       id: string;
       type: number;
       request_id: string;
-      number: number;
+      number: string;
       read_at: Date | null;
       created_at: Date;
     }>(

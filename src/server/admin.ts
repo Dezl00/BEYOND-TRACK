@@ -34,11 +34,11 @@ export async function saveProject(
         tx,
       ))!;
       await tx.execute(
-        sql`UPDATE projects SET name=${v.name},location=${v.location},client=${v.client ?? old.client ?? null},details=${v.details ?? old.details ?? null},start_date=NULLIF(${v.startDate ?? old.start_date ?? ""},'')::date,end_date=NULLIF(${v.endDate ?? old.end_date ?? ""},'')::date,archived=${v.archived} WHERE id=${id}`,
+        sql`UPDATE projects SET code=COALESCE(NULLIF(${v.code ?? ""},''),code),name=${v.name},location=${v.location},client=${v.client ?? old.client ?? null},details=${v.details ?? old.details ?? null},start_date=NULLIF(${v.startDate ?? old.start_date ?? ""},'')::date,end_date=NULLIF(${v.endDate ?? old.end_date ?? ""},'')::date,archived=${v.archived} WHERE id=${id}`,
       );
     } else {
       await tx.execute(
-        sql`INSERT INTO projects(id,name,location,client,details,start_date,end_date) VALUES (${id},${v.name},${v.location},${v.client ?? null},${v.details ?? null},${v.startDate || null},${v.endDate || null})`,
+        sql`INSERT INTO projects(id,code,name,location,client,details,start_date,end_date) VALUES (${id},COALESCE(NULLIF(${v.code ?? ""},''),next_project_code()),${v.name},${v.location},${v.client ?? null},${v.details ?? null},${v.startDate || null},${v.endDate || null})`,
       );
       await tx.execute(
         sql`INSERT INTO project_users(project_id,user_id) VALUES (${id},${a.id})`,
@@ -52,6 +52,7 @@ export async function saveProject(
       1,
       id,
       changes(old, {
+        code: v.code || old.code,
         name: v.name,
         location: v.location,
         client: v.client ?? old.client,

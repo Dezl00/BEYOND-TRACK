@@ -55,7 +55,7 @@ export type MailQuote = {
 export type MailRequest = {
   quotes?: MailQuote[];
   lastAction?: string | null;
-  number: number;
+  number: string;
   status: number;
   project: string;
   creator: string;

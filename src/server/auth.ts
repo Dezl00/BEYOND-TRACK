@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { cache } from "react";
 import { db, one, rows, sql, type Executor } from "@/db";
 import type { Actor } from "@/lib/domain";
+import { loginPhone } from "@/lib/whatsapp-phone";
 import { ar } from "@/messages/ar";
 import { AppError } from "./errors";
 import { hash, keyedHash, token, rateLimit, metadata } from "./security";
@@ -36,6 +37,8 @@ type User = {
   otp_enabled: boolean;
   otp_exempt: boolean;
   email: string;
+  username: string;
+  whatsapp_number: string | null;
   theme: number;
   force_password_change: boolean;
 };
@@ -99,11 +102,14 @@ function safeCode(a: string, b: string) {
 }
 export async function login(input: z.infer<typeof loginSchema>) {
   const meta = await metadata();
+  const phone = loginPhone(input.identifier);
   await rateLimit("login-ip", meta.ip, 20, 900);
-  await rateLimit("login-account", input.identifier, 10, 900);
-  const u = await one<User>(
-    sql`SELECT * FROM users WHERE deleted_at IS NULL AND (email=${input.identifier} OR username=${input.identifier}) LIMIT 1`,
+  await rateLimit("login-account", phone ?? input.identifier, 10, 900);
+  const matches = await rows<User>(
+    sql`SELECT * FROM users WHERE deleted_at IS NULL AND (email=${input.identifier} OR username=${input.identifier} OR whatsapp_number=${phone}) LIMIT 2`,
   );
+  // A shared phone or a numeric username collision must never select an arbitrary account.
+  const u = matches.length === 1 ? matches[0] : undefined;
   // Constant-cost verification also for unknown identities.
   const valid = await compare(
     input.password,
@@ -124,6 +130,9 @@ export async function login(input: z.infer<typeof loginSchema>) {
       !valid ||
       fresh.role_active === false ||
       fresh.password_hash !== u.password_hash ||
+      (fresh.email !== input.identifier &&
+        fresh.username !== input.identifier &&
+        (!phone || fresh.whatsapp_number !== phone)) ||
       (!fresh.is_owner &&
         (fresh.locked ||
           (fresh.locked_until && new Date(fresh.locked_until) > new Date())))

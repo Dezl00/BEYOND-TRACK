@@ -162,6 +162,9 @@ export default function LoginForm() {
               />
               <input
                 autoComplete={mode === "forgot" ? "email" : "username"}
+                aria-label={
+                  mode === "login" ? ar.auth.identifier : ar.auth.email
+                }
                 className="input numeric"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
@@ -169,6 +172,7 @@ export default function LoginForm() {
                 disabled={busy}
               />
             </div>
+            {mode === "login" ? <small>{ar.auth.phoneLoginHint}</small> : null}
           </Field>
         ) : null}
         {mode === "otp" || mode === "reset" ? (

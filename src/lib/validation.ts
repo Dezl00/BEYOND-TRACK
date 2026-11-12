@@ -184,6 +184,13 @@ export const receiptSchema = z
 export const projectSchema = z
   .object({
     id: uuid.optional(),
+    code: z
+      .string()
+      .trim()
+      .max(30)
+      .regex(/^[A-Za-z0-9_-]*$/)
+      .transform((v) => v.toUpperCase())
+      .optional(),
     name: short,
     location: z.string().trim().max(200).default(""),
     client: z.string().trim().max(200).optional(),

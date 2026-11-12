@@ -21,6 +21,6 @@ export function date(value: Date | string, digits = 0, withTime = false) {
     },
   ).format(new Date(value));
 }
-export function requestCode(value: number | string) {
-  return `PR-${String(value).padStart(5, "0")}`;
+export function requestCode(value: string) {
+  return value;
 }

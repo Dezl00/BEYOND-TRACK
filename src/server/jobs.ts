@@ -47,7 +47,7 @@ export async function processJobs(limit = 20) {
           const request = await one<{
             project_id: string;
             created_by: string;
-            number: number;
+            number: string;
             status: number;
             visited: number[];
           }>(

@@ -13,7 +13,6 @@ import {
   primaryKey,
   index,
   uniqueIndex,
-  bigserial,
   bigint,
 } from "drizzle-orm/pg-core";
 const id = () => uuid("id").defaultRandom().primaryKey();
@@ -86,6 +85,7 @@ export const users = pgTable(
     uniqueIndex("users_email").on(t.email),
     uniqueIndex("users_username").on(t.username),
     index("users_role").on(t.roleId),
+    index("users_phone_login").on(t.whatsappNumber),
   ],
 );
 export const projects = pgTable(
@@ -180,7 +180,7 @@ export const requests = pgTable(
   "purchase_requests",
   {
     id: id(),
-    number: bigserial("number", { mode: "number" }).notNull(),
+    number: varchar("number", { length: 60 }).notNull(),
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id),
@@ -198,13 +198,19 @@ export const requests = pgTable(
     updatedAt: time("updated_at"),
   },
   (t) => [
-    uniqueIndex("requests_number").on(t.number),
+    uniqueIndex("requests_project_number").on(t.projectId, t.number),
     index("requests_project_cursor").on(t.projectId, t.createdAt, t.id),
     index("requests_creator_cursor").on(t.createdBy, t.createdAt, t.id),
     index("requests_status_delivery").on(t.status, t.expectedAt),
     index("requests_supplier").on(t.supplierId),
   ],
 );
+export const projectRequestCounters = pgTable("project_request_counters", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  lastNumber: bigint("last_number", { mode: "number" }).notNull(),
+});
 export const requestLines = pgTable(
   "request_lines",
   {
@@ -486,6 +492,7 @@ export const requestPurgeChallenges = pgTable(
   "request_purge_challenges",
   {
     projectId: uuid("project_id"),
+    deleteProject: boolean("delete_project").default(false).notNull(),
     id: id(),
     userId: uuid("user_id")
       .notNull()

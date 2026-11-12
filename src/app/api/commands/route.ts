@@ -40,13 +40,21 @@ export async function POST(req: Request) {
         result = await purgeRequests(a, input, m, input.projectId);
         break;
       }
-      case "request-purge-code":
-        z.object({}).strict().parse(data);
-        result = await issueRequestPurge(a, m);
+      case "request-purge-code": {
+        const input = z
+          .object({ projectId: v.uuid.optional() })
+          .strict()
+          .parse(data);
+        result = await issueRequestPurge(a, m, input.projectId, false);
         break;
-      case "request-purge-confirm":
-        result = await purgeRequests(a, v.purgeConfirmSchema.parse(data), m);
+      }
+      case "request-purge-confirm": {
+        const input = v.purgeConfirmSchema
+          .extend({ projectId: v.uuid.optional() })
+          .parse(data);
+        result = await purgeRequests(a, input, m, input.projectId, false);
         break;
+      }
       case "activation":
         result = await setActive(a, activationSchema.parse(data), m);
         break;

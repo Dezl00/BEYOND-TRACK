@@ -61,7 +61,7 @@ export async function requireProject(
 }
 export type RequestRow = {
   id: string;
-  number: number;
+  number: string;
   project_id: string;
   created_by: string;
   status: number;

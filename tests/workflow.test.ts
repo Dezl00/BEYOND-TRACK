@@ -84,6 +84,8 @@ import {
 } from "@/server/auth";
 import { GET as download } from "@/app/api/attachments/[id]/route";
 import { GET as options } from "@/app/api/options/route";
+import { GET as exportResource } from "@/app/api/export/route";
+import { parse as parseCsv } from "csv-parse/sync";
 import { ar } from "@/messages/ar";
 import { decrypt } from "@/server/security";
 import { importTemplate, parseImport, importBoq } from "@/server/import";
@@ -210,6 +212,7 @@ beforeAll(async () => {
     "drizzle/generated/0008_project_details.sql",
     "drizzle/generated/0009_oval_corsair.sql",
     "drizzle/generated/0010_request_stage_history.sql",
+    "drizzle/generated/0011_omniscient_chimera.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
@@ -221,6 +224,7 @@ beforeAll(async () => {
     "drizzle/custom/0009_catalog_codes.sql",
     "drizzle/custom/0010_project_management.sql",
     "drizzle/custom/0011_request_workflow.sql",
+    "drizzle/custom/0012_project_request_numbers.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -1214,6 +1218,114 @@ describe("Arabic BOQ import", () => {
     ).rejects.toMatchObject({ code: "import" });
   });
 });
+describe("Complete material export", () => {
+  it("exports every filtered page even when opened from a later page", async () => {
+    await login({
+      identifier: owner.email,
+      password: "Test-password-12345",
+      remember: false,
+    });
+    await pg.query(
+      "INSERT INTO materials(boq_item_id,name,quantity) SELECT $1,'تصدير-'||n,1.250 FROM generate_series(1,463) n",
+      [ids.leaf],
+    );
+    const first = await listResource(owner, "materials", {
+      q: "تصدير-",
+      project: ids.p1,
+    });
+    expect(first.items).toHaveLength(25);
+    const response = await exportResource(
+      new Request(
+        `http://localhost/api/export?resource=materials&project=${ids.p1}&q=${encodeURIComponent("تصدير-")}&cursor=${first.next}`,
+      ),
+    );
+    expect(response.status).toBe(200);
+    const records = parseCsv<Record<string, string>>(await response.text(), {
+      columns: true,
+      bom: true,
+    });
+    expect(records).toHaveLength(463);
+    expect(new Set(records.map((r) => r[ar.fields.name])).size).toBe(463);
+    expect(records.every((r) => r[ar.fields.quantity] === "1.25")).toBe(true);
+    expect(response.headers.get("X-Next-Cursor")).toBeNull();
+    const empty = await exportResource(
+      new Request(
+        `http://localhost/api/export?resource=materials&project=${ids.p2}&q=${encodeURIComponent("تصدير-")}`,
+      ),
+    );
+    expect(
+      parseCsv(await empty.text(), { columns: true, bom: true }),
+    ).toHaveLength(0);
+    await pg.query("DELETE FROM materials WHERE name LIKE 'تصدير-%'");
+  });
+});
+describe("Phone login", () => {
+  it("accepts local Saudi and Egyptian numbers with Arabic digits and keeps password validation", async () => {
+    await pg.exec("DELETE FROM rate_limits WHERE key LIKE 'login-%'");
+    await pg.query(
+      "UPDATE users SET whatsapp_number='512345678',whatsapp_enabled=false WHERE id=$1",
+      [ids.engineer],
+    );
+    for (const identifier of ["0512345678", "512345678", "٠٥١ ٢٣٤ ٥٦٧٨"]) {
+      expect(
+        await login({
+          identifier,
+          password: "Test-password-12345",
+          remember: false,
+        }),
+      ).toHaveProperty("redirect", "/dashboard");
+      expect((await currentActor())?.id).toBe(ids.engineer);
+    }
+    await pg.query(
+      "UPDATE users SET whatsapp_country_code='+20',whatsapp_number='1012345678' WHERE id=$1",
+      [ids.engineer],
+    );
+    expect(
+      await login({
+        identifier: "٠١٠١٢٣٤٥٦٧٨",
+        password: "Test-password-12345",
+        remember: false,
+      }),
+    ).toHaveProperty("redirect");
+    await expect(
+      login({ identifier: "01012345678", password: "wrong", remember: false }),
+    ).rejects.toMatchObject({ status: 401 });
+    await pg.query(
+      "UPDATE users SET whatsapp_number=null,whatsapp_country_code='+966',failed_attempts=0,locked_until=null WHERE id=$1",
+      [ids.engineer],
+    );
+    await pg.exec("DELETE FROM rate_limits WHERE key LIKE 'login-%'");
+  });
+  it("rejects ambiguous numbers and locked accounts", async () => {
+    await pg.query(
+      "UPDATE users SET whatsapp_number='512345678' WHERE id IN($1,$2)",
+      [ids.engineer, ids.other],
+    );
+    await expect(
+      login({
+        identifier: "0512345678",
+        password: "Test-password-12345",
+        remember: false,
+      }),
+    ).rejects.toMatchObject({ status: 401 });
+    await pg.query("UPDATE users SET whatsapp_number=null WHERE id=$1", [
+      ids.other,
+    ]);
+    await pg.query("UPDATE users SET locked=true WHERE id=$1", [ids.engineer]);
+    await expect(
+      login({
+        identifier: "0512345678",
+        password: "Test-password-12345",
+        remember: false,
+      }),
+    ).rejects.toMatchObject({ status: 401 });
+    await pg.query(
+      "UPDATE users SET whatsapp_number=null,locked=false,failed_attempts=0,locked_until=null WHERE id=$1",
+      [ids.engineer],
+    );
+    await pg.exec("DELETE FROM rate_limits WHERE key LIKE 'login-%'");
+  });
+});
 describe("Authentication", () => {
   it("assigns multiple projects, disables accounts and roles, and deletes users without losing historical actors", async () => {
     for (const key of [
@@ -1782,6 +1894,7 @@ describe("Owner-only request purge", () => {
   it("saves and reads the project profile and restricts the unit management list", async () => {
     const profile = {
       id: ids.p1,
+      code: "KS",
       name: "مشروع اختبار",
       location: "الرياض",
       archived: false,
@@ -1796,6 +1909,7 @@ describe("Owner-only request purge", () => {
     ).toContainEqual(
       expect.objectContaining({
         id: ids.p1,
+        code: "KS",
         client: profile.client,
         details: profile.details,
         start_date: profile.startDate,
@@ -1816,6 +1930,74 @@ describe("Owner-only request purge", () => {
       (await listResource(engineer, "units", { q: "", selectable: "1" })).items
         .length,
     ).toBeGreaterThan(0);
+  });
+  it("numbers requests per project, resets only the purged project, and binds OTP to its action", async () => {
+    await pg.exec("DELETE FROM rate_limits WHERE key LIKE 'purge-%'");
+    const ownerDevice = await session();
+    const insert = async (project: string) =>
+      (
+        await pg.query<{ id: string; number: string }>(
+          "INSERT INTO purchase_requests(project_id,created_by) VALUES($1,$2) RETURNING id,number",
+          [project, ids.owner],
+        )
+      ).rows[0];
+    const first = await insert(ids.p1);
+    expect(first.number).toBe("KS-001");
+    const receipt = randomUUID();
+    await pg.query(
+      "INSERT INTO receipts(id,request_id,created_by,idempotency_key) VALUES($1,$2,$3,$4)",
+      [receipt, first.id, ids.owner, randomUUID()],
+    );
+    await pg.query(
+      "INSERT INTO request_timeline(request_id,user_id,to_status) VALUES($1,$2,0)",
+      [first.id, ids.owner],
+    );
+    expect((await insert(ids.p2)).number).toBe("P2-001");
+    const second = await insert(ids.p1);
+    expect(second.number).toBe("KS-002");
+    await pg.query("DELETE FROM purchase_requests WHERE id=$1", [second.id]);
+    expect((await insert(ids.p1)).number).toBe("KS-003");
+    const { challenge } = await issueRequestPurge(
+      ownerDevice,
+      meta,
+      ids.p1,
+      false,
+    );
+    const confirmation = { challenge, code: await codeFor(challenge) };
+    await expect(
+      purgeRequests(ownerDevice, confirmation, meta, ids.p1, true),
+    ).rejects.toMatchObject({ code: "purge" });
+    await expect(
+      purgeRequests(ownerDevice, confirmation, meta, ids.p2, false),
+    ).rejects.toMatchObject({ code: "purge" });
+    await purgeRequests(ownerDevice, confirmation, meta, ids.p1, false);
+    expect(
+      (await pg.query("SELECT id FROM receipts WHERE id=$1", [receipt])).rows,
+    ).toHaveLength(0);
+    expect(
+      (
+        await pg.query("SELECT id FROM request_timeline WHERE request_id=$1", [
+          first.id,
+        ])
+      ).rows,
+    ).toHaveLength(0);
+    expect(
+      (await pg.query("SELECT id FROM materials WHERE id=$1", [ids.material]))
+        .rows,
+    ).toHaveLength(1);
+    expect(
+      (await pg.query("SELECT id FROM projects WHERE id=$1", [ids.p1])).rows,
+    ).toHaveLength(1);
+    expect((await insert(ids.p1)).number).toBe("KS-001");
+    expect((await insert(ids.p2)).number).toBe("P2-002");
+    await pg.query(
+      "UPDATE project_request_counters SET last_number=999 WHERE project_id=$1",
+      [ids.p1],
+    );
+    expect((await insert(ids.p1)).number).toBe("KS-1000");
+    await expect(
+      purgeRequests(ownerDevice, confirmation, meta, ids.p1, false),
+    ).rejects.toMatchObject({ code: "purge" });
   });
   it("binds deletion to the chosen project and leaves the other project's requests intact", async () => {
     await pg.query("DELETE FROM rate_limits WHERE key LIKE 'purge-%'");

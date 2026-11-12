@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Mail } from "lucide-react";
 import { ar } from "@/messages/ar";
 import { purgeConfirmSchema } from "@/lib/validation";
-import { Button, Checkbox, Field, Message, Modal, command } from "./ui";
+import { Button, Checkbox, Field, Lookup, Message, Modal, command } from "./ui";
 
 export default function RequestPurge({
   email,
@@ -17,6 +17,7 @@ export default function RequestPurge({
   const router = useRouter();
   const [open, setOpen] = useState(false),
     [ack, setAck] = useState(false),
+    [projectId, setProjectId] = useState(""),
     [challenge, setChallenge] = useState(""),
     [code, setCode] = useState(""),
     [whatsapp, setWhatsapp] = useState(false),
@@ -43,7 +44,7 @@ export default function RequestPurge({
       if (!challenge) {
         const result = (await command(
           project ? "project-delete-code" : "request-purge-code",
-          project ? { projectId: project.id } : {},
+          project ? { projectId: project.id } : projectId ? { projectId } : {},
         )) as {
           challenge: string;
           whatsapp: boolean;
@@ -55,7 +56,11 @@ export default function RequestPurge({
           project ? "project-delete-confirm" : "request-purge-confirm",
           {
             ...purgeConfirmSchema.parse({ challenge, code }),
-            ...(project ? { projectId: project.id } : {}),
+            ...(project
+              ? { projectId: project.id }
+              : projectId
+                ? { projectId }
+                : {}),
           },
         );
         setOpen(false);
@@ -128,13 +133,32 @@ export default function RequestPurge({
                 : undefined
             }
           />
+          {!project ? (
+            <Field label={ar.settings.purgeProject}>
+              <Lookup
+                resource="projects"
+                value={projectId}
+                allowNone
+                allLabel={ar.common.allProjects}
+                includeInactive
+                disabled={!!challenge || busy}
+                onChange={(value) => {
+                  setProjectId(value);
+                  setAck(false);
+                }}
+              />
+            </Field>
+          ) : null}
+          {!project ? <small>{ar.settings.purgeSequenceHint}</small> : null}
           <Checkbox
             label={
               project
                 ? "أؤكد حذف مشروع «" +
                   project.name +
                   "» نهائيًا مع بنوده ومواده وطلباته واستلاماته ومرفقاته."
-                : ar.settings.purgeConfirm
+                : projectId
+                  ? ar.settings.purgeProjectConfirm
+                  : ar.settings.purgeConfirm
             }
             checked={ack}
             disabled={!!challenge || busy}
