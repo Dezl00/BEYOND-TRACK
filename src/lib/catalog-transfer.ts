@@ -5,7 +5,6 @@ export function catalogHeaders(locale: Locale) {
   return [
     ...m.boq.headers,
     m.fields.quantity,
-    m.fields.code,
     m.common.project,
     m.fields.description,
   ];

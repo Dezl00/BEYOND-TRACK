@@ -66,7 +66,6 @@ export async function GET(req: Request) {
           r.material,
           unit(r.unit),
           r.quantity,
-          r.code,
           r.project,
           r.description,
         ]),

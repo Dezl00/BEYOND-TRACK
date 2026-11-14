@@ -67,7 +67,6 @@ async function plan(tx: Executor, projectId: string, data: string[][]) {
       name = "",
       label = "",
       rawQuantity = "",
-      ,
       project = "",
       description = "",
     ] = values;

@@ -82,7 +82,6 @@ export async function importTemplate(locale: Locale = "ar") {
       ar.seed.sampleSub,
       ar.seed.sampleMaterial,
       ar.seed.units[2][0],
-      "0",
       "",
       "",
       "",
@@ -100,7 +99,7 @@ export async function importTemplate(locale: Locale = "ar") {
       sheet: ar.boq.title,
       rightToLeft: locale === "ar",
       stickyRowsCount: 1,
-      columns: [24, 24, 28, 48, 15, 15, 18, 24, 40].map((width) => ({ width })),
+      columns: [24, 24, 28, 48, 15, 24, 40].map((width) => ({ width })),
     },
     { fontFamily: "IBM Plex Sans Arabic", fontSize: 11 },
   ).toBuffer();

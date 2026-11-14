@@ -7,7 +7,7 @@ import {
   transferText,
   type ImportPreviewRow,
 } from "@/lib/catalog-transfer";
-import { Button, Field, Lookup, Message, FilePicker } from "./ui";
+import { Button, Field, Lookup, Message, FilePicker, Modal } from "./ui";
 export default function ImportForm({ project }: { project?: string }) {
   const { locale, m: msg } = useLanguage(),
     t = transferText[locale],
@@ -22,6 +22,7 @@ export default function ImportForm({ project }: { project?: string }) {
     items: ImportPreviewRow[];
     valid: boolean;
   } | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     setPreview(null);
@@ -48,7 +49,10 @@ export default function ImportForm({ project }: { project?: string }) {
           }),
           data = await r.json();
         if (!r.ok) throw Error(data.error);
-        if (!controller.signal.aborted) setPreview(data);
+        if (!controller.signal.aborted) {
+          setPreview(data);
+          setPreviewOpen(true);
+        }
       } catch (e) {
         if (!controller.signal.aborted) setError((e as Error).message);
       } finally {
@@ -62,6 +66,7 @@ export default function ImportForm({ project }: { project?: string }) {
   }, [file, projectId, revision, msg.errors.file]);
   return (
     <form
+      id="boq-import-form"
       className="stack"
       onSubmit={async (e) => {
         e.preventDefault();
@@ -121,72 +126,87 @@ export default function ImportForm({ project }: { project?: string }) {
       </fieldset>
       {loading ? <p role="status">{t.preview}…</p> : null}
       {preview ? (
-        <section aria-label={t.preview} className="stack">
-          <div className="row">
-            {(["new", "existing", "duplicate", "error"] as const).map(
-              (status) => (
-                <span key={status}>
-                  {t[status]}:{" "}
-                  {preview.items.filter((r) => r.status === status).length}
-                </span>
-              ),
-            )}
-          </div>
-          {!preview.valid ? <p role="alert">{t.blocked}</p> : null}
-          <div
-            className="table-wrap"
-            style={{ maxHeight: "60vh", overflow: "auto" }}
+        <>
+          <Button type="button" onClick={() => setPreviewOpen(true)}>
+            {t.preview}
+          </Button>
+          <Modal
+            title={t.preview}
+            wide
+            open={previewOpen}
+            onOpenChange={setPreviewOpen}
           >
-            <table>
-              <thead>
-                <tr>
-                  <th>{t.row}</th>
-                  {catalogHeaders(locale).map((h) => (
-                    <th key={h}>{h}</th>
-                  ))}
-                  <th>{t.result}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.items.map((r) => (
-                  <tr
-                    key={r.row}
-                    style={
-                      r.status === "error"
-                        ? {
-                            background: "var(--danger-soft, #fee2e2)",
-                            color: "#991b1b",
-                          }
-                        : undefined
-                    }
-                  >
-                    <td>{r.row}</td>
-                    {r.values.map((v, i) => (
-                      <td key={i}>{v}</td>
+            <section aria-label={t.preview} className="stack">
+              <div className="row">
+                {(["new", "existing", "duplicate", "error"] as const).map(
+                  (status) => (
+                    <span key={status}>
+                      {t[status]}:{" "}
+                      {preview.items.filter((r) => r.status === status).length}
+                    </span>
+                  ),
+                )}
+              </div>
+              {!preview.valid ? <p role="alert">{t.blocked}</p> : null}
+              <div
+                className="table-wrap"
+                style={{ maxHeight: "60vh", overflow: "auto" }}
+              >
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{t.row}</th>
+                      {catalogHeaders(locale).map((h) => (
+                        <th key={h}>{h}</th>
+                      ))}
+                      <th>{t.result}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.items.map((r) => (
+                      <tr
+                        key={r.row}
+                        style={
+                          r.status === "error"
+                            ? {
+                                background: "var(--danger-soft, #fee2e2)",
+                                color: "#991b1b",
+                              }
+                            : undefined
+                        }
+                      >
+                        <td>{r.row}</td>
+                        {r.values.map((v, i) => (
+                          <td key={i}>{v}</td>
+                        ))}
+                        <td>
+                          {t[r.status]}
+                          {r.issue ? " — " + t[r.issue] : ""}
+                        </td>
+                      </tr>
                     ))}
-                    <td>
-                      {t[r.status]}
-                      {r.issue ? " — " + t[r.issue] : ""}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            <div className="row end">
+              <Button
+                type="submit"
+                form="boq-import-form"
+                intent="blue"
+                pending={busy}
+                disabled={!preview.valid || loading || busy}
+              >
+                {t.confirm}
+              </Button>
+            </div>
+          </Modal>
+        </>
       ) : null}
       <div className="row end">
         <a href="/api/import" className="btn">
           {msg.common.template}
         </a>
-        <Button
-          intent="blue"
-          type="submit"
-          pending={busy}
-          disabled={!preview?.valid || loading || busy}
-        >
-          {t.confirm}
-        </Button>
       </div>
     </form>
   );

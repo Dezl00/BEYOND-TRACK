@@ -1291,7 +1291,7 @@ describe("Complete material export", () => {
       exported.every((r) => r[ar.boq.headers[0]] && r[ar.boq.headers[2]]),
     ).toBe(true);
     expect(records.some((r) => !r[ar.boq.headers[3]])).toBe(true);
-    expect(records.every((r) => !/[()]/.test(r[ar.fields.code]))).toBe(true);
+    expect(Object.keys(records[0])).not.toContain(ar.fields.code);
     expect(Object.keys(records[0])).not.toContain(ar.common.active);
     for (const resource of ["boq", "units"]) {
       const other = await exportResource(
