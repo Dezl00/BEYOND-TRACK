@@ -7,53 +7,33 @@ import { listQuerySchema } from "@/lib/validation";
 import { Heading } from "@/components/common";
 import ImportForm from "@/components/import-form";
 import BoqTabs from "@/components/boq-tabs";
+import { Download } from "lucide-react";
 export default async function ImportPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string>>;
 }) {
   const { m: msg } = await requestLanguage();
-  
+
   const a = await requirePageActor();
   requirePermission(a, "boq.create");
   const q = listQuerySchema.parse(await searchParams);
   return (
     <>
-      <Heading title={msg.boq.importTitle} />
+      <Heading title={msg.boq.importTitle}>
+        <a href="/api/import" className="btn small import-template-link">
+          <Download size={17} strokeWidth={1.8} />
+          {msg.common.template}
+        </a>
+      </Heading>
       <BoqTabs
         current="import"
         project={q.project}
         canImport
         canUnits={canManageUnits(a)}
       />
-      <section className="panel panel-body">
+      <section className="panel panel-body import-panel">
         <ImportForm project={q.project} />
-      </section>
-      <section className="panel" style={{ marginBlockStart: 24 }}>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {msg.boq.headers.map((h) => (
-                  <th key={h}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                {[
-                  msg.seed.sampleMain,
-                  msg.seed.sampleSecondary,
-                  msg.seed.sampleSub,
-                  msg.seed.sampleMaterial,
-                  msg.seed.units[2][0],
-                ].map((cell, i) => (
-                  <td key={i}>{cell}</td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </section>
     </>
   );

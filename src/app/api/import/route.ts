@@ -44,8 +44,30 @@ export async function POST(req: Request) {
     const form = await req.formData(),
       project = uuid.parse(form.get("projectId")),
       file = form.get("file");
-    if (!(file instanceof File)) throw new AppError("file");
-    const data = await parseImport(file);
+    let data: string[][];
+    const editedRows = form.get("rows");
+    if (typeof editedRows === "string") {
+      const parsed: unknown = JSON.parse(editedRows);
+      if (
+        !Array.isArray(parsed) ||
+        parsed.length > 10000 ||
+        parsed.some(
+          (row) =>
+            !Array.isArray(row) ||
+            row.length !== 7 ||
+            row.some(
+              (value) => typeof value !== "string" || value.length > 200,
+            ),
+        )
+      )
+        throw new AppError("import");
+      data = parsed as string[][];
+      if (!data.length && form.get("preview") !== "true")
+        throw new AppError("import");
+    } else {
+      if (!(file instanceof File)) throw new AppError("file");
+      data = await parseImport(file);
+    }
     if (form.get("preview") === "true")
       return Response.json(await previewBoq(a, project, data));
     return Response.json(await importBoq(a, project, data, await metadata()));

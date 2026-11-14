@@ -84,7 +84,6 @@ export async function importTemplate(locale: Locale = "ar") {
       ar.seed.units[2][0],
       "",
       "",
-      "",
     ],
   ];
   return writeExcelFile(

@@ -1755,6 +1755,7 @@ td.wrap {
 .dialog.wide-dialog {
   width: min(940px, calc(100vw - 32px));
 }
+.dialog.boq-preview-dialog { width: min(1360px, calc(100vw - 32px)); }
 .dialog-head {
   display: flex;
   align-items: center;
