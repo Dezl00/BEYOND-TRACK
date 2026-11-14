@@ -1,14 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  CircleAlert,
-  FileSpreadsheet,
-  Pencil,
-  Save,
-  Trash2,
-  UploadCloud,
-} from "lucide-react";
+import { CircleAlert, Pencil, Save, Trash2, UploadCloud } from "lucide-react";
 import { useLanguage } from "./language-context";
 import {
   catalogHeaders,
@@ -28,6 +21,8 @@ export default function ImportForm({ project }: { project?: string }) {
     [previewOpen, setPreviewOpen] = useState(false),
     [dragging, setDragging] = useState(false),
     [busy, setBusy] = useState(false),
+    [loading, setLoading] = useState(false),
+    [activeTab, setActiveTab] = useState<"new" | "duplicate" | "error">("new"),
     [error, setError] = useState(""),
     [success, setSuccess] = useState(""),
     [editing, setEditing] = useState<number | null>(null),
@@ -43,11 +38,17 @@ export default function ImportForm({ project }: { project?: string }) {
     else if (file) form.set("file", file);
     else return;
     form.set("preview", "true");
-    const r = await fetch("/api/import", { method: "POST", body: form }),
-      data = await r.json();
-    if (!r.ok) throw Error(data.error);
-    setPreview(data);
     setPreviewOpen(true);
+    setPreview(null);
+    setLoading(true);
+    try {
+      const r = await fetch("/api/import", { method: "POST", body: form }),
+        data = await r.json();
+      if (!r.ok) throw Error(data.error);
+      setPreview(data);
+    } finally {
+      setLoading(false);
+    }
   }
   async function previewFile(next: File) {
     if (next.size > 4 * 1024 * 1024 || !/\.(xlsx|csv)$/i.test(next.name)) {
@@ -58,6 +59,8 @@ export default function ImportForm({ project }: { project?: string }) {
     form.set("projectId", projectId);
     form.set("file", next);
     form.set("preview", "true");
+    setPreviewOpen(true);
+    setLoading(true);
     try {
       const r = await fetch("/api/import", { method: "POST", body: form }),
         data = await r.json();
@@ -66,6 +69,9 @@ export default function ImportForm({ project }: { project?: string }) {
       setPreviewOpen(true);
     } catch (e) {
       setError((e as Error).message);
+      setPreviewOpen(false);
+    } finally {
+      setLoading(false);
     }
   }
   function chooseFile(next: File | null) {
@@ -168,23 +174,6 @@ export default function ImportForm({ project }: { project?: string }) {
           <FilePicker accept=".xlsx,.csv" onChange={chooseFile} />
         </Field>
       </div>
-      {file ? (
-        <div className="import-file-chip">
-          <FileSpreadsheet size={19} />
-          <span>{file.name}</span>
-          <Button
-            type="button"
-            className="icon"
-            aria-label={t.removeFile}
-            onClick={() => {
-              setFile(null);
-              setPreview(null);
-            }}
-          >
-            <Trash2 size={17} />
-          </Button>
-        </div>
-      ) : null}
       <Modal
         title={t.selectProject}
         open={projectOpen}
@@ -227,11 +216,18 @@ export default function ImportForm({ project }: { project?: string }) {
         {preview ? (
           <div className="stack import-preview-content">
             <div className="import-preview-summary">
-              {(["new", "existing", "duplicate", "error"] as const).map((s) => (
-                <span key={s} data-state={s}>
-                  {t[s]}{" "}
+              {(["new", "duplicate", "error"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="import-preview-tab"
+                  data-state={s}
+                  aria-selected={activeTab === s}
+                  onClick={() => setActiveTab(s)}
+                >
+                  <span>{t[s]}</span>
                   <b>{preview.items.filter((x) => x.status === s).length}</b>
-                </span>
+                </button>
               ))}
             </div>
             {!preview.valid ? (
@@ -258,72 +254,77 @@ export default function ImportForm({ project }: { project?: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.items.map((r, index) => (
-                    <tr
-                      key={index}
-                      data-error={r.status === "error" || undefined}
-                      data-status={r.status}
-                      title={r.issue ? t[r.issue] : t[r.status]}
-                    >
-                      <td>{index + 1}</td>
-                      {r.values.map((value, i) => (
-                        <td key={i}>
-                          {editing === index ? (
-                            <input
-                              className="preview-cell-input"
-                              aria-label={catalogHeaders(locale)[i]}
-                              value={draft[i] || ""}
-                              onChange={(e) =>
-                                setDraft((d) =>
-                                  d.map((v, j) =>
-                                    j === i ? e.target.value : v,
-                                  ),
-                                )
-                              }
-                            />
-                          ) : (
-                            value || "—"
-                          )}
-                        </td>
-                      ))}
-                      <td>
-                        <div className="preview-row-actions">
-                          {r.status === "error" ? (
-                            <span
-                              className="preview-row-error"
-                              aria-label={r.issue ? t[r.issue] : t.error}
-                            >
-                              <CircleAlert size={16} />
-                            </span>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="icon"
-                            title={editing === index ? t.save : t.edit}
-                            aria-label={editing === index ? t.save : t.edit}
-                            disabled={busy}
-                            onClick={() => void editRow(index)}
-                          >
-                            {editing === index ? (
-                              <Save size={17} />
-                            ) : (
-                              <Pencil size={17} />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className="icon danger"
-                            title={t.delete}
-                            aria-label={t.delete}
-                            disabled={busy}
-                            onClick={() => void deleteRow(index)}
-                          >
-                            <Trash2 size={17} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {preview.items
+                    .filter((r) => r.status === activeTab)
+                    .map((r) => {
+                      const index = preview.items.indexOf(r);
+                      return (
+                        <tr
+                          key={r.row}
+                          data-error={r.status === "error" || undefined}
+                          data-status={r.status}
+                          title={r.issue ? t[r.issue] : t[r.status]}
+                        >
+                          <td>{index + 1}</td>
+                          {r.values.map((value, i) => (
+                            <td key={i}>
+                              {editing === index ? (
+                                <input
+                                  className="preview-cell-input"
+                                  aria-label={catalogHeaders(locale)[i]}
+                                  value={draft[i] || ""}
+                                  onChange={(e) =>
+                                    setDraft((d) =>
+                                      d.map((v, j) =>
+                                        j === i ? e.target.value : v,
+                                      ),
+                                    )
+                                  }
+                                />
+                              ) : (
+                                value || "—"
+                              )}
+                            </td>
+                          ))}
+                          <td>
+                            <div className="preview-row-actions">
+                              {r.status === "error" ? (
+                                <span
+                                  className="preview-row-error"
+                                  aria-label={r.issue ? t[r.issue] : t.error}
+                                >
+                                  <CircleAlert size={16} />
+                                </span>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="icon"
+                                title={editing === index ? t.save : t.edit}
+                                aria-label={editing === index ? t.save : t.edit}
+                                disabled={busy}
+                                onClick={() => void editRow(index)}
+                              >
+                                {editing === index ? (
+                                  <Save size={17} />
+                                ) : (
+                                  <Pencil size={17} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className="icon danger"
+                                title={t.delete}
+                                aria-label={t.delete}
+                                disabled={busy}
+                                onClick={() => void deleteRow(index)}
+                              >
+                                <Trash2 size={17} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -343,6 +344,23 @@ export default function ImportForm({ project }: { project?: string }) {
                 {t.confirm}
               </Button>
             </div>
+          </div>
+        ) : loading ? (
+          <div
+            className="import-skeleton"
+            aria-busy="true"
+            aria-label={t.preview}
+          >
+            {Array.from({ length: 5 }, (_, i) => (
+              <div className="import-skeleton-card" key={i}>
+                <div className="skeleton-line short" />
+                <div className="skeleton-grid">
+                  {Array.from({ length: 7 }, (_, j) => (
+                    <i key={j} />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         ) : null}
       </Modal>

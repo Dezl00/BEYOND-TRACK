@@ -29,7 +29,7 @@ export function Modal({
   className?: string;
 }) {
   const { m: msg } = useLanguage();
-  
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? <Dialog.Trigger asChild>{trigger}</Dialog.Trigger> : null}
@@ -65,7 +65,7 @@ export function DateInput({
   onChange: (value: string) => void;
 }) {
   const { m: msg, number, dir, intl } = useLanguage();
-  
+
   const digits = useDigits();
   const [open, setOpen] = useState(false),
     [month, setMonth] = useState(
@@ -112,10 +112,10 @@ export function DateInput({
               <ChevronRight size={16} />
             </Button>
             <span>
-              {new Intl.DateTimeFormat(
-                intl(digits),
-                { month: "long", year: "numeric" },
-              ).format(month)}
+              {new Intl.DateTimeFormat(intl(digits), {
+                month: "long",
+                year: "numeric",
+              }).format(month)}
             </span>
             <Button
               type="button"
@@ -166,9 +166,8 @@ export function FilePicker({
   onChange: (file: File | null) => void;
 }) {
   const { m: msg } = useLanguage();
-  
-  const ref = useRef<HTMLInputElement>(null),
-    [name, setName] = useState("");
+
+  const ref = useRef<HTMLInputElement>(null);
   return (
     <div className="row">
       <input
@@ -178,14 +177,12 @@ export function FilePicker({
         hidden
         onChange={(e) => {
           const file = e.target.files?.[0] || null;
-          setName(file?.name || "");
           onChange(file);
         }}
       />
       <Button type="button" onClick={() => ref.current?.click()}>
         {msg.files.choose}
       </Button>
-      <span className="muted">{name || msg.files.none}</span>
     </div>
   );
 }
