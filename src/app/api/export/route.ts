@@ -1,4 +1,6 @@
 import { fromRequest } from "@/messages/request";
+import { catalogExport } from "@/server/catalog-export";
+import { catalogHeaders } from "@/lib/catalog-transfer";
 import { canManageUnits } from "@/lib/domain";
 import { decimalText } from "@/lib/format";
 import { z } from "zod";
@@ -21,7 +23,7 @@ function csv(value: unknown) {
 }
 export async function GET(req: Request) {
   try {
-    const {m:ar,unit,role}=fromRequest(req);
+    const { m: ar, unit, role } = fromRequest(req);
     const a = await requireActor(),
       params = new URL(req.url).searchParams,
       resource = z
@@ -53,6 +55,32 @@ export async function GET(req: Request) {
     );
     if (resource === "units" && !canManageUnits(a))
       throw new AppError("forbidden", 403);
+    if (["boq", "materials", "units"].includes(resource)) {
+      const data = await catalogExport(a, q.project);
+      const content = [
+        catalogHeaders(fromRequest(req).locale),
+        ...data.map((r) => [
+          r.main,
+          r.second,
+          r.leaf,
+          r.material,
+          unit(r.unit),
+          r.quantity,
+          r.code,
+          r.project,
+          r.description,
+        ]),
+      ]
+        .map((r) => r.map(csv).join(","))
+        .join("\r\n");
+      return new Response("\uFEFF" + content, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": 'attachment; filename="beyond-boq.csv"',
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
     // A material export always starts at the beginning of the filtered catalog.
     if (resource === "materials") q.cursor = undefined;
     const result =
@@ -112,19 +140,25 @@ export async function GET(req: Request) {
               csv(
                 k === "quantity"
                   ? decimalText(row[k])
-                  : (k === "name" && resource==="units") || k==="symbol" && resource==="units" ? unit(row[k],k==="symbol") : k==="role_name" || k==="name" && resource==="roles" ? role(row[k]) : k === "unit_name"
-                    ? unit(row[k])
-                    : k === "status"
-                      ? ar.statuses[Number(row[k])]
-                      : k === "action"
-                        ? ar.auditActions[Number(row[k])]
-                        : k === "entity"
-                          ? ar.auditEntities[Number(row[k])]
-                          : typeof row[k] === "boolean"
-                            ? row[k]
-                              ? ar.common.yes
-                              : ar.common.no
-                            : row[k],
+                  : (k === "name" && resource === "units") ||
+                      (k === "symbol" && resource === "units")
+                    ? unit(row[k], k === "symbol")
+                    : k === "role_name" ||
+                        (k === "name" && resource === "roles")
+                      ? role(row[k])
+                      : k === "unit_name"
+                        ? unit(row[k])
+                        : k === "status"
+                          ? ar.statuses[Number(row[k])]
+                          : k === "action"
+                            ? ar.auditActions[Number(row[k])]
+                            : k === "entity"
+                              ? ar.auditEntities[Number(row[k])]
+                              : typeof row[k] === "boolean"
+                                ? row[k]
+                                  ? ar.common.yes
+                                  : ar.common.no
+                                : row[k],
               ),
             )
             .join(","),
@@ -178,6 +212,6 @@ export async function GET(req: Request) {
       },
     });
   } catch (e) {
-    return errorResponse(e,req);
+    return errorResponse(e, req);
   }
 }

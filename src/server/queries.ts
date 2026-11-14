@@ -1,4 +1,4 @@
-import {unitSearchAliases} from "@/messages/units";
+import { unitSearchAliases } from "@/messages/units";
 import { language } from "@/messages/catalog";
 import { parseLocale, type Locale } from "@/messages/types";
 import { attachmentVisibility } from "./attachments";
@@ -172,6 +172,10 @@ export async function listResource(
   q: Query,
   materialPageSize = pageSize,
 ) {
+  const tree = sql`WITH RECURSIVE catalog_tree AS (
+ SELECT b.id,ARRAY[p.name,p.id::text,b.name] path FROM boq_items b JOIN projects p ON p.id=b.project_id WHERE b.parent_id IS NULL
+ UNION ALL SELECT b.id,t.path||b.name FROM boq_items b JOIN catalog_tree t ON t.id=b.parent_id
+ )`;
   const c = decodeCursor(q.cursor),
     after = (col = sql`id`) => (c ? sql`AND ${col}>${c.id}::uuid` : sql``);
   if (resource === "projects")
@@ -180,7 +184,7 @@ export async function listResource(
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT b.id,b.project_id,b.parent_id,b.level,b.code,b.name,b.active,b.description,b.created_at,CASE WHEN b.level=3 THEN b.unit_id END unit_id,CASE WHEN b.level=3 THEN b.quantity END quantity,u.name unit_name,p.name project_name,pa.code parent_code FROM boq_items b JOIN projects p ON p.id=b.project_id LEFT JOIN units u ON b.level=3 AND u.id=b.unit_id LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND b.active=true AND (b.level<3 OR b.unit_id IS NULL OR u.active=true) AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.level ? sql`AND b.level=${q.level}` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`b.id`)} ORDER BY b.id LIMIT 26`,
+        sql`${tree} SELECT b.id,b.project_id,b.parent_id,b.level,b.code,b.name,b.active,b.description,b.created_at,CASE WHEN b.level=3 THEN b.unit_id END unit_id,CASE WHEN b.level=3 THEN b.quantity END quantity,u.name unit_name,p.name project_name,pa.name parent_name,pa.code parent_code FROM boq_items b JOIN catalog_tree ct ON ct.id=b.id JOIN projects p ON p.id=b.project_id LEFT JOIN units u ON b.level=3 AND u.id=b.unit_id LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND b.active=true AND (b.level<3 OR b.unit_id IS NULL OR u.active=true) AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.level ? sql`AND b.level=${q.level}` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${c ? sql`AND (ct.path,b.id)>(SELECT path,id FROM catalog_tree WHERE id=${c.id}::uuid)` : sql``} ORDER BY ct.path,b.id LIMIT 26`,
       ),
     );
   }
@@ -188,7 +192,7 @@ export async function listResource(
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT m.*,b.project_id,b.name boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND m.active=true AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR m.code ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${after(sql`m.id`)} ORDER BY m.id LIMIT ${materialPageSize + 1}`,
+        sql`${tree} SELECT m.*,b.project_id,array_to_string(ct.path[3:],' / ') boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN catalog_tree ct ON ct.id=b.id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND m.active=true AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR m.code ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${c ? sql`AND (ct.path,m.name,m.id)>(SELECT t.path,x.name,x.id FROM materials x JOIN catalog_tree t ON t.id=x.boq_item_id WHERE x.id=${c.id}::uuid)` : sql``} ORDER BY ct.path,m.name,m.id LIMIT ${materialPageSize + 1}`,
       ),
       false,
       materialPageSize,
@@ -203,13 +207,20 @@ export async function listResource(
     );
   }
   if (resource === "units") {
-    const aliases=unitSearchAliases(q.q);
+    const aliases = unitSearchAliases(q.q);
     if (!q.selectable && !canManageUnits(a))
       throw new AppError("forbidden", 403);
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`SELECT * FROM units WHERE ${q.selectable ? sql`active=true AND` : sql``} (${q.q}='' OR name ILIKE ${"%" + q.q + "%"} OR symbol ILIKE ${"%" + q.q + "%"} ${aliases.length?sql`OR name IN (${sql.join(aliases.map(v=>sql`${v}`),sql`,`)})`:sql``}) ${after()} ORDER BY id LIMIT 26`,
+        sql`SELECT * FROM units WHERE ${q.selectable ? sql`active=true AND` : sql``} (${q.q}='' OR name ILIKE ${"%" + q.q + "%"} OR symbol ILIKE ${"%" + q.q + "%"} ${
+          aliases.length
+            ? sql`OR name IN (${sql.join(
+                aliases.map((v) => sql`${v}`),
+                sql`,`,
+              )})`
+            : sql``
+        }) ${after()} ORDER BY id LIMIT 26`,
       ),
     );
   }
@@ -231,8 +242,13 @@ export async function listResource(
   }
   throw new AppError("notFound", 404);
 }
-export async function notifications(a: Actor, cursor?: string, q = "", locale:Locale="ar") {
-  const {m:ar}=language(locale);
+export async function notifications(
+  a: Actor,
+  cursor?: string,
+  q = "",
+  locale: Locale = "ar",
+) {
+  const { m: ar } = language(locale);
   const c = decodeCursor(cursor);
   return page(
     await rows<RecordRow>(

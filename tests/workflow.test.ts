@@ -87,8 +87,14 @@ import { GET as options } from "@/app/api/options/route";
 import { GET as exportResource } from "@/app/api/export/route";
 import { parse as parseCsv } from "csv-parse/sync";
 import { ar } from "@/messages/ar";
+import { catalogExport } from "@/server/catalog-export";
 import { decrypt } from "@/server/security";
-import { importTemplate, parseImport, importBoq } from "@/server/import";
+import {
+  importTemplate,
+  parseImport,
+  importBoq,
+  previewBoq,
+} from "@/server/import";
 import { can, effectivePreference, receiptStatus } from "@/lib/domain";
 import { requestSchema, boqSchema } from "@/lib/validation";
 let pg: PGlite;
@@ -226,6 +232,7 @@ beforeAll(async () => {
     "drizzle/custom/0010_project_management.sql",
     "drizzle/custom/0011_request_workflow.sql",
     "drizzle/custom/0012_project_request_numbers.sql",
+    "drizzle/custom/0013_catalog_plain_codes.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -1219,8 +1226,34 @@ describe("Arabic BOQ import", () => {
     ).rejects.toMatchObject({ code: "import" });
   });
 });
+describe("Import preview", () => {
+  it("shows duplicates, existing matches and invalid quantities without writing", async () => {
+    const data = [
+      [" Preview main ", "Second", "Leaf", "New material", "م³", "4"],
+      ["Preview main", "Second", "Leaf", "New material", "م³", "4"],
+      ["Preview main", "Second", "Leaf", "Bad material", "م³", "-1"],
+    ];
+    const preview = await previewBoq(owner, ids.p2, data);
+    expect(preview.valid).toBe(false);
+    expect(preview.items.map((r) => r.status)).toEqual([
+      "new",
+      "duplicate",
+      "error",
+    ]);
+    await expect(importBoq(owner, ids.p2, data, meta)).rejects.toMatchObject({
+      code: "import",
+    });
+    expect((await previewBoq(owner, ids.p2, [data[0]])).items[0].status).toBe(
+      "new",
+    );
+    await importBoq(owner, ids.p2, [data[0]], meta);
+    expect((await previewBoq(owner, ids.p2, [data[0]])).items[0].status).toBe(
+      "existing",
+    );
+  });
+});
 describe("Complete material export", () => {
-  it("exports every filtered page even when opened from a later page", async () => {
+  it("exports the entire hierarchy from every catalog tab, ignoring page and text filters", async () => {
     await login({
       identifier: owner.email,
       password: "Test-password-12345",
@@ -1235,6 +1268,7 @@ describe("Complete material export", () => {
       project: ids.p1,
     });
     expect(first.items).toHaveLength(25);
+    await catalogExport(owner, ids.p1);
     const response = await exportResource(
       new Request(
         `http://localhost/api/export?resource=materials&project=${ids.p1}&q=${encodeURIComponent("تصدير-")}&cursor=${first.next}`,
@@ -1245,18 +1279,52 @@ describe("Complete material export", () => {
       columns: true,
       bom: true,
     });
-    expect(records).toHaveLength(463);
-    expect(new Set(records.map((r) => r[ar.fields.name])).size).toBe(463);
-    expect(records.every((r) => r[ar.fields.quantity] === "1.25")).toBe(true);
-    expect(response.headers.get("X-Next-Cursor")).toBeNull();
-    const empty = await exportResource(
-      new Request(
-        `http://localhost/api/export?resource=materials&project=${ids.p2}&q=${encodeURIComponent("تصدير-")}`,
-      ),
+    const exported = records.filter((r) =>
+      r[ar.boq.headers[3]].startsWith("تصدير-"),
+    );
+    expect(exported).toHaveLength(463);
+    expect(new Set(exported.map((r) => r[ar.boq.headers[3]])).size).toBe(463);
+    expect(exported.every((r) => Number(r[ar.fields.quantity]) === 1.25)).toBe(
+      true,
     );
     expect(
-      parseCsv(await empty.text(), { columns: true, bom: true }),
-    ).toHaveLength(0);
+      exported.every((r) => r[ar.boq.headers[0]] && r[ar.boq.headers[2]]),
+    ).toBe(true);
+    expect(records.some((r) => !r[ar.boq.headers[3]])).toBe(true);
+    expect(records.every((r) => !/[()]/.test(r[ar.fields.code]))).toBe(true);
+    expect(Object.keys(records[0])).not.toContain(ar.common.active);
+    for (const resource of ["boq", "units"]) {
+      const other = await exportResource(
+        new Request(
+          "http://localhost/api/export?resource=" +
+            resource +
+            "&project=" +
+            ids.p1,
+        ),
+      );
+      expect(
+        parseCsv(await other.text(), { columns: true, bom: true }),
+      ).toEqual(records);
+    }
+    const data = await parseImport(
+      new File(
+        [
+          "\uFEFF" +
+            [Object.keys(records[0]), ...records.map(Object.values)]
+              .map((row) =>
+                row.map((v) => '"' + v.replaceAll('"', '""') + '"').join(","),
+              )
+              .join("\r\n"),
+        ],
+        "roundtrip.csv",
+      ),
+    );
+    expect((await previewBoq(owner, ids.p1, data)).valid).toBe(true);
+    expect(await importBoq(owner, ids.p1, data, meta)).toEqual({
+      rows: 0,
+      materials: 0,
+      units: 0,
+    });
     await pg.query("DELETE FROM materials WHERE name LIKE 'تصدير-%'");
   });
 });
