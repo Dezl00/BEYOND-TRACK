@@ -2120,7 +2120,7 @@ describe("Owner-only request purge", () => {
           mains: [ids.main],
           seconds: [ids.secondary],
           leaves: [ids.leaf],
-        })
+        }, 1000)
       ).items.map((x) => x.id),
     ).toContain(ids.material);
     expect(
@@ -2132,7 +2132,7 @@ describe("Owner-only request purge", () => {
         await listResource(owner, "materials", {
           q: "",
           mains: [randomUUID(), ids.main],
-        })
+        }, 1000)
       ).items.map((x) => x.id),
     ).toContain(ids.material);
     await purgeRequests(ownerDevice, confirmation, meta, ids.p1);

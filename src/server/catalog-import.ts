@@ -67,7 +67,6 @@ async function plan(tx: Executor, projectId: string, data: string[][]) {
       name = "",
       label = "",
       rawQuantity = "",
-      project = "",
       description = "",
     ] = values;
     const quantity = rawQuantity || "0";
@@ -80,10 +79,6 @@ async function plan(tx: Executor, projectId: string, data: string[][]) {
       !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,3})?$/.test(quantity)
     ) {
       fail("invalid");
-      continue;
-    }
-    if (project && catalogName(project) !== catalogName(projects[0].name)) {
-      fail("project");
       continue;
     }
     let unit: string | null = null;
