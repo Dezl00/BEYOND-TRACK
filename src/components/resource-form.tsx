@@ -277,7 +277,7 @@ export default function ResourceForm({
               <Field label={msg.fields.boqItem}>
                 <Lookup
                   resource="boq"
-                  project={project}
+                  project={String(initial?.project_id || project || "") || undefined}
                   onlyLevel={3}
                   value={String(state.boqItemId)}
                   initialLabel={String(initial?.boq_name || "")}

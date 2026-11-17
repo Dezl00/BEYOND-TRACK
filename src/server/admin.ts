@@ -144,12 +144,12 @@ export async function saveMaterial(
     const id = v.id || randomUUID(),
       old = v.id
         ? await one<Record<string, unknown>>(
-            sql`SELECT * FROM materials WHERE id=${id} AND boq_item_id=${v.boqItemId} FOR UPDATE`,
+            sql`SELECT m.*,COALESCE(m.unit_id,src.unit_id) effective_unit FROM materials m JOIN boq_items src ON src.id=m.boq_item_id WHERE m.id=${id} AND src.project_id=${b.project_id} AND (src.id=${v.boqItemId} OR src.manual_entry) FOR UPDATE OF m`,
             tx,
           )
         : {};
     if (!old) throw new AppError("notFound", 404);
-    const unitId = v.unitId || old.unit_id || b.unit_id;
+    const unitId = v.unitId || old.effective_unit || b.unit_id;
     if (
       !(await one(
         sql`SELECT id FROM units WHERE id=${unitId} AND active=true`,
@@ -159,7 +159,7 @@ export async function saveMaterial(
       throw new AppError("invalid");
     if (
       v.id &&
-      unitId !== (old.unit_id || b.unit_id) &&
+      unitId !== old.effective_unit &&
       (await one(
         sql`SELECT id FROM request_lines WHERE material_id=${id} LIMIT 1`,
         tx,
@@ -168,7 +168,7 @@ export async function saveMaterial(
       throw new AppError("referenced", 409);
     if (v.id)
       await tx.execute(
-        sql`UPDATE materials SET unit_id=${unitId},name=${v.name},quantity=${v.quantity},active=${v.active} WHERE id=${id}`,
+        sql`UPDATE materials SET boq_item_id=${v.boqItemId},unit_id=${unitId},name=${v.name},quantity=${v.quantity},active=${v.active} WHERE id=${id}`,
       );
     else
       await tx.execute(
@@ -182,6 +182,7 @@ export async function saveMaterial(
       3,
       id,
       changes(old, {
+        boq_item_id: v.boqItemId,
         unit_id: unitId,
         name: v.name,
         quantity: v.quantity,

@@ -189,10 +189,14 @@ export async function listResource(
     );
   }
   if (resource === "materials") {
+    // Put exact material names on the first page of searchable choices.
+    const nameRank = (name: ReturnType<typeof sql>) => q.selectable && q.q
+      ? sql`(lower(trim(${name})) <> lower(${q.q})),`
+      : sql``;
     requirePermission(a, "boq.view");
     return page(
       await rows<RecordRow>(
-        sql`${tree} SELECT m.*,b.project_id,array_to_string(ct.path[3:],' / ') boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN catalog_tree ct ON ct.id=b.id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND m.active=true AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR m.code ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${c ? sql`AND (ct.path,m.name,m.id)>(SELECT t.path,x.name,x.id FROM materials x JOIN catalog_tree t ON t.id=x.boq_item_id WHERE x.id=${c.id}::uuid)` : sql``} ORDER BY ct.path,m.name,m.id LIMIT ${materialPageSize + 1}`,
+        sql`${tree} SELECT m.*,b.project_id,array_to_string(ct.path[3:],' / ') boq_name,u.name unit_name FROM materials m JOIN boq_items b ON b.id=m.boq_item_id JOIN catalog_tree ct ON ct.id=b.id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN boq_items pa ON pa.id=b.parent_id WHERE ${projectScope(a, sql`b.project_id`)} ${catalogScope(q)} ${q.selectable ? sql`AND m.active=true AND b.active=true AND u.active=true AND COALESCE(pa.active,true)=true AND NOT EXISTS(SELECT 1 FROM boq_items grand WHERE grand.id=pa.parent_id AND grand.active=false)` : sql``} ${q.project ? sql`AND b.project_id=${q.project}` : sql``} AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR m.code ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"}) ${c ? sql`AND (${nameRank(sql`m.name`)}ct.path,m.name,m.id)>(SELECT ${nameRank(sql`x.name`)}t.path,x.name,x.id FROM materials x JOIN catalog_tree t ON t.id=x.boq_item_id WHERE x.id=${c.id}::uuid)` : sql``} ORDER BY ${nameRank(sql`m.name`)}ct.path,m.name,m.id LIMIT ${materialPageSize + 1}`,
       ),
       false,
       materialPageSize,

@@ -58,11 +58,14 @@ export const resetPasswordSchema = z.object({
   code: z.string().regex(/^\d{6}$/),
   password,
 });
-const line = z.object({
-  materialId: uuid,
+const lineFields = z.object({
   quantity: qty,
   notes: z.string().trim().max(1000).default(""),
 });
+const line = z.union([
+  lineFields.extend({ materialId: uuid }).strict(),
+  lineFields.extend({ manualName: short, unitId: uuid }).strict(),
+]);
 export const requestSchema = z
   .object({
     id: uuid.optional(),
@@ -73,7 +76,14 @@ export const requestSchema = z
     lines: z.array(line).min(1).max(100),
   })
   .refine(
-    (v) => new Set(v.lines.map((l) => l.materialId)).size === v.lines.length,
+    (v) =>
+      new Set(
+        v.lines.map((l) =>
+          "materialId" in l
+            ? l.materialId
+            : `manual:${l.manualName.toLowerCase()}`,
+        ),
+      ).size === v.lines.length,
     ar.errors.duplicate,
   )
   .refine((v) => !v.submit || v.notes.length > 0, {

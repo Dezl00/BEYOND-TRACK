@@ -104,6 +104,8 @@ export default async function RequestPage({
               status: r.status,
               version: r.version,
               created_by: r.created_by,
+              project_name: String(r.project_name),
+              notes: r.notes,
             }}
             quotes={r.quotes}
             attachments={r.files as unknown as RequestAttachment[]}
@@ -113,6 +115,8 @@ export default async function RequestPage({
             lines={r.lines.map((l) => ({
               id: l.id,
               material_name: String(l.material_name),
+              boq_name: String(l.boq_name),
+              notes: String(l.notes || ""),
               quantity: String(l.quantity),
               accepted: String(l.accepted),
               returned: String(l.returned),

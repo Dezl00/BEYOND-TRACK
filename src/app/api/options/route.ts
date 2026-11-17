@@ -21,7 +21,10 @@ export async function GET(req: Request) {
         "report-items",
       ])
       .parse(params.get("resource"));
-    const q = listQuerySchema.parse(
+    const schema = resource === "materials"
+      ? listQuerySchema.extend({ q: z.string().trim().max(200).default("") })
+      : listQuerySchema;
+    const q = schema.parse(
       Object.fromEntries([...params].filter(([k]) => k !== "resource")),
     );
     const result =

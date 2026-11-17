@@ -8,7 +8,7 @@ import { Check, ChevronDown, Search, X } from "lucide-react";
 import { number } from "@/lib/format";
 import { useDigits } from "./format-context";
 
-type Option = { value: string; label: string; disabled?: boolean };
+type Option = { value: string; label: string; disabled?: boolean; create?: boolean };
 type DropdownProps = {
   open: boolean;
   setOpen: (value: boolean) => void;
@@ -128,7 +128,7 @@ function Dropdown({
                 }
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  const option = options[highlighted];
+                  const option = options[highlighted] ?? (options[0]?.create ? options[0] : undefined);
                   if (option && !option.disabled) choose(option);
                 }
               }}
@@ -169,6 +169,7 @@ function Dropdown({
                 onClick={() => choose(option)}
               >
                 <span>{option.label}</span>
+                {option.create && <span className="dropdown-add-badge">{msg.common.create}</span>}
                 <span className="option-check">
                   {selected.includes(option.value) ? <Check size={15} /> : null}
                 </span>
@@ -258,6 +259,8 @@ type Item = {
   code?: string;
   active?: boolean;
   archived?: boolean;
+  boq_name?: string;
+  unit_name?: string;
 };
 type Page = { items: Item[]; next: string | null };
 const cache = new Map<string, { page: Page; at: number }>();
@@ -266,7 +269,10 @@ type RemoteProps = {
   seconds?: string;
   resource: string;
   values: string[];
-  onChange: (values: string[], labels: Record<string, string>) => void;
+  onChange: (values: string[], labels: Record<string, string>, item?: Item) => void;
+  onCreate?: (name: string) => void;
+  onSearchChange?: (query: string) => void;
+  clearable?: boolean;
   project?: string;
   initialLabels?: Record<string, string>;
   placeholder?: string;
@@ -282,6 +288,9 @@ function RemoteDropdown({
   resource,
   values,
   onChange,
+  onCreate,
+  onSearchChange,
+  clearable,
   project,
   initialLabels = {},
   placeholder: placeholderInput,
@@ -295,12 +304,18 @@ function RemoteDropdown({
   includeInactive = false,
   disabled,
 }: RemoteProps) {
-  const { m: msg,unit,role,locale } = useLanguage();
-  const displayName=(value:string)=>resource==="units"?unit(value):resource==="roles"?role(value):value;
+  const { m: msg, unit, role, locale } = useLanguage();
+  const displayName = (value: string) =>
+    resource === "units"
+      ? unit(value)
+      : resource === "roles"
+        ? role(value)
+        : value;
   const placeholder = placeholderInput ?? msg.common.select;
   const allLabel = allLabelInput ?? msg.common.all;
   const [open, setOpen] = useState(defaultOpen),
     [q, setQ] = useState(""),
+    [loadedKey, setLoadedKey] = useState(""),
     [page, setPage] = useState<Page>({ items: [], next: null }),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -317,7 +332,7 @@ function RemoteDropdown({
     ...(!includeInactive ? { selectable: "1" } : {}),
   });
   const key = params.toString();
-  const cacheKey=locale+":"+key;
+  const cacheKey = locale + ":" + key;
   useEffect(() => {
     const invalidate = () => {
       cache.clear();
@@ -341,6 +356,7 @@ function RemoteDropdown({
       const data: Page & { error?: string } = await response.json();
       if (!response.ok) throw new Error(data.error || msg.common.failed);
       if (token !== sequence.current) return;
+      setLoadedKey(cacheKey);
       setPage((previous) => ({
         items: cursor
           ? [
@@ -378,6 +394,8 @@ function RemoteDropdown({
     const saved = cache.get(cacheKey);
     setPage(saved?.page || { items: [], next: null });
     if (saved && Date.now() - saved.at < 15_000) {
+      setLoadedKey(cacheKey);
+      setError("");
       setBusy(false);
       setLabels((previous) => ({
         ...previous,
@@ -410,21 +428,45 @@ function RemoteDropdown({
       label: [item.code, displayName(item.name)].filter(Boolean).join(" · "),
     })),
   ];
+  const name = q.trim();
+  if (
+    onCreate &&
+    name &&
+    name.length <= 200 &&
+    loadedKey === cacheKey &&
+    !busy &&
+    !error &&
+    !page.items.some(
+      (item) => item.name.trim().toLowerCase() === name.toLowerCase(),
+    )
+  ) {
+    options.unshift({ value: "create", label: name, create: true });
+  }
+  function changeOpen(next: boolean) {
+    setOpen(next);
+    if (!next && onCreate) {
+      setQ("");
+      onSearchChange?.("");
+    }
+  }
   const label = values.length
     ? values
         .map((id) => labels[id] || initialLabels[id] || msg.common.select)
-        .join(locale==="en"?", ":"، ")
+        .join(locale === "en" ? ", " : "، ")
     : allowNone
       ? allLabel
       : placeholder;
   return (
     <Dropdown
       open={open}
-      setOpen={setOpen}
+      setOpen={changeOpen}
       label={label}
       placeholder={placeholder}
       q={q}
-      setQ={setQ}
+      setQ={(query) => {
+        setQ(query);
+        onSearchChange?.(query);
+      }}
       options={options}
       selected={values.length ? values : allowNone ? [""] : []}
       multiple={multiple}
@@ -432,8 +474,20 @@ function RemoteDropdown({
       busy={busy}
       error={error}
       more={page.next ? () => void load(page.next!) : undefined}
-      clear={multiple ? () => onChange([], labels) : undefined}
+      clear={
+        multiple || clearable
+          ? () => {
+              onChange([], labels);
+              if (!multiple) changeOpen(false);
+            }
+          : undefined
+      }
       choose={(option) => {
+        if (option.create) {
+          onCreate?.(option.label);
+          changeOpen(false);
+          return;
+        }
         const nextLabels = { ...labels, [option.value]: option.label };
         setLabels(nextLabels);
         const next = multiple
@@ -443,8 +497,12 @@ function RemoteDropdown({
           : option.value
             ? [option.value]
             : [];
-        onChange(next, nextLabels);
-        if (!multiple) setOpen(false);
+        onChange(
+          next,
+          nextLabels,
+          page.items.find((item) => item.id === option.value),
+        );
+        if (!multiple) changeOpen(false);
       }}
     />
   );
@@ -452,7 +510,10 @@ function RemoteDropdown({
 type LookupProps = {
   resource: string;
   value: string;
-  onChange: (value: string, label?: string) => void;
+  onChange: (value: string, label?: string, item?: Item) => void;
+  onCreate?: RemoteProps["onCreate"];
+  onSearchChange?: RemoteProps["onSearchChange"];
+  clearable?: boolean;
   project?: string;
   initialLabel?: string;
   allowNone?: boolean;
@@ -473,8 +534,8 @@ export function Lookup({
       {...props}
       values={value ? [value] : []}
       initialLabels={value && initialLabel ? { [value]: initialLabel } : {}}
-      onChange={(values, labels) =>
-        onChange(values[0] || "", labels[values[0]])
+      onChange={(values, labels, item) =>
+        onChange(values[0] || "", labels[values[0]], item)
       }
     />
   );

@@ -1,6 +1,6 @@
 import { requestLanguage } from "@/server/language";
 import { requirePageActor } from "@/server/page-auth";
-import { requirePermission } from "@/server/access";
+import { requirePermission, requireProject } from "@/server/access";
 import { listQuerySchema } from "@/lib/validation";
 
 import { Heading } from "@/components/common";
@@ -15,10 +15,11 @@ export default async function NewRequest({
   const a = await requirePageActor();
   requirePermission(a, "requests.create");
   const q = listQuerySchema.parse(await searchParams);
+  const project = q.project ? await requireProject(a, q.project) : undefined;
   return (
     <>
       <Heading title={msg.requests.new} />
-      <RequestForm project={q.project} />
+      <RequestForm project={project?.id} projectName={project?.name} />
     </>
   );
 }

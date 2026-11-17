@@ -23,6 +23,7 @@ import {
 import ReceiptForm from "./receipt-form";
 import TechnicalReview from "./technical-review";
 import PaymentForm from "./payment-form";
+import { RequestPreview } from "./request-preview";
 export function RequestActions({
   actor,
   request,
@@ -38,8 +39,10 @@ export function RequestActions({
     version: number;
     pricing_revision?: number;
     created_by?: string;
+    project_name?: string;
+    notes?: string;
   };
-  lines: RequestLine[];
+  lines: (RequestLine & { boq_name?: string; notes?: string })[];
   quotes: Quote[];
   attachments?: RequestAttachment[];
   pendingOverage: boolean;
@@ -158,7 +161,7 @@ export function RequestActions({
       </div>
       <Modal
         title={
-          mode === "technical"
+          mode === "12" ? msg.requests.preview : mode === "technical"
             ? msg.interface.reviewItems
             : mode === "quotes"
               ? msg.interface.quotation
@@ -172,7 +175,8 @@ export function RequestActions({
         onOpenChange={(value) => {
           if (!value && !busy) setMode("");
         }}
-        wide={["technical", "quotes", "payment", "receipt", "11"].includes(
+        className={mode === "12" ? "request-preview" : ""}
+        wide={["technical", "quotes", "payment", "receipt", "11", "12"].includes(
           mode,
         )}
       >
@@ -220,6 +224,11 @@ export function RequestActions({
                   required
                 />
               </Field>
+            ) : mode === "12" ? (
+              <RequestPreview project={request.project_name || ""} notes={request.notes || ""} lines={lines.map((line) => ({
+                key: line.id, label: line.material_name, item: line.boq_name, quantity: line.quantity,
+                unitName: line.unit_name, notes: line.notes || "",
+              }))} />
             ) : mode === "11" ? (
               <>
                 <QuoteSummary
@@ -263,7 +272,7 @@ export function RequestActions({
                 intent={["7", "8"].includes(mode) ? "red" : "green"}
                 pending={busy}
               >
-                {msg.common.confirm}
+                {mode === "12" ? msg.requests.confirmSubmit : msg.common.confirm}
               </Button>
             </div>
           </form>

@@ -59,7 +59,7 @@ import {
   submitQuotations,
   receive,
 } from "@/server/requests";
-import { saveBoq, saveProject, saveUser, saveRole } from "@/server/admin";
+import { saveBoq, saveMaterial, saveProject, saveUser, saveRole } from "@/server/admin";
 import { setActive } from "@/server/activation";
 import { issueRequestPurge, purgeRequests } from "@/server/request-purge";
 import { deleteRecord } from "@/server/delete";
@@ -220,6 +220,7 @@ beforeAll(async () => {
     "drizzle/generated/0010_request_stage_history.sql",
     "drizzle/generated/0011_omniscient_chimera.sql",
     "drizzle/generated/0012_account_language.sql",
+    "drizzle/generated/0013_manual_entry_sections.sql",
     "drizzle/custom/0001_integrity.sql",
     "drizzle/custom/0002_approvals_and_push.sql",
     "drizzle/custom/0003_account_integrity.sql",
@@ -233,6 +234,7 @@ beforeAll(async () => {
     "drizzle/custom/0011_request_workflow.sql",
     "drizzle/custom/0012_project_request_numbers.sql",
     "drizzle/custom/0013_catalog_plain_codes.sql",
+    "drizzle/custom/0014_manual_entry_classification.sql",
   ])
     await pg.exec(await readFile(file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
@@ -480,6 +482,84 @@ describe("Authorization and database invariants", () => {
     await expect(
       pg.query("UPDATE audit_log SET action=1 WHERE id=$1", [id]),
     ).rejects.toThrow();
+  });
+  it("stages manual materials atomically and reclassifies them without breaking requests", async () => {
+    const projectId = randomUUID();
+    await pg.query(
+      "INSERT INTO projects(id,name) VALUES($1,'Manual entry test')",
+      [projectId],
+    );
+    await pg.query(
+      "INSERT INTO project_users(project_id,user_id) VALUES($1,$2)",
+      [projectId, engineer.id],
+    );
+    const manual = {
+      manualName: "كابل نحاس",
+      unitId: ids.unit,
+      quantity: "7",
+      notes: "الغرفة الأولى",
+    };
+    const data = { projectId, notes: "توصيل", submit: true, lines: [manual] };
+    await expect(
+      saveRequest(
+        engineer,
+        {
+          ...data,
+          lines: [
+            manual,
+            { materialId: ids.material, quantity: "1", notes: "" },
+          ],
+        },
+        meta,
+      ),
+    ).rejects.toMatchObject({ code: "invalid" });
+    expect(
+      (
+        await pg.query("SELECT id FROM boq_items WHERE project_id=$1", [
+          projectId,
+        ])
+      ).rows,
+    ).toHaveLength(0);
+    const first = await saveRequest(engineer, data, meta);
+    const second = await saveRequest(engineer, data, meta);
+    const lookup = () =>
+      listResource(engineer, "materials", {
+        project: projectId,
+        q: manual.manualName,
+        selectable: "1",
+      });
+    const [material] = (await lookup()).items;
+    expect(material.boq_name).toContain(ar.requests.manualEntry);
+    expect(Number(material.quantity)).toBe(0);
+    expect((await lookup()).items).toHaveLength(1);
+    const edit = {
+      id: material.id,
+      name: manual.manualName,
+      quantity: "20",
+      unitId: ids.unit,
+      active: true,
+    };
+    await expect(
+      saveMaterial(owner, { ...edit, boqItemId: ids.leaf }, meta),
+    ).rejects.toMatchObject({ code: "notFound" });
+    const destination = randomUUID();
+    await pg.query(
+      "INSERT INTO boq_items(id,project_id,parent_id,level,name,description,quantity) SELECT $1,project_id,parent_id,3,'Wiring','Wiring',0 FROM boq_items WHERE id=$2",
+      [destination, material.boq_item_id],
+    );
+    await saveMaterial(owner, { ...edit, boqItemId: destination }, meta);
+    for (const { id } of [first, second]) {
+      const detail = await requestDetail(engineer, id);
+      expect(detail.lines[0]).toMatchObject({
+        material_id: material.id,
+        boq_name: "Wiring",
+        unit_name: "متر مكعب",
+        notes: manual.notes,
+      });
+    }
+    await pg.query("DELETE FROM project_users WHERE project_id=$1", [
+      projectId,
+    ]);
   });
   it("requires description only on third level and unique request materials", () => {
     expect(

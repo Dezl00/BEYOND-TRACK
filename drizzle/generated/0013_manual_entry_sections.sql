@@ -1,0 +1,1 @@
+ALTER TABLE "boq_items" ADD COLUMN "manual_entry" boolean DEFAULT false NOT NULL;

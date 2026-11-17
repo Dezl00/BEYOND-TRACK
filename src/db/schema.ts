@@ -138,6 +138,7 @@ export const boqItems = pgTable(
       .notNull()
       .references(() => projects.id),
     parentId: uuid("parent_id"),
+    manualEntry: boolean("manual_entry").notNull().default(false),
     level: smallint("level").notNull(),
     code: varchar("code", { length: 60 }).notNull(),
     name: varchar("name", { length: 250 }).notNull(),

@@ -61,6 +61,104 @@ async function history(
     sql`INSERT INTO request_timeline(request_id,user_id,from_status,to_status,note) VALUES (${r.id},${actor.id},${r.status},${status},${note})`,
   );
 }
+async function manualEntryLeaf(tx: Executor, projectId: string) {
+  // Serialize creation of the shared section and its materials within a project.
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${projectId}, 1))`,
+  );
+  const sections = await rows<{ id: string; level: number; active: boolean }>(
+    sql`SELECT id,level,active FROM boq_items WHERE project_id=${projectId} AND manual_entry ORDER BY level FOR SHARE`,
+    tx,
+  );
+  if (sections.some((section) => !section.active))
+    throw new AppError("invalid");
+  const names = ["الإدخال اليدوي", "مواد غير مصنفة", "مواد بانتظار التصنيف"];
+  let parentId: string | null = null;
+  for (const [index, name] of names.entries()) {
+    const level = index + 1;
+    const section = sections.find((item) => item.level === level);
+    if (section) {
+      parentId = section.id;
+      continue;
+    }
+    const id = randomUUID();
+    await tx.execute(sql`INSERT INTO boq_items(id,project_id,parent_id,level,name,description,quantity,manual_entry)
+      VALUES (${id},${projectId},${parentId},${level},${name},${level === 3 ? name : null},${level === 3 ? 0 : null},true)`);
+    parentId = id;
+  }
+  return parentId!;
+}
+
+async function resolveRequestLines(
+  tx: Executor,
+  projectId: string,
+  requestLines: z.infer<typeof requestSchema>["lines"],
+  actor: Actor,
+  meta: Meta,
+) {
+  const lines = [];
+  let leafId: string | undefined;
+  for (const line of requestLines) {
+    if ("materialId" in line) {
+      lines.push(line);
+      continue;
+    }
+    leafId ??= await manualEntryLeaf(tx, projectId);
+    const matches = await rows<{
+      id: string;
+      boq_item_id: string;
+      unit_id: string;
+    }>(
+      sql`SELECT m.id,m.boq_item_id,m.unit_id FROM materials m JOIN boq_items b ON b.id=m.boq_item_id
+          JOIN boq_items p ON p.id=b.parent_id JOIN boq_items g ON g.id=p.parent_id
+          JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id)
+          WHERE b.project_id=${projectId} AND lower(trim(m.name))=lower(${line.manualName})
+          AND m.active AND b.active AND p.active AND g.active AND u.active FOR UPDATE OF m`,
+      tx,
+    );
+    const match = matches[0];
+    if (
+      match &&
+      (matches.length !== 1 ||
+        match.boq_item_id !== leafId ||
+        match.unit_id !== line.unitId)
+    )
+      throw new AppError("duplicate", 409);
+    const materialId = match?.id ?? randomUUID();
+    if (!match) {
+      if (
+        !(await one(
+          sql`SELECT id FROM units WHERE id=${line.unitId} AND active FOR SHARE`,
+          tx,
+        ))
+      )
+        throw new AppError("invalid");
+      await tx.execute(sql`INSERT INTO materials(id,boq_item_id,name,unit_id,quantity)
+        VALUES (${materialId},${leafId},${line.manualName},${line.unitId},0)`);
+      await audit(
+        tx,
+        actor.id,
+        meta,
+        0,
+        3,
+        materialId,
+        changes(
+          {},
+          {
+            name: line.manualName,
+            boq_item_id: leafId,
+            unit_id: line.unitId,
+            quantity: "0",
+          },
+        ),
+        projectId,
+      );
+    }
+    lines.push({ materialId, quantity: line.quantity, notes: line.notes });
+  }
+  return lines;
+}
+
 export async function saveRequest(
   actor: Actor,
   input: z.infer<typeof requestSchema>,
@@ -92,7 +190,9 @@ export async function saveRequest(
       )
         throw new AppError("editExpired", 403);
     }
-    const ids = input.lines.map((l) => l.materialId).sort();
+    const lines = await resolveRequestLines(tx, input.projectId, input.lines, actor, meta);
+    const ids = lines.map((l) => l.materialId).sort();
+    if (new Set(ids).size !== ids.length) throw new AppError("duplicate", 409);
     const materials = await rows<Material>(
       sql`SELECT m.id,m.quantity,m.active,b.project_id FROM materials m JOIN boq_items b ON b.id=m.boq_item_id WHERE m.id IN (${sql.join(
         ids.map((id) => sql`${id}::uuid`),
@@ -122,7 +222,7 @@ export async function saveRequest(
         )
       : [];
     for (const old of oldLines) {
-      const next = input.lines.find((l) => l.materialId === old.material_id),
+      const next = lines.find((l) => l.materialId === old.material_id),
         received = withReceipts.find((l) => l.request_line_id === old.id);
       if (received && (!next || new Decimal(next.quantity).lt(received.net)))
         throw new AppError("quantity", 409);
@@ -132,8 +232,8 @@ export async function saveRequest(
     const changed =
       !!existing &&
       (input.notes !== existing.notes ||
-        input.lines.length !== oldLines.length ||
-        input.lines.some(
+        lines.length !== oldLines.length ||
+        lines.some(
           (line) =>
             !oldLines.some(
               (old) =>
@@ -164,7 +264,7 @@ export async function saveRequest(
       );
     for (const old of oldLines.filter((l) => !ids.includes(l.material_id)))
       await tx.execute(sql`DELETE FROM request_lines WHERE id=${old.id}`);
-    for (const line of input.lines) {
+    for (const line of lines) {
       const old = oldLines.find((l) => l.material_id === line.materialId);
       if (old)
         await tx.execute(
@@ -195,7 +295,7 @@ export async function saveRequest(
             notes: l.notes,
           })),
         },
-        { notes: input.notes, lines: input.lines },
+        { notes: input.notes, lines },
       ),
       input.projectId,
     );

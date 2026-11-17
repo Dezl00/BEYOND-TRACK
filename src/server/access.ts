@@ -51,8 +51,8 @@ export async function requireProject(
   conn: Executor = db(),
   write = false,
 ) {
-  const p = await one<{ id: string; archived: boolean }>(
-    sql`SELECT p.id,p.archived FROM projects p WHERE p.id=${id}::uuid AND ${projectScope(actor)}`,
+  const p = await one<{ id: string; archived: boolean; name: string }>(
+    sql`SELECT p.id,p.archived,p.name FROM projects p WHERE p.id=${id}::uuid AND ${projectScope(actor)}`,
     conn,
   );
   if (!p) throw new AppError("project", 403);

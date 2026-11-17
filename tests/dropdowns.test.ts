@@ -17,6 +17,7 @@ import ActivationSwitch from "@/components/activation-switch";
 import Shell from "@/components/shell";
 import Breadcrumbs from "@/components/breadcrumbs";
 import RequestPurge from "@/components/request-purge";
+import RequestForm from "@/components/request-form";
 import { ar } from "@/messages/ar";
 import type { Actor } from "@/lib/domain";
 
@@ -79,6 +80,89 @@ afterEach(() => {
 });
 
 describe("Searchable anchored dropdowns", () => {
+  it("grows and collapses material rows while typing and sends only the confirmed preview", async () => {
+    const project = crypto.randomUUID(),
+      unitId = crypto.randomUUID();
+    const posted: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, options?: RequestInit) => {
+        if (url === "/api/commands") {
+          posted.push(JSON.parse(String(options?.body)).data);
+          return Response.json({ id: crypto.randomUUID() });
+        }
+        return Response.json({
+          items: url.includes("resource=units")
+            ? [{ id: unitId, name: "لفة" }]
+            : [],
+          next: null,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      createElement(RequestForm, { project, projectName: "مشروع الاختبار" }),
+    );
+    const editors = () => screen.getAllByRole("spinbutton");
+    expect(editors()).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: ar.common.select }));
+    const search = screen.getByRole("combobox");
+    await user.type(search, "كابل");
+    expect(editors()).toHaveLength(2);
+    await user.clear(search);
+    expect(editors()).toHaveLength(1);
+    await user.type(search, "كابل");
+    await user.click(
+      await screen.findByRole("option", { name: /كابل.*إضافة/ }),
+    );
+    await user.type(editors()[0], "2.5");
+    await user.type(
+      screen.getAllByLabelText(ar.fields.notes)[0],
+      "الطابق الأول",
+    );
+    await user.type(
+      screen.getByLabelText(ar.interface.usage),
+      "أعمال الكهرباء",
+    );
+    await user.click(screen.getByRole("button", { name: ar.common.submit }));
+    expect(screen.getByRole("alert").textContent).toBe(ar.requests.chooseUnit);
+    await user.click(
+      screen.getAllByRole("button", { name: ar.common.select })[0],
+    );
+    await user.click(await screen.findByRole("option", { name: "لفة" }));
+    await user.click(screen.getByRole("button", { name: ar.common.submit }));
+    const preview = within(screen.getByRole("dialog"));
+    for (const value of [
+      "مشروع الاختبار",
+      "أعمال الكهرباء",
+      "كابل",
+      "2.5",
+      "الطابق الأول",
+    ])
+      expect(preview.getByText(value)).toBeTruthy();
+    expect(posted).toEqual([]);
+    await user.click(preview.getByRole("button", { name: ar.common.edit }));
+    expect(editors()).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: ar.common.submit }));
+    await user.click(
+      screen.getByRole("button", { name: ar.requests.confirmSubmit }),
+    );
+    expect(posted).toEqual([
+      {
+        projectId: project,
+        notes: "أعمال الكهرباء",
+        submit: true,
+        lines: [
+          {
+            manualName: "كابل",
+            unitId,
+            quantity: "2.5",
+            notes: "الطابق الأول",
+          },
+        ],
+      },
+    ]);
+  });
   it("invalidates cached choices immediately after an activation change", async () => {
     let enabled = true;
     vi.stubGlobal(
