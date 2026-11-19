@@ -72,6 +72,8 @@ import {
   notifications,
 } from "@/server/queries";
 import { liveSnapshot } from "@/server/live";
+import { requireUpload } from "@/server/attachments";
+import { workflowRecipients } from "@/server/workflow-notifications";
 import { processJobs, maintain } from "@/server/jobs";
 import { deliverPush } from "@/server/push";
 import {
@@ -560,6 +562,90 @@ describe("Authorization and database invariants", () => {
   });
 });
 describe("Request to receipt", () => {
+  it("adds the requester and fellow project engineers to the receiving team", async () => {
+    await pg.exec("BEGIN");
+    try {
+      const siteRole = randomUUID(),
+        receivingRole = randomUUID();
+      await pg.query(
+        "INSERT INTO roles(id,name,system) VALUES($1,$2,true),($3,$4,true)",
+        [siteRole, ar.roles.engineer, receivingRole, ar.roles.receiver],
+      );
+      await pg.exec(
+        "INSERT INTO permissions(key,label) VALUES('receipts.view','View'),('receipts.create','Receive') ON CONFLICT DO NOTHING",
+      );
+      await pg.query(
+        "INSERT INTO role_permissions SELECT $1,id FROM permissions WHERE key='requests.view'",
+        [siteRole],
+      );
+      await pg.query(
+        "INSERT INTO role_permissions SELECT $1,id FROM permissions WHERE key IN('requests.view','requests.view_all','receipts.create','receipts.view')",
+        [receivingRole],
+      );
+      await pg.query("UPDATE users SET role_id=$1 WHERE id IN ($2,$3,$4)", [
+        siteRole,
+        ids.engineer,
+        ids.other,
+        ids.buyer,
+      ]);
+      await pg.query("UPDATE users SET role_id=$1 WHERE id=$2", [
+        receivingRole,
+        ids.receiver,
+      ]);
+      await pg.query(
+        "INSERT INTO project_users(project_id,user_id) VALUES($1,$2)",
+        [ids.p2, ids.buyer],
+      );
+      await pg.exec(
+        await readFile(
+          "drizzle/custom/0016_site_engineer_receiving.sql",
+          "utf8",
+        ),
+      );
+      const grants = await pg.query<{ key: string }>(
+        "SELECT key FROM permissions p JOIN role_permissions rp ON p.id=rp.permission_id WHERE rp.role_id=$1",
+        [siteRole],
+      );
+      const permissions = grants.rows.map((p) => p.key);
+      const colleague = actor(ids.other, permissions),
+        outside = actor(ids.buyer, permissions);
+      const requestId = randomUUID();
+      await pg.query(
+        "INSERT INTO purchase_requests(id,project_id,created_by,status) VALUES($1,$2,$3,12)",
+        [requestId, ids.p1, ids.engineer],
+      );
+      await expect(requestDetail(colleague, requestId)).rejects.toMatchObject({
+        status: 404,
+      });
+      for (const status of [3, 4]) {
+        await pg.query("UPDATE purchase_requests SET status=$1 WHERE id=$2", [
+          status,
+          requestId,
+        ]);
+        expect(
+          (await listRequests(colleague, { q: "" }, "receipts")).items.map(
+            (r) => r.id,
+          ),
+        ).toContain(requestId);
+        for (const id of [ids.engineer, ids.other]) {
+          const member = actor(id, permissions);
+          requireUpload(
+            member,
+            await requestDetail(member, requestId),
+            "receipt",
+          );
+        }
+        await expect(requestDetail(outside, requestId)).rejects.toMatchObject({
+          status: 404,
+        });
+        expect(
+          (await workflowRecipients(requestId, status, requestId)).sort(),
+        ).toEqual([ids.engineer, ids.other, ids.receiver].sort());
+      }
+    } finally {
+      await pg.exec("ROLLBACK");
+    }
+  });
   it("blocks new requests for disabled BOQ items, materials and units", async () => {
     for (const [resource, id] of [
       ["boq", ids.leaf],

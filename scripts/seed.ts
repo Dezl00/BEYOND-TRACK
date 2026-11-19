@@ -72,10 +72,13 @@ async function seed() {
           "projects.view",
           "boq.view",
           "requests.view",
+          "requests.view_all",
           "requests.create",
           "requests.edit",
           "requests.delete",
           "requests.export",
+          "receipts.view",
+          "receipts.create",
         ],
       },
       {
