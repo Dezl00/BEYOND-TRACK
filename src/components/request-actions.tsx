@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import {
   type Actor,
+  Status,
   can,
   canApproveOverage,
   approvalPermission,
@@ -40,6 +41,7 @@ export function RequestActions({
     pricing_revision?: number;
     created_by?: string;
     project_name?: string;
+    required_by?: string | null;
     notes?: string;
   };
   lines: (RequestLine & { boq_name?: string; notes?: string })[];
@@ -93,7 +95,7 @@ export function RequestActions({
   const status = request.status;
   const approver = can(actor, approvalPermission(status));
   const own = actor.is_owner || request.created_by === actor.id;
-  const nextApproval: Record<number, number> = { 12: 1, 13: 1, 15: 2, 5: 6 };
+  const nextApproval: Record<number, number> = { 12: 1, 13: 1, 15: 2, 5: Status.awaitingInvoice };
   return (
     <>
       <div className="row">
@@ -107,7 +109,7 @@ export function RequestActions({
             intent="green"
             onClick={() => open(String(nextApproval[status]))}
           >
-            {status === 5 ? msg.common.finish : msg.common.approve}
+            {status === 5 ? msg.interface.procurementClose : msg.common.approve}
           </Button>
         ) : null}
         {!pendingOverage && status === 1 && approver ? (
@@ -133,6 +135,9 @@ export function RequestActions({
         {!pendingOverage && status === 11 && approver ? (
           <Button intent="green" onClick={() => open("payment")}>{msg.interface.confirmPayment} </Button>
         ) : null}
+        {status === Status.awaitingInvoice && approver && (
+          <Button intent="green" onClick={() => open("invoice")}>{msg.interface.attachInvoice}</Button>
+        )}
         {[3, 4, 5].includes(status) && can(actor, "receipts.create") ? (
           <Button intent="green" onClick={() => open("receipt")}>
             {msg.common.receive}
@@ -165,7 +170,7 @@ export function RequestActions({
             ? msg.interface.reviewItems
             : mode === "quotes"
               ? msg.interface.quotation
-              : mode === "payment"
+              : mode === "invoice" ? msg.interface.attachInvoice : mode === "payment"
                 ? msg.interface.payment
                 : mode === "receipt"
                   ? msg.requests.newReceipt
@@ -176,7 +181,7 @@ export function RequestActions({
           if (!value && !busy) setMode("");
         }}
         className={mode === "12" ? "request-preview" : ""}
-        wide={["technical", "quotes", "payment", "receipt", "11", "12"].includes(
+        wide={["technical", "quotes", "payment", "invoice", "receipt", "11", "12"].includes(
           mode,
         )}
       >
@@ -196,8 +201,9 @@ export function RequestActions({
             onDone={done}
             onBusyChange={setBusy}
           />
-        ) : mode === "payment" ? (
+        ) : mode === "payment" || mode === "invoice" ? (
           <PaymentForm
+            purpose={mode}
             request={request}
             quotes={quotes}
             lines={lines}
@@ -225,7 +231,7 @@ export function RequestActions({
                 />
               </Field>
             ) : mode === "12" ? (
-              <RequestPreview project={request.project_name || ""} notes={request.notes || ""} lines={lines.map((line) => ({
+              <RequestPreview requiredBy={request.required_by} project={request.project_name || ""} notes={request.notes || ""} lines={lines.map((line) => ({
                 key: line.id, label: line.material_name, item: line.boq_name, quantity: line.quantity,
                 unitName: line.unit_name, notes: line.notes || "",
               }))} />

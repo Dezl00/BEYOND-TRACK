@@ -69,7 +69,7 @@ function reportCte(actor: Actor, q: ProjectReportQuery) {
     AND (${q.q}='' OR m.name ILIKE ${"%" + q.q + "%"} OR b.name ILIKE ${"%" + q.q + "%"} OR b.code ILIKE ${"%" + q.q + "%"})
   ), permitted_requests AS MATERIALIZED (
     SELECT r.id,COALESCE(r.submitted_at,r.created_at) occurred_at
-    FROM purchase_requests r WHERE r.project_id=${q.project}::uuid AND r.status IN(1,2,3,4,5,6,9,10,11,12,13,14,15)
+    FROM purchase_requests r WHERE r.project_id=${q.project}::uuid AND r.status IN(1,2,3,4,5,6,9,10,11,12,13,14,15,16)
       AND ${requestScope(actor)}
       AND EXISTS(SELECT 1 FROM request_lines l JOIN target t ON t.id=l.material_id WHERE l.request_id=r.id)
   ), orders AS MATERIALIZED (
@@ -78,7 +78,7 @@ function reportCte(actor: Actor, q: ProjectReportQuery) {
     FROM request_lines l JOIN permitted_requests r ON r.id=l.request_id JOIN target t ON t.id=l.material_id
     WHERE (r.occurred_at AT TIME ZONE 'Asia/Riyadh')::date<=${until}::date GROUP BY l.material_id
   ), movements AS MATERIALIZED (
-    SELECT c.id,c.created_at,l.material_id,rl.accepted,rl.returned,rl.damaged,rl.rejected
+    SELECT c.id,c.created_at,l.material_id,rl.accepted,rl.returned,rl.not_received,rl.damaged,rl.rejected
     FROM receipts c JOIN permitted_requests r ON r.id=c.request_id
     JOIN receipt_lines rl ON rl.receipt_id=c.id JOIN request_lines l ON l.id=rl.request_line_id
     JOIN target t ON t.id=l.material_id
@@ -86,18 +86,18 @@ function reportCte(actor: Actor, q: ProjectReportQuery) {
   ), delivered AS (
     SELECT material_id,SUM(accepted-returned) received,
       SUM(accepted-returned) FILTER(WHERE (created_at AT TIME ZONE 'Asia/Riyadh')::date>=${since}) period_received,
-      SUM(damaged) damaged,SUM(rejected) rejected,SUM(returned) returned
+      SUM(not_received) not_received,SUM(damaged) damaged,SUM(rejected) rejected,SUM(returned) returned
     FROM movements GROUP BY material_id
   ), data AS MATERIALIZED (
     SELECT t.*,COALESCE(o.requested,0) requested,COALESCE(o.period_requested,0) period_requested,
       COALESCE(d.received,0) received,COALESCE(d.period_received,0) period_received,
-      COALESCE(d.damaged,0) damaged,COALESCE(d.rejected,0) rejected,COALESCE(d.returned,0) returned
+      COALESCE(d.not_received,0) not_received,COALESCE(d.damaged,0) damaged,COALESCE(d.rejected,0) rejected,COALESCE(d.returned,0) returned
     FROM target t LEFT JOIN orders o ON o.material_id=t.id LEFT JOIN delivered d ON d.material_id=t.id
   )`;
 }
 const rowSelect = sql`id,name,boq_id,code,boq_name,unit_name,
   allocated::text,requested::text,received::text,period_requested::text,period_received::text,
-  damaged::text,rejected::text,returned::text`;
+  not_received::text,damaged::text,rejected::text,returned::text`;
 const reportCursorSchema = z.object({
   id: z.uuid(),
   item: z.uuid(),

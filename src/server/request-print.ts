@@ -50,6 +50,7 @@ export type ReceiptPrintLine = {
   name: string;
   unit_name: string;
   accepted: string;
+  not_received: string;
   damaged: string;
   rejected: string;
   returned: string;
@@ -86,7 +87,7 @@ export async function printReceipts(actor: Actor, id: string, cursor?: string) {
     ORDER BY c.created_at,c.id LIMIT 26
   ) SELECT b.*,COALESCE((SELECT jsonb_agg(jsonb_build_object(
       'id',l.id,'code',bi.code,'boq_name',bi.name,'name',m.name,'unit_name',un.name,
-      'accepted',rl.accepted::text,'damaged',rl.damaged::text,'rejected',rl.rejected::text,'returned',rl.returned::text
+      'accepted',rl.accepted::text,'not_received',rl.not_received::text,'damaged',rl.damaged::text,'rejected',rl.rejected::text,'returned',rl.returned::text
     ) ORDER BY bi.code,bi.id,m.name,l.id)
     FROM receipt_lines rl JOIN request_lines l ON l.id=rl.request_line_id
     JOIN materials m ON m.id=l.material_id JOIN boq_items bi ON bi.id=m.boq_item_id JOIN units un ON un.id=COALESCE(m.unit_id,bi.unit_id)

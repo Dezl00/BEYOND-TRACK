@@ -66,6 +66,7 @@ export type MailRequest = {
   creator: string;
   created_at: Date | string;
   supplier: string | null;
+  required_by?: string | null;
   expected_at: string | null;
   notes: string;
 };
@@ -77,6 +78,7 @@ export type MailLine = {
   price: string | null;
   notes: string;
   accepted: string;
+  not_received?: string;
   damaged: string;
   rejected: string;
   returned: string;
@@ -104,6 +106,7 @@ export function requestEmail(
         [ar.fields.damaged, l.damaged],
         [ar.fields.rejected, l.rejected],
         [ar.fields.returned, l.returned],
+        [ar.fields.notReceived, l.not_received ?? "0"],
       ]
         .filter(([, n]) => Number(n) > 0)
         .map(([label, n]) => label + " " + decimalText(n))
@@ -156,7 +159,7 @@ export function requestEmail(
   return frame(
     state,
     `${section(ar.interface.requestDetails)}
-<table role="presentation" ${tableStyle}>${field(ar.common.project, request.project)}${field(ar.fields.createdBy, request.creator)}${field(ar.fields.createdAt, date(request.created_at, 0, true))}${field(ar.fields.supplier, request.supplier || ar.interface.notSpecified)}${field(ar.auditFields.expectedAt, request.expected_at ? date(request.expected_at) : ar.interface.notSpecified)}</table>
+<table role="presentation" ${tableStyle}>${field(ar.common.project, request.project)}${field(ar.fields.createdBy, request.creator)}${field(ar.fields.createdAt, date(request.created_at, 0, true))}${field(ar.fields.supplier, request.supplier || ar.interface.notSpecified)}${request.required_by ? field(ar.fields.requiredBy, date(request.required_by)) : ""}${field(ar.auditFields.expectedAt, request.expected_at ? date(request.expected_at) : ar.interface.notSpecified)}</table>
 ${request.notes ? '<p style="margin:14px 0 0;white-space:pre-line"><strong>'+ar.interface.usage+'</strong><br>' + escape(request.notes) + "</p>" : ""}
 ${request.lastAction ? '<p style="margin:14px 0 0"><strong>'+ar.interface.lastAction+'</strong><br>' + escape(request.lastAction) + "</p>" : ""}
 ${quotes.length ? '<div style="padding-top:22px">' + section(ar.interface.quotations) + "<table " + tableStyle + '><thead><tr bgcolor="#f1f3fc">' + header(ar.fields.supplier) + header(ar.interface.delivery) + header(ar.interface.totalSar) + "</tr></thead><tbody>" + quoteRows + "</tbody></table></div>" : ""}

@@ -23,12 +23,12 @@ export async function prepareRequestEmail(
   if (!actor || !can(actor, "requests.view")) return null;
   const {m:ar,locale}=language(parseLocale(actor.locale));
   const request = await one<MailRequest>(
-    sql`SELECT r.project_id,r.created_by,r.number,r.status,r.created_at,r.notes,r.expected_at,p.name project,u.name creator,s.name supplier,(SELECT NULLIF(t.note,'') FROM request_timeline t WHERE t.request_id=r.id ORDER BY t.created_at DESC,t.id DESC LIMIT 1) "lastAction" FROM purchase_requests r JOIN projects p ON p.id=r.project_id JOIN users u ON u.id=r.created_by LEFT JOIN suppliers s ON s.id=r.supplier_id WHERE r.id=${requestId} AND ${requestScope(actor)}`,
+    sql`SELECT r.project_id,r.created_by,r.number,r.status,r.created_at,r.notes,r.required_by,r.expected_at,p.name project,u.name creator,s.name supplier,(SELECT NULLIF(t.note,'') FROM request_timeline t WHERE t.request_id=r.id ORDER BY t.created_at DESC,t.id DESC LIMIT 1) "lastAction" FROM purchase_requests r JOIN projects p ON p.id=r.project_id JOIN users u ON u.id=r.created_by LEFT JOIN suppliers s ON s.id=r.supplier_id WHERE r.id=${requestId} AND ${requestScope(actor)}`,
   );
   if (!request) return null;
   const prices = canViewPrices(actor);
   const lines = await rows<MailLine>(
-    sql`SELECT m.code,m.name,u.name unit,l.quantity,${prices ? sql`l.price` : sql`NULL`} price,concat_ws(' · ',NULLIF(l.notes,''),CASE WHEN l.review_status=2 THEN ${ar.interface.rejectionNote+": "}::text||l.review_note END) notes,COALESCE(rec.accepted,0) accepted,COALESCE(rec.damaged,0) damaged,COALESCE(rec.rejected,0) rejected,COALESCE(rec.returned,0) returned FROM request_lines l JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL(SELECT SUM(accepted) accepted,SUM(damaged) damaged,SUM(rejected) rejected,SUM(returned) returned FROM receipt_lines WHERE request_line_id=l.id)rec ON true WHERE l.request_id=${requestId} ORDER BY m.code,m.name`,
+    sql`SELECT m.code,m.name,u.name unit,l.quantity,${prices ? sql`l.price` : sql`NULL`} price,concat_ws(' · ',NULLIF(l.notes,''),CASE WHEN l.review_status=2 THEN ${ar.interface.rejectionNote+": "}::text||l.review_note END) notes,COALESCE(rec.accepted,0) accepted,COALESCE(rec.not_received,0) not_received,COALESCE(rec.damaged,0) damaged,COALESCE(rec.rejected,0) rejected,COALESCE(rec.returned,0) returned FROM request_lines l JOIN materials m ON m.id=l.material_id JOIN boq_items b ON b.id=m.boq_item_id JOIN units u ON u.id=COALESCE(m.unit_id,b.unit_id) LEFT JOIN LATERAL(SELECT SUM(accepted) accepted,SUM(not_received) not_received,SUM(damaged) damaged,SUM(rejected) rejected,SUM(returned) returned FROM receipt_lines WHERE request_line_id=l.id)rec ON true WHERE l.request_id=${requestId} ORDER BY m.code,m.name`,
   );
   if (prices)
     request.quotes = await rows<MailQuote>(

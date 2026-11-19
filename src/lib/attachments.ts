@@ -5,6 +5,7 @@ export const attachmentPurposes = [
   "quotation",
   "alternative",
   "payment",
+  "invoice",
 ] as const;
 export type AttachmentPurpose = (typeof attachmentPurposes)[number];
 export type RequestAttachment = {
@@ -14,4 +15,4 @@ export type RequestAttachment = {
   pricing_revision: number | null;
   payment_id: string | null;
 };
-export const attachmentLabels = (m:MessageCatalog): Record<AttachmentPurpose,string> => ({request:m.interface.requestFile,receipt:m.interface.receiptFile,quotation:m.interface.quotation,alternative:m.interface.otherQuotes,payment:m.interface.paymentReceipt});
+export const attachmentLabels = (m:MessageCatalog): Record<AttachmentPurpose,string> => ({request:m.interface.requestFile,receipt:m.interface.receiptFile,quotation:m.interface.quotation,alternative:m.interface.otherQuotes,payment:m.interface.paymentReceipt,invoice:m.interface.invoice});

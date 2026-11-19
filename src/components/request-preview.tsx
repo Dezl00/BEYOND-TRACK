@@ -12,14 +12,16 @@ type PreviewLine = {
 };
 export function RequestPreview({
   project,
+  requiredBy,
   notes,
   lines,
 }: {
   project: string;
+  requiredBy?: string | null;
   notes: string;
   lines: PreviewLine[];
 }) {
-  const { m: msg, number, unit } = useLanguage();
+  const { m: msg, date, number, unit } = useLanguage();
   const digits = useDigits();
   return (
     <>
@@ -28,6 +30,10 @@ export function RequestPreview({
           <dt>{msg.common.project}</dt>
           <dd>{project}</dd>
         </div>
+        {requiredBy && <div>
+          <dt>{msg.fields.requiredBy}</dt>
+          <dd>{date(requiredBy, digits)}</dd>
+        </div>}
         <div>
           <dt>{msg.interface.usage}</dt>
           <dd>{notes}</dd>

@@ -7,6 +7,7 @@ import type { z } from "zod";
 import { db, one, rows, sql, type Executor } from "@/db";
 import {
   type Actor,
+  Status,
   can,
   editable,
   receiptStatus,
@@ -17,6 +18,7 @@ import {
   requestSchema,
   transitionSchema,
   orderSchema,
+  invoiceSchema,
   quotationsSchema,
   receiptSchema,
   technicalReviewSchema,
@@ -42,7 +44,7 @@ export async function overages(id: string, conn: Executor = db()) {
     approved: boolean;
     over: boolean;
   }>(
-    sql`SELECT l.id,l.quantity,l.overage_approved_by IS NOT NULL approved,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests r ON r.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (r.status BETWEEN 1 AND 6 OR r.status IN(9,10,11,12,13,14,15))),0)>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id WHERE l.request_id=${id}`,
+    sql`SELECT l.id,l.quantity,l.overage_approved_by IS NOT NULL approved,(l.quantity+COALESCE((SELECT SUM(x.quantity) FROM request_lines x JOIN purchase_requests r ON r.id=x.request_id WHERE x.material_id=l.material_id AND x.request_id<>l.request_id AND (r.status BETWEEN 1 AND 6 OR r.status IN(9,10,11,12,13,14,15,16))),0)>m.quantity) AS over FROM request_lines l JOIN materials m ON m.id=l.material_id WHERE l.request_id=${id}`,
     conn,
   );
 }
@@ -172,7 +174,7 @@ export async function saveRequest(
     if (input.id) {
       existing = await requireRequest(actor, input.id, tx, true);
       if (
-        [3, 4, 5, 6].includes(existing.status) ||
+        [3, 4, 5, 6, Status.awaitingInvoice].includes(existing.status) ||
         (await one(
           sql`SELECT id FROM request_payments WHERE request_id=${existing.id} LIMIT 1`,
           tx,
@@ -227,11 +229,13 @@ export async function saveRequest(
       if (received && (!next || new Decimal(next.quantity).lt(received.net)))
         throw new AppError("quantity", 409);
     }
+    const requiredBy = input.requiredBy === undefined ? existing?.required_by ?? null : input.requiredBy || null;
     const previousStatus = existing?.status ?? 0;
     const submitting = input.submit && [0, 14].includes(previousStatus);
     const changed =
       !!existing &&
-      (input.notes !== existing.notes ||
+      (requiredBy !== existing.required_by ||
+        input.notes !== existing.notes ||
         lines.length !== oldLines.length ||
         lines.some(
           (line) =>
@@ -256,11 +260,11 @@ export async function saveRequest(
     }
     if (existing)
       await tx.execute(
-        sql`UPDATE purchase_requests SET notes=${input.notes},status=${status},submitted_at=CASE WHEN ${submitting} THEN now() ELSE submitted_at END,updated_at=now(),version=version+1 WHERE id=${id}`,
+        sql`UPDATE purchase_requests SET notes=${input.notes},required_by=${requiredBy},status=${status},submitted_at=CASE WHEN ${submitting} THEN now() ELSE submitted_at END,updated_at=now(),version=version+1 WHERE id=${id}`,
       );
     else
       await tx.execute(
-        sql`INSERT INTO purchase_requests(id,project_id,created_by,notes,status,submitted_at) VALUES (${id},${input.projectId},${actor.id},${input.notes},${status},${input.submit ? new Date() : null})`,
+        sql`INSERT INTO purchase_requests(id,project_id,created_by,notes,required_by,status,submitted_at) VALUES (${id},${input.projectId},${actor.id},${input.notes},${requiredBy},${status},${input.submit ? new Date() : null})`,
       );
     for (const old of oldLines.filter((l) => !ids.includes(l.material_id)))
       await tx.execute(sql`DELETE FROM request_lines WHERE id=${old.id}`);
@@ -288,6 +292,7 @@ export async function saveRequest(
       id,
       changes(
         {
+          requiredBy: existing?.required_by,
           notes: existing?.notes,
           lines: oldLines.map((l) => ({
             materialId: l.material_id,
@@ -295,11 +300,11 @@ export async function saveRequest(
             notes: l.notes,
           })),
         },
-        { notes: input.notes, lines },
+        { notes: input.notes, requiredBy, lines },
       ),
       input.projectId,
     );
-    if (status !== 0) await notify(tx, id, existing ? 1 : 0, actor.id);
+    if (status !== 0) await notify(tx, id, existing ? 1 : 0, actor.id, { handoffChanged: status !== previousStatus });
     return { id };
   });
 }
@@ -316,7 +321,7 @@ export async function transitionRequest(
       throw new AppError("transition", 409);
     if (
       (r.status === 14 && input.status === 12) ||
-      [3, 4, 5, 10, 14, 15].includes(input.status)
+      [3, 4, 5, Status.closed, 10, 14, 15].includes(input.status)
     )
       throw new AppError("transition", 409);
     if (input.status === 12 || input.status === 0) {
@@ -352,7 +357,7 @@ export async function transitionRequest(
         sql`UPDATE request_quotes SET approved_by=${actor.id},approved_at=now() WHERE id=${quote.id}`,
       );
     }
-    if ([1, 2, 6, 11].includes(input.status))
+    if ([1, 2, Status.awaitingInvoice, 11].includes(input.status))
       await ensureOverageApproved(r.id, tx);
     if (input.status === 12)
       await tx.execute(
@@ -424,7 +429,7 @@ export async function reviewTechnical(
       { status: { before: 1, after: status }, technicalReview: input.lines },
       request.project_id,
     );
-    await notify(tx, request.id, 1, actor.id, status === 14);
+    await notify(tx, request.id, 1, actor.id, { technicalReturn: status === 14 });
     return { id: request.id };
   });
 }
@@ -648,6 +653,36 @@ export async function placeOrder(
     return { id: r.id };
   });
 }
+export async function attachInvoice(
+  actor: Actor,
+  input: z.infer<typeof invoiceSchema>,
+  meta: Meta,
+) {
+  requirePermission(actor, "accounts.approve");
+  return db().transaction(async (tx) => {
+    const r = await requireRequest(actor, input.id, tx, true);
+    await requireProject(actor, r.project_id, tx, true);
+    if (!input.attachmentIds.length) throw new AppError("invoiceAttachment");
+    if (r.status === Status.closed) {
+      const linked = await rows<{ id: string }>(
+        sql`SELECT id FROM attachments WHERE request_id=${r.id} AND purpose='invoice' AND upload_key=${input.key}
+            AND uploaded_by=${actor.id} AND linked_at IS NOT NULL`, tx,
+      );
+      if (linked.length === input.attachmentIds.length && linked.every((file) => input.attachmentIds.includes(file.id)))
+        return { id: r.id };
+    }
+    if (r.status !== Status.awaitingInvoice) throw new AppError("transition", 409);
+    if (r.version !== input.version) throw new AppError("conflict", 409);
+    await linkAttachments(tx, actor, r, "invoice", input.attachmentIds, input.key, r.pricing_revision);
+    await tx.execute(sql`UPDATE purchase_requests SET status=${Status.closed},version=version+1,updated_at=now() WHERE id=${r.id}`);
+    await history(tx, r, actor, Status.closed);
+    await audit(tx, actor.id, meta, 3, 4, r.id, {
+      status: { before: r.status, after: Status.closed }, attachmentIds: input.attachmentIds,
+    }, r.project_id);
+    await notify(tx, r.id, 1, actor.id);
+    return { id: r.id };
+  });
+}
 export async function receive(
   actor: Actor,
   input: z.infer<typeof receiptSchema>,
@@ -717,7 +752,7 @@ export async function receive(
     );
     for (const l of input.lines)
       await tx.execute(
-        sql`INSERT INTO receipt_lines(receipt_id,request_line_id,accepted,damaged,rejected,returned) VALUES (${id},${l.lineId},${l.accepted},${l.damaged},${l.rejected},${l.returned})`,
+        sql`INSERT INTO receipt_lines(receipt_id,request_line_id,accepted,damaged,rejected,returned,not_received) VALUES (${id},${l.lineId},${l.accepted},${l.damaged},${l.rejected},${l.returned},${l.notReceived ?? "0"})`,
       );
     await tx.execute(
       sql`UPDATE attachments SET receipt_id=${id} WHERE id IN (${sql.join(
@@ -740,7 +775,7 @@ export async function receive(
       { lines: input.lines, status: { before: r.status, after: status } },
       r.project_id,
     );
-    await notify(tx, r.id, 2, actor.id);
+    await notify(tx, r.id, 2, actor.id, { handoffChanged: status !== r.status });
     return { id, requestId: r.id };
   });
 }

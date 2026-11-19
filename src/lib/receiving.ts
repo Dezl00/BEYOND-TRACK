@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 export type ReceiptQuantities = {
   accepted: string;
+  notReceived?: string;
   damaged: string;
   rejected: string;
   returned: string;
@@ -29,6 +30,7 @@ export function receiptQuantityError(
   );
   if (
     new Decimal(next.accepted)
+      .plus(next.notReceived || 0)
       .plus(next.damaged)
       .plus(next.rejected)
       .gt(capacity)
@@ -43,15 +45,16 @@ export function changeReceiptQuantity(
 ): ReceiptQuantities {
   const next = { ...current, [field]: value };
   if (
-    (field === "damaged" || field === "rejected") &&
+    (field === "damaged" || field === "rejected" || field === "notReceived") &&
     /^\d*(\.\d*)?$/.test(value)
   ) {
     const total = new Decimal(current.accepted || 0)
+      .plus(current.notReceived || 0)
       .plus(current.damaged || 0)
       .plus(current.rejected || 0);
     next.accepted = Decimal.max(
       0,
-      total.minus(next.damaged || 0).minus(next.rejected || 0),
+      total.minus(next.notReceived || 0).minus(next.damaged || 0).minus(next.rejected || 0),
     ).toString();
   }
   return next;

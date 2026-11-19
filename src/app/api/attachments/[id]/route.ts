@@ -1,3 +1,5 @@
+import { canViewPrices } from "@/lib/domain";
+import { requireRequest } from "@/server/access";
 import { requireActor } from "@/server/auth";
 import { one, sql } from "@/db";
 import { cloud } from "@/server/cloudinary";
@@ -15,13 +17,22 @@ export async function GET(
       delivery_type: string;
       cloudinary_url: string | null;
       uploaded_by: string;
+      request_id: string;
+      purpose: string;
       pending: boolean;
-    }>(sql`SELECT public_id,resource_type,delivery_type,cloudinary_url,uploaded_by,
+    }>(sql`SELECT public_id,resource_type,delivery_type,cloudinary_url,uploaded_by,request_id,purpose,
       ((receipt_key IS NOT NULL AND receipt_id IS NULL) OR (upload_key IS NOT NULL AND linked_at IS NULL)) pending
       FROM attachments WHERE id=${id}`);
     if (!file) throw new AppError("notFound", 404);
-    if (file.pending && (await requireActor()).id !== file.uploaded_by)
-      throw new AppError("forbidden", 403);
+    if (file.pending || file.purpose === "invoice") {
+      const actor = await requireActor();
+      if (file.pending && actor.id !== file.uploaded_by)
+        throw new AppError("forbidden", 403);
+      if (file.purpose === "invoice") {
+        await requireRequest(actor, file.request_id);
+        if (!canViewPrices(actor)) throw new AppError("forbidden", 403);
+      }
+    }
     const url =
       file.cloudinary_url ||
       cloud().url(file.public_id, {

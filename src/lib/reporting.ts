@@ -37,6 +37,7 @@ export type ConsumptionRow = {
   received: string;
   period_requested: string;
   period_received: string;
+  not_received: string;
   damaged: string;
   rejected: string;
   returned: string;

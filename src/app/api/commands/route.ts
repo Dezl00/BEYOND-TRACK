@@ -88,6 +88,9 @@ export async function POST(req: Request) {
       case "order":
         result = await requests.placeOrder(a, v.orderSchema.parse(data), m);
         break;
+      case "invoice":
+        result = await requests.attachInvoice(a, v.invoiceSchema.parse(data), m);
+        break;
       case "receipt":
         result = await requests.receive(a, v.receiptSchema.parse(data), m);
         break;

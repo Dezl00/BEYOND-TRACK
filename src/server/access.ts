@@ -14,16 +14,16 @@ const departmentVisibility = [
   {
     permission: "project_management.view",
     start: 15,
-    statuses: [2, 3, 4, 5, 6, 9, 10, 11, 15],
+    statuses: [2, 3, 4, 5, 6, 16, 9, 10, 11, 15],
   },
   {
     permission: "procurement.view",
     start: 2,
-    statuses: [2, 3, 4, 5, 6, 10, 11],
+    statuses: [2, 3, 4, 5, 6, 16, 10, 11],
   },
-  { permission: "finance.view", start: 10, statuses: [3, 4, 5, 6, 10, 11] },
-  { permission: "accounts.view", start: 11, statuses: [3, 4, 5, 6, 11] },
-  { permission: "receipts.view", start: 3, statuses: [3, 4, 5, 6] },
+  { permission: "finance.view", start: 10, statuses: [3, 4, 5, 6, 16, 10, 11] },
+  { permission: "accounts.view", start: 11, statuses: [3, 4, 5, 6, 16, 11] },
+  { permission: "receipts.view", start: 3, statuses: [3, 4, 5, 6, 16] },
 ];
 export function departmentScope(actor: ScopeActor) {
   if (
@@ -67,6 +67,7 @@ export type RequestRow = {
   status: number;
   notes: string;
   supplier_id: string | null;
+  required_by: string | null;
   expected_at: string | null;
   submitted_at: Date | null;
   version: number;

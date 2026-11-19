@@ -9,7 +9,7 @@ import { requestSchema } from "@/lib/validation";
 import { useLanguage } from "./language-context";
 import { RequestPreview } from "./request-preview";
 import { NumberField } from "./number-field";
-import { Button, Field, Lookup, Message, Modal, command } from "./ui";
+import { Button, Field, DateInput, Lookup, Message, Modal, command } from "./ui";
 
 type Line = {
   key: string;
@@ -58,6 +58,7 @@ export default function RequestForm({
     version: number;
     project_id: string;
     project_name?: unknown;
+    required_by?: string | null;
     notes: string;
     status: number;
     lines: Record<string, unknown>[];
@@ -69,6 +70,7 @@ export default function RequestForm({
   const [projectLabel, setProjectLabel] = useState(
     String(initial?.project_name || projectName),
   );
+  const [requiredBy, setRequiredBy] = useState(initial?.required_by || "");
   const [notes, setNotes] = useState(initial?.notes || "");
   const [lines, setLines] = useState(() =>
     withTrailingRow(
@@ -124,6 +126,7 @@ export default function RequestForm({
       id: initial?.id,
       version: initial?.version,
       projectId,
+      requiredBy,
       notes,
       submit,
       lines: filled.map((line) => ({
@@ -163,6 +166,9 @@ export default function RequestForm({
                 setProjectLabel(label || "");
               }}
             />
+          </Field>
+          <Field label={msg.fields.requiredBy}>
+            <DateInput value={requiredBy} onChange={setRequiredBy} />
           </Field>
           <Field label={msg.interface.usage}>
             <textarea
@@ -297,6 +303,7 @@ export default function RequestForm({
             <Message error={error} />
             <RequestPreview
               project={projectLabel}
+              requiredBy={preview.requiredBy}
               notes={preview.notes}
               lines={filled}
             />

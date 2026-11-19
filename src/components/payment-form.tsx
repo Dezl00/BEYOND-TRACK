@@ -2,7 +2,7 @@
 import { useLanguage } from "@/components/language-context";
 
 import { useEffect, useState } from "react";
-import { orderSchema } from "@/lib/validation";
+import { invoiceSchema, orderSchema } from "@/lib/validation";
 
 import type { Quote } from "@/lib/quotations";
 import StageAttachments, { type UploadState } from "./stage-attachments";
@@ -10,11 +10,13 @@ import { QuoteSummary, type RequestLine } from "./quotation-editor";
 import { Button, Message, command } from "./ui";
 export default function PaymentForm({
   request,
+  purpose = "payment",
   quotes,
   lines,
   onDone,
   onBusyChange,
 }: {
+  purpose?: "invoice" | "payment";
   request: { id: string; version: number };
   quotes: Quote[];
   lines: RequestLine[];
@@ -42,8 +44,8 @@ export default function PaymentForm({
     setError("");
     try {
       await command(
-        "order",
-        orderSchema.parse({
+        purpose === "invoice" ? "invoice" : "order",
+        (purpose === "invoice" ? invoiceSchema : orderSchema).parse({
           id: request.id,
           version: request.version,
           key,
@@ -64,12 +66,12 @@ export default function PaymentForm({
   return (
     <form className="stack" onSubmit={submit} noValidate>
       <Message error={error} />
-      <QuoteSummary quotes={quotes.filter((q) => q.selected)} lines={lines} />
+      {purpose === "payment" && <QuoteSummary quotes={quotes.filter((q) => q.selected)} lines={lines} />}
       <StageAttachments
         requestId={request.id}
         uploadKey={key}
-        purpose="payment"
-        label={msg.interface.paymentReceipt}
+        purpose={purpose}
+        label={purpose === "invoice" ? msg.interface.invoice : msg.interface.paymentReceipt}
         onChange={setFiles}
         disabled={busy}
       />
@@ -84,7 +86,7 @@ export default function PaymentForm({
           intent="green"
           pending={busy}
           disabled={!files.ready || !files.ids.length}
-        >{msg.interface.confirmPayment} </Button>
+        >{purpose === "invoice" ? msg.interface.attachInvoice : msg.interface.confirmPayment} </Button>
       </div>
     </form>
   );

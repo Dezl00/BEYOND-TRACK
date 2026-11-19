@@ -192,6 +192,7 @@ export const requests = pgTable(
     status: smallint("status").default(0).notNull(),
     notes: text("notes").default("").notNull(),
     supplierId: uuid("supplier_id").references(() => suppliers.id),
+    requiredBy: varchar("required_by", { length: 10 }),
     expectedAt: varchar("expected_at", { length: 10 }),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     version: integer("version").default(1).notNull(),
@@ -319,6 +320,7 @@ export const receiptLines = pgTable(
       .notNull()
       .references(() => requestLines.id),
     accepted: numeric("accepted", { precision: 18, scale: 3 }).notNull(),
+    notReceived: numeric("not_received", { precision: 18, scale: 3 }).notNull().default("0"),
     damaged: numeric("damaged", { precision: 18, scale: 3 }).notNull(),
     rejected: numeric("rejected", { precision: 18, scale: 3 }).notNull(),
     returned: numeric("returned", { precision: 18, scale: 3 }).notNull(),

@@ -24,7 +24,7 @@ export default async function RequestTimeline({
       {items.map((item) => {
         const status = Number(item.to_status);
         const stopped = [7, 8].includes(status);
-        const current = item.id === currentId && ![5, 6, 7, 8].includes(status);
+        const current = item.id === currentId && ![6, 7, 8].includes(status);
         const Icon = stopped ? X : current ? Clock3 : Check;
         return (
           <li

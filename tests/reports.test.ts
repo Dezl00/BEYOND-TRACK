@@ -149,7 +149,7 @@ beforeAll(async () => {
     for (const file of (await readdir(folder))
       .filter(
         (file) =>
-          file.endsWith(".sql") && file !== "0006_pricing_and_receipts.sql",
+          file.endsWith(".sql") && !["0006_pricing_and_receipts.sql", "0015_receiving_and_invoice.sql"].includes(file),
       )
       .sort())
       await pg.exec(await readFile(`${folder}/${file}`, "utf8"));
@@ -261,10 +261,9 @@ beforeAll(async () => {
   await receipt("2026-01-20T10:00:00Z", "0", "10");
   await receipt("2026-01-31T21:30:00Z", "40", "5");
   await receipt("2026-03-01T10:00:00Z", "1000", "0");
-  // Existing over-receipts remain reportable after installing the new limit.
-  await pg.exec(
-    await readFile("drizzle/custom/0006_pricing_and_receipts.sql", "utf8"),
-  );
+  // Apply the receipt limits after loading historical over-receipts.
+  for (const file of ["0006_pricing_and_receipts.sql", "0015_receiving_and_invoice.sql"])
+    await pg.exec(await readFile(`drizzle/custom/${file}`, "utf8"));
 });
 afterAll(async () => {
   await pg.close();

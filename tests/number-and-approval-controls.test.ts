@@ -116,7 +116,7 @@ describe("Request approval controls", () => {
     [13, ar.common.approve],
     [10, "اعتماد التسعير"],
     [11, "تأكيد الدفع"],
-    [5, ar.common.finish],
+    [5, ar.interface.procurementClose],
     [2, "تسجيل عرض السعر"],
   ] as const)(
     "switches the action for a pending overage in stage %s",

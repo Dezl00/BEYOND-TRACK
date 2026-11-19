@@ -49,6 +49,7 @@ export async function GET(request: Request) {
       ar.fields.damaged,
       ar.fields.rejected,
       ar.fields.returned,
+      ar.fields.notReceived,
     ];
     let first = true,
       finished = false,
@@ -87,6 +88,7 @@ export async function GET(request: Request) {
                 number(row.damaged, digits),
                 number(row.rejected, digits),
                 number(row.returned, digits),
+                number(row.not_received, digits),
               ]
                 .map(csv)
                 .join(",") + "\r\n";

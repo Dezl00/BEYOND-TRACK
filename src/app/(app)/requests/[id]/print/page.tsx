@@ -157,6 +157,7 @@ async function Receipts({
                 <th>{msg.fields.damaged}</th>
                 <th>{msg.fields.rejected}</th>
                 <th>{msg.fields.returned}</th>
+                <th>{msg.fields.notReceived}</th>
                 <th>{msg.printing.net}</th>
               </tr>
             </thead>
@@ -175,6 +176,7 @@ async function Receipts({
                     line.damaged,
                     line.rejected,
                     line.returned,
+                    line.not_received,
                     new Decimal(line.accepted).minus(line.returned).toFixed(3),
                   ].map((value, cell) => (
                     <td className="numeric" key={cell}>
@@ -387,6 +389,10 @@ export default async function RequestPrintPage({
           <div>
             <dt>{msg.fields.supplier}</dt>
             <dd>{request.supplier_name || "—"}</dd>
+          </div>
+          <div>
+            <dt>{msg.fields.requiredBy}</dt>
+            <dd>{request.required_by ? date(request.required_by, digits) : "—"}</dd>
           </div>
           <div>
             <dt>{msg.fields.expectedAt}</dt>

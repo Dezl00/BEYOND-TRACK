@@ -1,4 +1,5 @@
-import { one, sql, type Executor } from "@/db";
+import { workflowRecipients } from "./workflow-notifications";
+import { db, one, sql, type Executor } from "@/db";
 import { can, type Actor } from "@/lib/domain";
 import { whatsappRecipient } from "@/lib/whatsapp-phone";
 import { encrypt, decrypt } from "./security";
@@ -11,6 +12,8 @@ type WhatsAppJob = {
   userId: string;
   requestId: string;
   type: number;
+  stage: number;
+  handoff: string;
   encrypted: string;
   key: string;
 };
@@ -21,6 +24,8 @@ export async function queueWhatsApp(
     userId: string;
     requestId: string;
     type: number;
+    stage: number;
+    handoff: string;
     to: string;
     text: string;
     key: string;
@@ -50,6 +55,7 @@ export async function deliverWhatsApp(payload: Record<string, unknown>) {
     return;
   }
   const job = payload as WhatsAppJob;
+  if (!(await workflowRecipients(job.requestId, job.stage, job.handoff, db(), job.userId)).length) return;
   const user = await one<
     Actor & {
       locked: boolean;

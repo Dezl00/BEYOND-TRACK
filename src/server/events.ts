@@ -1,3 +1,4 @@
+import { currentHandoff } from "./workflow-notifications";
 import { randomUUID } from "node:crypto";
 import { db, sql, type Executor } from "@/db";
 import { encrypt } from "./security";
@@ -43,10 +44,16 @@ export async function notify(
   requestId: string,
   type: number,
   actorId: string,
-  technicalReturn = false,
+  { technicalReturn = false, handoffChanged = true }: {
+    technicalReturn?: boolean;
+    handoffChanged?: boolean;
+  } = {},
 ) {
   await conn.execute(
-    sql`INSERT INTO outbox(kind,payload) VALUES (1,${JSON.stringify({ requestId, type, actorId, ...(technicalReturn && { technicalReturn }) })}::jsonb)`,
+    sql`INSERT INTO outbox(kind,payload)
+        SELECT 1,${JSON.stringify({ requestId, type, actorId, ...(technicalReturn && { technicalReturn }) })}::jsonb ||
+          CASE WHEN ${handoffChanged} THEN jsonb_build_object('stage',r.status,'handoff',${currentHandoff}) ELSE '{}'::jsonb END
+        FROM purchase_requests r WHERE r.id=${requestId}`,
   );
 }
 export async function queueEmail(

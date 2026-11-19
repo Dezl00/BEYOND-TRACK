@@ -26,6 +26,7 @@ const state = vi.hoisted(() => ({
   sendMail: vi.fn(
     async (_mail: {
       to: string;
+      from: string;
       html: string;
       subject: string;
       attachments: { contentId: string }[];
@@ -95,7 +96,7 @@ beforeAll(async () => {
   vi.stubEnv("AUTH_SECRET", "whatsapp-test-secret-with-at-least-32-characters");
   vi.stubEnv("WHATSAPP_API_KEY", "test-device-key");
   vi.stubEnv("RESEND_API_KEY", "test-email");
-  vi.stubEnv("EMAIL_FROM", "test@example.invalid");
+  vi.stubEnv("EMAIL_FROM", "بيوند <test@example.invalid>");
   vi.stubEnv("APP_URL", "https://track.example.invalid");
   pg = new PGlite();
   state.database = drizzle(pg);
@@ -136,6 +137,7 @@ beforeAll(async () => {
   );
 });
 beforeEach(async () => {
+  await pg.query("INSERT INTO role_permissions(role_id,permission_id) SELECT $1,id FROM permissions WHERE key='technical.approve' ON CONFLICT DO NOTHING", [ids.role]);
   state.sendMail.mockClear();
   await pg.query("UPDATE users SET whatsapp_enabled=false WHERE id=$1", [
     ids.owner,
@@ -198,6 +200,8 @@ async function queued() {
     requestId: ids.request,
     type: 0,
     to: "+201144797501",
+    stage: 1,
+    handoff: (await pg.query<{ id: string }>("SELECT id FROM request_timeline WHERE request_id=$1 AND from_status IS DISTINCT FROM to_status ORDER BY created_at DESC,id DESC LIMIT 1", [ids.request])).rows[0]?.id ?? ids.request,
     text: "Test notification",
     key: "whatsapp:stable-test-key",
   });
@@ -371,6 +375,7 @@ describe("WhatsApp delivery", () => {
       expect(state.sendMail).toHaveBeenCalledTimes(1);
       const delivered = state.sendMail.mock.calls[0][0];
       expect(delivered.to).toBe(email);
+      expect(delivered.from).toBe("BEYOND TRACK <test@example.invalid>");
       expect(delivered.html).toContain('bgcolor="#293fd0"');
       expect(
         delivered.attachments.map((a: { contentId: string }) => a.contentId),
@@ -396,7 +401,7 @@ describe("WhatsApp delivery", () => {
       const message = JSON.parse(String(gateway.mock.calls[0][1].body));
       expect(message.to).toBe("+20" + phone);
       expect(message.text).toBe(
-        ["*" + delivered.subject + "*", code, ar.email.otpExpiry].join("\n\n"),
+        [ar.brand, "*" + delivered.subject + "*", code, ar.email.otpExpiry].join("\n\n"),
       );
       if (purpose === "project") expect(message.text).toContain("WhatsApp"); // fixture project name
       if (session)
@@ -465,6 +470,35 @@ describe("WhatsApp delivery", () => {
       `https://beyond-track.online/requests/${ids.request}`,
     );
   });
+  it("routes both channels to all project assignees of the current step and suppresses superseded handoffs", async () => {
+    const second = randomUUID(), outside = randomUUID(), observer = randomUUID();
+    await pg.query("INSERT INTO role_permissions(role_id,permission_id) SELECT $1,id FROM permissions WHERE key IN('projects.all','requests.view_all') ON CONFLICT DO NOTHING", [ids.role]);
+    const observerRole = randomUUID();
+    await pg.query("INSERT INTO roles(id,name) VALUES($1,'Observers')", [observerRole]);
+    await pg.query("INSERT INTO role_permissions(role_id,permission_id) SELECT $1,id FROM permissions WHERE key IN('requests.view','requests.view_all')", [observerRole]);
+    for (const [id, role, phone] of [[second, ids.role, "1000000011"], [outside, ids.role, "1000000012"], [observer, observerRole, "1000000013"]]) {
+      await pg.query("INSERT INTO users(id,name,email,username,job_title,password_hash,role_id,whatsapp_country_code,whatsapp_number,whatsapp_enabled) VALUES($1::uuid,'Test',$2,$1::text,'Test','unused',$3,'+20',$4,true)", [id, id + "@example.invalid", role, phone]);
+      if (id !== outside) await pg.query("INSERT INTO project_users(project_id,user_id) VALUES($1,$2)", [ids.project,id]);
+    }
+    await pg.exec("UPDATE notification_policy SET email=true");
+    await notify(db(), ids.request, 0, ids.sender);
+    await processJobs(10);
+    expect(state.sendMail.mock.calls.map(([mail]) => mail.to).sort()).toEqual(
+      [ids.user, second].map(id => id + "@example.invalid").sort(),
+    );
+    expect(gateway.mock.calls.map(([,options]) => JSON.parse(options.body).to).sort()).toEqual(
+      ["+201144797501", "+201000000011"].sort(),
+    );
+    await notify(db(), ids.request, 1, ids.sender);
+    await processJobs(1);
+    await pg.query("UPDATE purchase_requests SET status=15 WHERE id=$1", [ids.request]);
+    await pg.query("INSERT INTO request_timeline(request_id,from_status,to_status) VALUES($1,1,15),($1,15,1)", [ids.request]);
+    await pg.query("UPDATE purchase_requests SET status=1 WHERE id=$1", [ids.request]);
+    await processJobs(10);
+    expect(state.sendMail).toHaveBeenCalledTimes(2);
+    expect(gateway).toHaveBeenCalledTimes(2);
+    await pg.query("DELETE FROM project_users WHERE user_id IN($1,$2)", [second,observer]);
+  });
   it("encrypts queued content and retries failures with the same idempotency key", async () => {
     const job = await queued();
     expect(JSON.stringify(job.payload)).not.toContain("+201144797501");
@@ -505,6 +539,7 @@ describe("WhatsApp delivery", () => {
     "UPDATE users SET deleted_at=now() WHERE id=$1",
     "DELETE FROM project_users WHERE user_id=$1",
     "DELETE FROM role_permissions",
+    "DELETE FROM role_permissions WHERE permission_id IN (SELECT id FROM permissions WHERE key='technical.approve')",
   ])("cancels queued delivery after %s", async (statement) => {
     const job = await queued();
     await pg.query(statement, statement.includes("$1") ? [ids.user] : []);

@@ -48,6 +48,7 @@ export default function ReceiptForm({
         l.id,
         {
           accepted: remainingQuantity(l.quantity, l.accepted, l.returned),
+          notReceived: "0",
           damaged: "0",
           rejected: "0",
           returned: "0",
@@ -186,13 +187,13 @@ export default function ReceiptForm({
                 </span>
               </div>
               <div className="receipt-quantities">
-                {(["accepted", "damaged", "rejected", "returned"] as const).map(
+                {(["accepted", "damaged", "rejected", "returned", "notReceived"] as const).map(
                   (field) => (
                     <NumberField
                       key={field}
                       label={msg.fields[field]}
                       ariaLabel={l.material_name + " · " + msg.fields[field]}
-                      value={value[field]}
+                      value={value[field] ?? "0"}
                       emptyOnBlur="0"
                       onChange={(quantity) =>
                         setQuantities((prev) => ({

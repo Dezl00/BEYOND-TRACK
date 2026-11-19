@@ -64,7 +64,7 @@ export async function queueOtp(
   if(purpose==="reset")subject=m.email.resetSubject;
   await queueEmail(conn, account.email, subject, otpEmail(subject, code,account.locale), key);
   if (account.phone) {
-    const text = ["*" + subject + "*", code, m.email.otpExpiry].join("\n\n");
+    const text = [m.brand, "*" + subject + "*", code, m.email.otpExpiry].join("\n\n");
     const payload = {
       otpKey: key,
       key: "wa-" + key,

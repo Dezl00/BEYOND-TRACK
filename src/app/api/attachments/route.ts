@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       : null;
     if (
       (purpose === "receipt") !== !!receiptKey ||
-      (["quotation", "alternative", "payment"].includes(purpose) && !uploadKey)
+      (["quotation", "alternative", "payment", "invoice"].includes(purpose) && !uploadKey)
     )
       throw new AppError("invalid");
     if (uploadKey && (purpose === "request" || purpose === "receipt"))
@@ -60,6 +60,7 @@ export async function POST(req: Request) {
         type.mime !== file.type)
     )
       throw new AppError("file");
+    const deliveryType = purpose === "invoice" ? "authenticated" : "upload";
     const resourceType = type.mime === "application/pdf" ? "raw" : "image";
     const name =
       file.name.replace(/[\x00-\x1F\x7F/\\]/g, "").slice(0, 200) ||
@@ -68,7 +69,7 @@ export async function POST(req: Request) {
       const stream = cloud().uploader.upload_stream(
         {
           resource_type: resourceType,
-          type: "upload",
+          type: deliveryType,
           asset_folder: `beyond-track/${r.project_id}`,
           public_id: `bt-${randomUUID()}${resourceType === "raw" ? ".pdf" : ""}`,
           overwrite: false,
@@ -95,7 +96,7 @@ export async function POST(req: Request) {
         throw new AppError("file");
       const attachmentId = randomUUID();
       await tx.execute(
-        sql`INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes,receipt_key,purpose,upload_key,delivery_type,cloudinary_url) VALUES (${attachmentId},${id},${a.id},${upload.public_id},${resourceType},${type.ext},${name},${file.size},${receiptKey},${purpose},${uploadKey},'upload',${upload.secure_url})`,
+        sql`INSERT INTO attachments(id,request_id,uploaded_by,public_id,resource_type,format,name,bytes,receipt_key,purpose,upload_key,delivery_type,cloudinary_url) VALUES (${attachmentId},${id},${a.id},${upload.public_id},${resourceType},${type.ext},${name},${file.size},${receiptKey},${purpose},${uploadKey},${deliveryType},${purpose === "invoice" ? null : upload.secure_url})`,
       );
       if (!receiptKey && !uploadKey)
         await tx.execute(

@@ -56,6 +56,7 @@ import {
   transitionRequest,
   approveOverage,
   placeOrder,
+  attachInvoice,
   submitQuotations,
   receive,
 } from "@/server/requests";
@@ -206,37 +207,9 @@ beforeAll(async () => {
   vi.stubEnv("APP_URL", "http://localhost:3000");
   pg = new PGlite();
   state.database = drizzle(pg);
-  for (const file of [
-    "drizzle/generated/0000_dizzy_onslaught.sql",
-    "drizzle/generated/0001_approvals_push.sql",
-    "drizzle/generated/0002_resource_activation.sql",
-    "drizzle/generated/0003_request_purge.sql",
-    "drizzle/generated/0004_military_onslaught.sql",
-    "drizzle/generated/0005_boq_leaf_measurements.sql",
-    "drizzle/generated/0006_fixed_fixer.sql",
-    "drizzle/generated/0007_catalog_materials.sql",
-    "drizzle/generated/0008_project_details.sql",
-    "drizzle/generated/0009_oval_corsair.sql",
-    "drizzle/generated/0010_request_stage_history.sql",
-    "drizzle/generated/0011_omniscient_chimera.sql",
-    "drizzle/generated/0012_account_language.sql",
-    "drizzle/generated/0013_manual_entry_sections.sql",
-    "drizzle/custom/0001_integrity.sql",
-    "drizzle/custom/0002_approvals_and_push.sql",
-    "drizzle/custom/0003_account_integrity.sql",
-    "drizzle/custom/0004_request_purge.sql",
-    "drizzle/custom/0005_reports.sql",
-    "drizzle/custom/0006_pricing_and_receipts.sql",
-    "drizzle/custom/0007_boq_leaf_measurements.sql",
-    "drizzle/custom/0008_whatsapp.sql",
-    "drizzle/custom/0009_catalog_codes.sql",
-    "drizzle/custom/0010_project_management.sql",
-    "drizzle/custom/0011_request_workflow.sql",
-    "drizzle/custom/0012_project_request_numbers.sql",
-    "drizzle/custom/0013_catalog_plain_codes.sql",
-    "drizzle/custom/0014_manual_entry_classification.sql",
-  ])
-    await pg.exec(await readFile(file, "utf8"));
+  for (const folder of ["drizzle/generated", "drizzle/custom"])
+    for (const file of (await readdir(folder)).filter(name => name.endsWith(".sql")).sort())
+      await pg.exec(await readFile(folder + "/" + file, "utf8"));
   await pg.query("INSERT INTO settings(id) VALUES(1)");
   await pg.query("INSERT INTO roles(id,name) VALUES($1,$2)", [
     ids.role,
@@ -323,6 +296,7 @@ const create = (quantity = "10") =>
     {
       projectId: ids.p1,
       notes: "المبنى الأول",
+      requiredBy: "2026-12-01",
       submit: true,
       lines: [{ materialId: ids.material, quantity, notes: "" }],
     },
@@ -338,7 +312,7 @@ async function request(id: string) {
 }
 async function uploadEvidence(
   id: string,
-  purpose: "quotation" | "alternative" | "payment",
+  purpose: "quotation" | "alternative" | "payment" | "invoice",
   userId = ids.buyer,
 ) {
   const key = randomUUID(),
@@ -626,7 +600,7 @@ describe("Request to receipt", () => {
     try {
       for (const folder of ["drizzle/generated", "drizzle/custom"])
         for (const name of (await readdir(folder))
-          .filter((name) => name.endsWith(".sql") && name !== migration)
+          .filter((name) => name.endsWith(".sql") && name.slice(0, 4) < "0011")
           .sort())
           await oldDb.exec(await readFile(folder + "/" + name, "utf8"));
       await oldDb.query(
@@ -910,6 +884,7 @@ describe("Request to receipt", () => {
       damaged = "0",
       rejected = "0",
       returned = "0",
+      notReceived = "0",
     ) {
       const key = randomUUID();
       const file = randomUUID();
@@ -922,7 +897,7 @@ describe("Request to receipt", () => {
         key,
         notes: "",
         attachmentIds: [file],
-        lines: [{ lineId: line.id, accepted, damaged, rejected, returned }],
+        lines: [{ lineId: line.id, accepted, damaged, rejected, returned, notReceived }],
       };
     }
     const abandoned = await receipt("1");
@@ -930,7 +905,7 @@ describe("Request to receipt", () => {
       "UPDATE attachments SET created_at=now()-interval '2 days' WHERE id=$1",
       abandoned.attachmentIds,
     );
-    const first = await receipt("4", "1", "2");
+    const first = await receipt("4", "1", "2", "0", "3");
     expect((await requestDetail(receiver, id)).files).toHaveLength(0);
     await maintain();
     expect(
@@ -991,6 +966,22 @@ describe("Request to receipt", () => {
     expect((await request(id)).status).toBe(4);
     await receive(receiver, await receipt("2"), meta);
     expect((await request(id)).status).toBe(5);
+    const detail = await requestDetail(receiver, id);
+    expect(detail.required_by).toBe("2026-12-01");
+    expect(Number(detail.lines[0].not_received)).toBe(3);
+    const closure = { id, version: detail.version, status: 16, reason: "" };
+    await expect(transitionRequest(accountant, closure, meta)).rejects.toMatchObject({ status: 403 });
+    await transitionRequest(buyer, closure, meta);
+    expect((await listRequests(accountant, { q: "" }, "accounts")).items.map(item => item.id)).toContain(id);
+    const invoice = { id, version: (await request(id)).version, ...(await uploadEvidence(id, "invoice", ids.accountant)) };
+    await expect(transitionRequest(accountant, { ...closure, status: 6, version: invoice.version }, meta)).rejects.toMatchObject({ code: "transition" });
+    await expect(attachInvoice(buyer, invoice, meta)).rejects.toMatchObject({ status: 403 });
+    await expect(attachInvoice(accountant, { ...invoice, attachmentIds: [] }, meta)).rejects.toMatchObject({ code: "invoiceAttachment" });
+    await attachInvoice(accountant, invoice, meta);
+    await attachInvoice(accountant, invoice, meta);
+    expect((await request(id)).status).toBe(6);
+    expect((await requestDetail(accountant, id)).files.map(f => f.id)).toContain(invoice.attachmentIds[0]);
+    expect((await requestDetail(receiver, id)).files.map(f => f.id)).not.toContain(invoice.attachmentIds[0]);
     const rawReceipt = randomUUID();
     await pg.query(
       "INSERT INTO receipts(id,request_id,created_by,idempotency_key) VALUES($1,$2,$3,$4)",

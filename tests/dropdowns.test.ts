@@ -103,6 +103,10 @@ describe("Searchable anchored dropdowns", () => {
     render(
       createElement(RequestForm, { project, projectName: "مشروع الاختبار" }),
     );
+    await user.click(screen.getByRole("button", { name: new RegExp(ar.fields.requiredBy) }));
+    await user.click(screen.getByRole("button", { name: "21" }));
+    const today = new Date();
+    const requiredBy = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-21`;
     const editors = () => screen.getAllByRole("spinbutton");
     expect(editors()).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: ar.common.select }));
@@ -150,6 +154,7 @@ describe("Searchable anchored dropdowns", () => {
     expect(posted).toEqual([
       {
         projectId: project,
+        requiredBy,
         notes: "أعمال الكهرباء",
         submit: true,
         lines: [

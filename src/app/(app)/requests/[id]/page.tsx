@@ -51,7 +51,7 @@ export default async function RequestPage({
       >
         <StatusBadge status={r.status} />
         <RequestPrintOptions id={id} canPrice={pricing} />
-        {![3, 4, 5, 6].includes(r.status) &&
+        {![3, 4, 5, 6, 16].includes(r.status) &&
         !r.has_payment &&
         can(a, "requests.edit") &&
         (a.is_owner ||
@@ -82,6 +82,10 @@ export default async function RequestPage({
               <dd>{String(r.supplier_name || "—")}</dd>
             </div>
             <div>
+              <dt>{msg.fields.requiredBy}</dt>
+              <dd>{r.required_by ? date(r.required_by, d) : "—"}</dd>
+            </div>
+            <div>
               <dt>{msg.fields.expectedAt}</dt>
               <dd>{r.expected_at ? date(r.expected_at, d) : "—"}</dd>
             </div>
@@ -105,6 +109,7 @@ export default async function RequestPage({
               version: r.version,
               created_by: r.created_by,
               project_name: String(r.project_name),
+              required_by: r.required_by,
               notes: r.notes,
             }}
             quotes={r.quotes}
@@ -156,6 +161,7 @@ export default async function RequestPage({
                       <th>{msg.fields.damaged}</th>
                       <th>{msg.fields.rejected}</th>
                       <th>{msg.fields.returned}</th>
+                      <th>{msg.fields.notReceived}</th>
                       {pricing ? <th>{msg.fields.price}</th> : null}
                     </tr>
                   </thead>
@@ -221,6 +227,7 @@ export default async function RequestPage({
                         <td>
                           <bdi>{number(String(l.returned), d)}</bdi>
                         </td>
+                        <td><bdi>{number(String(l.not_received), d)}</bdi></td>
                         {pricing ? (
                           <td>
                             {l.price !== null ? (

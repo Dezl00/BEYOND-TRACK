@@ -16,6 +16,7 @@ export const Status = {
   held: 13,
   returned: 14,
   projectApproval: 15,
+  awaitingInvoice: 16,
 } as const;
 export type RequestStatus = (typeof Status)[keyof typeof Status];
 export const transitions: Record<number, number[]> = {
@@ -31,7 +32,8 @@ export const transitions: Record<number, number[]> = {
   11: [3, 8],
   3: [8],
   4: [],
-  5: [6],
+  5: [Status.awaitingInvoice],
+  [Status.awaitingInvoice]: [Status.closed],
   6: [],
   7: [0],
   8: [],
@@ -51,15 +53,15 @@ export const stageStatuses: Record<string, number[]> = {
   project_management: [15],
   procurement: [2, 3, 4, 5, 10, 11],
   finance: [10],
-  accounts: [11],
-  receipts: [3, 4, 5, 6],
+  accounts: [11, Status.awaitingInvoice],
+  receipts: [3, 4, 5, 6, Status.awaitingInvoice],
 };
 export function approvalPermission(status: number) {
   if ([12, 13].includes(status)) return "construction.approve";
   if (status === 1) return "technical.approve";
   if (status === 15) return "project_management.approve";
   if (status === 10) return "finance.approve";
-  if (status === 11) return "accounts.approve";
+  if (status === 11 || status === Status.awaitingInvoice) return "accounts.approve";
   return "procurement.approve";
 }
 export function editable(

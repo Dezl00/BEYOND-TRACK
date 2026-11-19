@@ -1,5 +1,6 @@
 import { language } from "@/messages/catalog";
 import { parseLocale, type Locale } from "@/messages/types";
+import { workflowRecipients } from "./workflow-notifications";
 import { departmentScope } from "./access";
 import { requestLink } from "@/lib/request-links";
 import { prepareRequestEmail } from "./request-email";
@@ -82,9 +83,11 @@ export async function processJobs(limit = 20) {
               whatsapp_country_code: string;
               whatsapp_number: string | null;
             }>(
-              sql`SELECT u.id,u.locale,u.is_owner,enabled_role.workflow_role,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions,u.email,u.whatsapp_country_code,u.whatsapp_number,u.whatsapp_enabled,np.in_app,np.email email_enabled,np.whatsapp whatsapp_preference FROM users u JOIN roles enabled_role ON enabled_role.id=u.role_id AND enabled_role.active LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.deleted_at IS NULL AND u.locked=false AND u.id<>${actorId} AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) ORDER BY u.id LIMIT 1000`,
+              sql`SELECT u.id,u.locale,u.is_owner,enabled_role.workflow_role,COALESCE((SELECT json_agg(p.key) FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id),'[]'::json) permissions,u.email,u.whatsapp_country_code,u.whatsapp_number,u.whatsapp_enabled,np.in_app,np.email email_enabled,np.whatsapp whatsapp_preference FROM users u JOIN roles enabled_role ON enabled_role.id=u.role_id AND enabled_role.active LEFT JOIN notification_preferences np ON np.user_id=u.id AND np.type=${type} WHERE u.deleted_at IS NULL AND u.locked=false AND (u.is_owner OR (EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view') AND (EXISTS(SELECT 1 FROM project_users pu WHERE pu.user_id=u.id AND pu.project_id=${request.project_id}) OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='projects.all')) AND (u.id=${request.created_by} OR EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=u.role_id AND p.key='requests.view_all')))) ORDER BY u.id`,
               tx,
             );
+            const { stage, handoff } = job.payload;
+            const recipients = new Set(await workflowRecipients(requestId, stage, handoff, tx));
             for (const u of users) {
               const {m:ar}=language(parseLocale(u.locale));
               const department = departmentScope(u);
@@ -113,10 +116,11 @@ export async function processJobs(limit = 20) {
                     },
               );
               if (
-                pref.in_app ||
-                (job.payload.technicalReturn &&
-                  (u.id === request.created_by ||
-                    u.workflow_role === "construction"))
+                u.id !== actorId &&
+                (pref.in_app ||
+                  (job.payload.technicalReturn &&
+                    (u.id === request.created_by ||
+                      u.workflow_role === "construction")))
               ) {
                 const notification = await one<{ id: string }>(
                   sql`INSERT INTO notifications(user_id,event_id,type,request_id) VALUES (${u.id},${job.id},${type},${requestId}) ON CONFLICT(user_id,event_id) DO NOTHING RETURNING id`,
@@ -127,6 +131,7 @@ export async function processJobs(limit = 20) {
                     sql`INSERT INTO outbox(kind,payload) VALUES(3,${JSON.stringify({ notificationId: notification.id })}::jsonb)`,
                   );
               }
+              if (!recipients.has(u.id)) continue;
               const to = whatsappRecipient(
                 u.whatsapp_country_code,
                 u.whatsapp_number || "",
@@ -142,13 +147,15 @@ export async function processJobs(limit = 20) {
                   requestId,
                   type,
                   to,
-                  text: `${ar.brand}\n${ar.notificationTypes[type]} · ${requestCode(request.number)}\n${ar.email.viewRequest}: ${link}`,
+                  stage: request.status,
+                  handoff: String(handoff),
+                  text: `${ar.brand}\n${ar.notificationTypes[type]} · ${requestCode(request.number)}\n${ar.statuses[request.status]}\n${ar.email.viewRequest}: ${link}`,
                   key: `whatsapp:${job.id}:${u.id}`,
                 });
               }
               if (pref.email) {
                 await tx.execute(
-                  sql`INSERT INTO outbox(kind,payload) VALUES (2,${JSON.stringify({ requestId, userId: u.id, eventType: type, key: job.id + ":" + u.id })}::jsonb)`,
+                  sql`INSERT INTO outbox(kind,payload) VALUES (2,${JSON.stringify({ requestId, userId: u.id, eventType: type, stage, handoff, key: job.id + ":" + u.id })}::jsonb)`,
                 );
               }
             }
@@ -188,6 +195,10 @@ export async function processJobs(limit = 20) {
           (typeof job.payload.key === "string"
             ? job.payload.key.split(":")[1]
             : undefined);
+        if (job.payload.requestId && (typeof recipientId !== "string" || !(await workflowRecipients(String(job.payload.requestId), job.payload.stage, job.payload.handoff, db(), recipientId)).length)) {
+          await db().execute(sql`DELETE FROM outbox WHERE id=${job.id}`);
+          continue;
+        }
         const mail =
           job.payload.requestId && typeof recipientId === "string"
             ? await prepareRequestEmail(
@@ -216,7 +227,7 @@ export async function processJobs(limit = 20) {
           continue;
         }
         const r = await new Resend(process.env.RESEND_API_KEY).emails.send(
-          { from: process.env.EMAIL_FROM, ...mail, attachments: emailLogos },
+          { from: `${ar.brand} <${(process.env.EMAIL_FROM.match(/<([^<>]+)>/)?.[1] || process.env.EMAIL_FROM).trim()}>`, ...mail, attachments: emailLogos },
           { idempotencyKey: String(job.payload.key || job.id) },
         );
         if (r.error) throw new Error("Email delivery failed");

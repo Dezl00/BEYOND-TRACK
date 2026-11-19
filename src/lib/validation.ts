@@ -70,6 +70,7 @@ export const requestSchema = z
   .object({
     id: uuid.optional(),
     projectId: uuid,
+    requiredBy: dateOnly.or(z.literal("")).optional(),
     version: z.number().int().positive().optional(),
     notes: z.string().trim().max(2000).default(""),
     submit: z.boolean().default(false),
@@ -93,7 +94,7 @@ export const requestSchema = z
 export const transitionSchema = z.object({
   id: uuid,
   version: z.number().int().positive(),
-  status: z.number().int().min(0).max(15),
+  status: z.number().int().min(0).max(16),
   reason: z.string().trim().max(1000).default(""),
 });
 export const attachmentIds = z
@@ -111,6 +112,9 @@ export const orderSchema = z
     ),
   })
   .strict();
+export const invoiceSchema = orderSchema.extend({
+  attachmentIds: attachmentIds.refine((ids) => ids.length > 0, ar.errors.invoiceAttachment),
+});
 export const technicalReviewSchema = z
   .object({
     id: uuid,
@@ -173,6 +177,7 @@ export const receiptSchema = z
         z.object({
           lineId: uuid,
           accepted: nonnegative,
+          notReceived: nonnegative.optional(),
           damaged: nonnegative,
           rejected: nonnegative,
           returned: nonnegative,
@@ -185,7 +190,7 @@ export const receiptSchema = z
   .refine(
     (v) =>
       v.lines.some((l) =>
-        [l.accepted, l.damaged, l.rejected, l.returned].some(
+        [l.accepted, l.damaged, l.rejected, l.returned, l.notReceived].some(
           (x) => Number(x) > 0,
         ),
       ),
@@ -360,7 +365,7 @@ export const listQuerySchema = z.object({
   seconds: sectionIds,
   leaves: sectionIds,
   selectable: z.enum(["1"]).optional(),
-  status: z.coerce.number().int().min(0).max(15).optional(),
+  status: z.coerce.number().int().min(0).max(16).optional(),
   user: uuid.optional(),
   action: z.coerce.number().int().min(0).max(13).optional(),
   entity: z.coerce.number().int().min(0).max(11).optional(),

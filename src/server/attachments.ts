@@ -10,7 +10,7 @@ export function requireUpload(
   purpose: AttachmentPurpose,
 ) {
   const permission =
-    purpose === "payment"
+    ["payment", "invoice"].includes(purpose)
       ? "accounts.approve"
       : ["quotation", "alternative"].includes(purpose)
         ? "procurement.edit"
@@ -19,7 +19,7 @@ export function requireUpload(
           : "requests.edit";
   if (!can(actor, permission)) throw new AppError("forbidden", 403);
   const statuses =
-    purpose === "payment"
+    purpose === "invoice" ? [16] : purpose === "payment"
       ? [11]
       : ["quotation", "alternative"].includes(purpose)
         ? [2]
@@ -30,7 +30,7 @@ export function requireUpload(
 }
 
 export function attachmentVisibility(actor: Actor) {
-  return sql`(receipt_key IS NULL OR receipt_id IS NOT NULL) AND (upload_key IS NULL OR linked_at IS NOT NULL) ${canViewPrices(actor) ? sql`` : sql`AND purpose NOT IN('quotation','alternative','payment')`}`;
+  return sql`(receipt_key IS NULL OR receipt_id IS NOT NULL) AND (upload_key IS NULL OR linked_at IS NOT NULL) ${canViewPrices(actor) ? sql`` : sql`AND purpose NOT IN('quotation','alternative','payment','invoice')`}`;
 }
 
 export async function linkAttachments(
@@ -51,12 +51,12 @@ export async function linkAttachments(
       sql`,`,
     )})
     AND request_id=${request.id} AND purpose=${purpose} AND payment_id IS NULL
-    AND ((uploaded_by=${actor.id} AND upload_key=${key} AND linked_at IS NULL) OR (${purpose !== "payment"} AND linked_at IS NOT NULL AND EXISTS(SELECT 1 FROM request_quotes q WHERE q.request_id=${request.id} AND q.revision=${request.pricing_revision} AND q.selected AND attachments.id=ANY(q.attachment_ids)))) FOR UPDATE`,
+    AND ((uploaded_by=${actor.id} AND upload_key=${key} AND linked_at IS NULL) OR (${purpose === "quotation" || purpose === "alternative"} AND linked_at IS NOT NULL AND EXISTS(SELECT 1 FROM request_quotes q WHERE q.request_id=${request.id} AND q.revision=${request.pricing_revision} AND q.selected AND attachments.id=ANY(q.attachment_ids)))) FOR UPDATE`,
     tx,
   );
   if (selected.length !== ids.length)
     throw new AppError(
-      purpose === "payment" ? "paymentAttachment" : "quotationAttachment",
+      purpose === "invoice" ? "invoiceAttachment" : purpose === "payment" ? "paymentAttachment" : "quotationAttachment",
     );
   await tx.execute(sql`UPDATE attachments SET linked_at=now(),pricing_revision=${revision},payment_id=${paymentId}
     WHERE linked_at IS NULL AND id IN(${sql.join(

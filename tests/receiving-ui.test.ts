@@ -127,6 +127,10 @@ describe("Receiving form", () => {
     expect(
       (screen.getByLabelText("خرسانة · المقبول") as HTMLInputElement).value,
     ).toBe("4");
+    fireEvent.change(screen.getByLabelText("خرسانة · لم يستلم"), {
+      target: { value: "1.5" },
+    });
+    expect((screen.getByLabelText("خرسانة · المقبول") as HTMLInputElement).value).toBe("2.5");
     const submit = screen.getByRole("button", {
       name: "تأكيد الاستلام",
     }) as HTMLButtonElement;
@@ -148,7 +152,7 @@ describe("Receiving form", () => {
       expect.objectContaining({
         attachmentIds: expect.any(Array),
         lines: [
-          { lineId, accepted: "4", damaged: "0", rejected: "2", returned: "0" },
+          { lineId, accepted: "2.5", damaged: "0", rejected: "2", returned: "0", notReceived: "1.5" },
         ],
       }),
     );
