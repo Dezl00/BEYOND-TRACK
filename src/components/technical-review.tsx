@@ -57,7 +57,6 @@ export default function TechnicalReview({
           version: request.version,
           lines: review.map((row) => ({
             ...row,
-            note: row.approved ? "" : row.note,
           })),
         }),
       );
@@ -81,7 +80,7 @@ export default function TechnicalReview({
           disabled={busy}
           onClick={() =>
             setReview((prev) =>
-              prev.map((row) => ({ ...row, approved: true, note: "" })),
+              prev.map((row) => ({ ...row, approved: true })),
             )
           }
         >
@@ -94,7 +93,7 @@ export default function TechnicalReview({
               <th>{msg.fields.material}</th>
               <th>{msg.fields.quantity}</th>
               <th>{msg.fields.action}</th>
-              <th>{msg.interface.rejectionNote}</th>
+              <th>{msg.interface.technicalNote}</th>
             </tr>
           </thead>
           <tbody>
@@ -114,7 +113,7 @@ export default function TechnicalReview({
                       aria-pressed={review[i].approved === true}
                       disabled={busy}
                       onClick={() =>
-                        update(line.id, { approved: true, note: "" })
+                        update(line.id, { approved: true })
                       }
                     >
                       <Check size={16} />{msg.common.approve} </Button>
@@ -131,12 +130,12 @@ export default function TechnicalReview({
                   </div>
                 </td>
                 <td>
-                  {review[i].approved === false ? (
+                  {review[i].approved !== null ? (
                     <textarea
                       className="input"
-                      aria-label={msg.interface.rejectNotePrefix + " " + line.material_name}
+                      aria-label={msg.interface.technicalNotePrefix + " " + line.material_name}
                       value={review[i].note}
-                      required
+                      required={review[i].approved === false}
                       maxLength={1000}
                       disabled={busy}
                       onChange={(e) =>

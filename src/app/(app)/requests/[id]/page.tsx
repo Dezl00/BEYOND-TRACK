@@ -178,7 +178,7 @@ export default async function RequestPage({
                           </span>
                           {l.review_note ? (
                             <span className="cell-sub review-note">
-                              {String(l.review_note)}
+                              {msg.interface.technicalNote}: {String(l.review_note)}
                             </span>
                           ) : null}
                           {l.review_status ? (

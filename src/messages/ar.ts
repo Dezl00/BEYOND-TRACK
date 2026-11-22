@@ -20,6 +20,8 @@ export const ar = {
   "approveAll": "اعتماد الكل",
   "rejectionNote": "ملاحظة الرفض",
   "rejectNotePrefix": "ملاحظة رفض",
+  "technicalNote": "ملاحظة المكتب الفني",
+  "technicalNotePrefix": "ملاحظة المكتب الفني لـ",
   "saveReview": "حفظ المراجعة",
   "uploadAttachments": "رفع المرفقات",
   "uploading": "جارٍ الرفع",

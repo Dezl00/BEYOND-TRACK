@@ -21,6 +21,8 @@ export const en = {
   "approveAll": "Approve all",
   "rejectionNote": "Reason for rejection",
   "rejectNotePrefix": "Reason for rejecting",
+  "technicalNote": "Technical office note",
+  "technicalNotePrefix": "Technical office note for",
   "saveReview": "Save review",
   "uploadAttachments": "Upload attachments",
   "uploading": "Uploading",
