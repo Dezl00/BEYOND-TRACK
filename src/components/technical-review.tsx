@@ -133,7 +133,7 @@ export default function TechnicalReview({
                   {review[i].approved !== null ? (
                     <textarea
                       className="input"
-                      aria-label={msg.interface.technicalNotePrefix + " " + line.material_name}
+                      aria-label={(review[i].approved ? msg.interface.technicalNotePrefix : msg.interface.rejectNotePrefix) + " " + line.material_name}
                       value={review[i].note}
                       required={review[i].approved === false}
                       maxLength={1000}

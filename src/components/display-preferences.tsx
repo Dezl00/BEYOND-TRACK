@@ -12,7 +12,10 @@ export function DisplayProvider({initial,children}:{initial:Display;children:Rea
  const router=useRouter(),[display,setDisplay]=useState(initial),[busy,setBusy]=useState(false),[error,setError]=useState(""),pending=useRef(false);
  function apply(value:Display){ const root=document.documentElement;root.lang=value.locale;root.dir=value.locale==="en"?"ltr":"rtl";root.dataset.theme=value.theme;setDisplay(value); }
  useEffect(()=>{apply(initial)},[initial.locale,initial.theme]);
- async function change(patch:Partial<Display>){if(pending.current)return;pending.current=true;setBusy(true);setError("");const next={...display,...patch};apply(next);
+ async function change(patch:Partial<Display>){if(pending.current)return;pending.current=true;setBusy(true);setError("");const next={...display,...patch};
+ if(patch.theme && patch.theme !== display.theme && document.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches){
+   await document.startViewTransition(() => apply(next)).updateCallbackDone;
+ } else { apply(next); }
  try{const res=await fetch("/api/auth/display",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});if(!res.ok)throw Error();router.refresh();}
  catch{apply(display);setError(language(display.locale).m.common.failed)}
  finally{pending.current=false;setBusy(false)}}

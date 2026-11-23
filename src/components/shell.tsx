@@ -49,6 +49,7 @@ export default function Shell({
       })
         .then((r) => {
           if (r.status === 401) window.location.assign("/login");
+          if (r.ok) (window as Window & { TrackSession?: { postMessage(message: string): void } }).TrackSession?.postMessage("rotated");
         })
         .catch(() => {});
     }, 5 * 60_000);

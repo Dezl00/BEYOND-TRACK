@@ -1,3 +1,5 @@
+import 'workspace.dart';
+import 'theme_reveal.dart';
 import 'submissions.dart';
 import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
@@ -13,6 +15,25 @@ import 'api.dart';
 void main() => runApp(const TrackApp());
 const blue = Color(0xff0759ea);
 
+ColorScheme trackColors(bool dark) {
+  final day = ColorScheme.fromSeed(seedColor: blue);
+  return dark
+      ? day.copyWith(
+          brightness: Brightness.dark,
+          surface: Colors.black,
+          onSurface: Colors.white,
+          surfaceContainerLowest: Colors.black,
+          surfaceContainerLow: Colors.black,
+          surfaceContainer: Colors.black,
+          surfaceContainerHigh: Colors.black,
+          surfaceContainerHighest: Colors.black,
+          onSurfaceVariant: const Color(0xffc6c6c6),
+          surfaceTint: Colors.transparent,
+          outlineVariant: const Color(0xff383838),
+        )
+      : day;
+}
+
 class TrackApp extends StatefulWidget {
   const TrackApp({super.key});
   @override
@@ -21,19 +42,33 @@ class TrackApp extends StatefulWidget {
 
 class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
   final api = TrackApi();
+  final reveal = GlobalKey<ThemeRevealState>();
+  bool choosingFile = false;
   late final devicePush = DeviceNotifications(api);
   bool pushEnabled = false, pushBusy = false;
   Future<void> restorePush() async {
-    final user = profile?['id'];
-    if (user == null) return;
-    pushEnabled = await api.storage.read(key: 'notify:$user') == '1';
-    if (pushEnabled) {
-      try {
+    final user = profile?['id'], session = api.session;
+    if (!mounted ||
+        pushBusy ||
+        user == null ||
+        profile?['force_password_change'] == true)
+      return;
+    setState(() => pushBusy = true);
+    try {
+      final enabled = await api.storage.read(key: 'notify:$user') != '0';
+      if (!mounted || session != api.session) return;
+      if (enabled)
         await devicePush.update(user, true, requestPermission: false);
-      } catch (e) {
-        error = e.toString();
-        pushEnabled = false;
-      }
+      if (mounted && session == api.session)
+        setState(() => pushEnabled = enabled);
+    } catch (e) {
+      if (mounted && session == api.session)
+        setState(() {
+          error = e.toString();
+          pushEnabled = false;
+        });
+    } finally {
+      if (mounted) setState(() => pushBusy = false);
     }
   }
 
@@ -53,6 +88,8 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     }
   }
 
+  final messenger = GlobalKey<ScaffoldMessengerState>();
+  StreamSubscription<RemoteMessage>? foregroundMessage;
   String? notifiedRequest;
   StreamSubscription<RemoteMessage>? openedMessage;
   void receiveLink(RemoteMessage message) {
@@ -66,6 +103,23 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     try {
       if (Firebase.apps.isEmpty) await Firebase.initializeApp();
       if (!mounted) return;
+      foregroundMessage = FirebaseMessaging.onMessage.listen((message) {
+        if (locked || profile == null || !pushEnabled) return;
+        final title = message.notification?.title;
+        if (title == null) return;
+        const MethodChannel(
+          'online.beyondtrack.app/device',
+        ).invokeMethod<void>('foregroundTone');
+        messenger.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(title),
+            action: SnackBarAction(
+              label: t('عرض', 'View'),
+              onPressed: () => receiveLink(message),
+            ),
+          ),
+        );
+      });
       openedMessage = FirebaseMessaging.onMessageOpenedApp.listen(receiveLink);
       final message = await FirebaseMessaging.instance.getInitialMessage();
       if (message != null) receiveLink(message);
@@ -110,13 +164,20 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(listenForLinks());
-    WidgetsBinding.instance.addPostFrameCallback((_) => unlock());
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await devicePush.firstLaunch();
+      unawaited(listenForLinks());
+      if (mounted) await unlock();
+    });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused && !authenticating && !locked)
+    if (state == AppLifecycleState.paused &&
+        !choosingFile &&
+        !authenticating &&
+        !locked)
       setState(() => locked = true);
   }
 
@@ -126,6 +187,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     syncTimer?.cancel();
     queue?.active = false;
     openedMessage?.cancel();
+    foregroundMessage?.cancel();
     id.dispose();
     password.dispose();
     code.dispose();
@@ -157,7 +219,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       if (api.session != null) {
         try {
           profile = await api.call('/api/v1/pages/me');
-          await restorePush();
+          unawaited(restorePush());
         } catch (e) {
           viewingAccount = false;
           profile = null;
@@ -173,24 +235,32 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> savingDisplay = Future.value();
   Future<void> preferences({String? language, bool? night}) async {
+    if (night != null && night != dark) reveal.currentState?.start();
     setState(() {
       locale = language ?? locale;
       dark = night ?? dark;
       api.locale = locale;
     });
-    await api.storage.write(key: 'locale', value: locale);
-    await api.storage.write(key: 'theme', value: dark ? 'dark' : 'light');
-    if (profile != null) {
-      try {
-        await api.call('/api/auth/display', {
-          'locale': locale,
-          'theme': dark ? 'dark' : 'light',
+    final selectedLocale = locale, selectedTheme = dark ? 'dark' : 'light';
+    final session = api.session;
+    savingDisplay = savingDisplay
+        .then((_) async {
+          await api.storage.write(key: 'locale', value: selectedLocale);
+          await api.storage.write(key: 'theme', value: selectedTheme);
+          if (session != null && session == api.session) {
+            await api.call('/api/auth/display', {
+              'locale': selectedLocale,
+              'theme': selectedTheme,
+            });
+          }
+        })
+        .catchError((Object e) {
+          if (mounted && session == api.session)
+            setState(() => error = e.toString());
         });
-      } catch (e) {
-        setState(() => error = e.toString());
-      }
-    }
+    await savingDisplay;
   }
 
   Future<void> submit() async {
@@ -228,7 +298,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
         code.clear();
       } else {
         profile = await api.call('/api/v1/pages/me');
-        await restorePush();
+        unawaited(restorePush());
         password.clear();
         code.clear();
         mode = 'login';
@@ -264,6 +334,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       devicePush.detach();
       pushEnabled = false;
       notifiedRequest = null;
+      sectionPath = null;
       syncTimer?.cancel();
       queue?.active = false;
       queue = null;
@@ -284,23 +355,27 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
   );
   @override
   Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: blue,
-      brightness: dark ? Brightness.dark : Brightness.light,
-    );
+    final day = trackColors(false), scheme = trackColors(dark);
     return MaterialApp(
       key: ValueKey(locked),
+      scaffoldMessengerKey: messenger,
       debugShowCheckedModeBanner: false,
       locale: Locale(locale),
       supportedLocales: const [Locale('ar'), Locale('en')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      themeAnimationDuration: Duration.zero,
+      builder: (_, child) => ThemeReveal(key: reveal, child: child!),
       theme: ThemeData(
         colorScheme: scheme,
         fontFamily: locale == 'ar' ? 'IBM Plex Sans Arabic' : 'IBM Plex Sans',
         scaffoldBackgroundColor: dark ? Colors.black : Colors.white,
+        chipTheme: ChipThemeData(
+          backgroundColor: day.surfaceContainerLow,
+          labelStyle: TextStyle(color: day.onSurface),
+        ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: dark ? const Color(0xff202020) : const Color(0xfff1f3f6),
+          fillColor: dark ? Colors.black : const Color(0xfff1f3f6),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(9),
             borderSide: BorderSide.none,
@@ -340,12 +415,13 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
             ? login()
             : notifiedRequest != null &&
                   profile!['force_password_change'] != true
-            ? notifiedDetail()
-            : (viewingAccount ||
-                  profile!['force_password_change'] == true ||
-                  !(profile!['navigation'] as List).any(
-                    (n) => n['key'] == 'dashboard',
-                  ))
+            ? workspace(
+                '/requests/$notifiedRequest',
+                () => setState(() => notifiedRequest = null),
+              )
+            : sectionPath != null && profile!['force_password_change'] != true
+            ? workspace(sectionPath!, () => setState(() => sectionPath = null))
+            : (viewingAccount || profile!['force_password_change'] == true)
             ? PopScope(
                 canPop: false,
                 onPopInvokedWithResult: (p, r) {
@@ -353,6 +429,10 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
                 },
                 child: account(ctx),
               )
+            : !(profile!['navigation'] as List).any(
+                (n) => n['key'] == 'dashboard',
+              )
+            ? workspace('/more', () => setState(() => viewingAccount = true))
             : Overview(
                 api: api,
                 queue: queue,
@@ -362,6 +442,11 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
                 ),
                 name: profile!['name'],
                 arabic: locale == 'ar',
+                openSections: (project) => setState(() {
+                  sectionPath = project.isEmpty
+                      ? '/more'
+                      : '/more?project=${Uri.encodeQueryComponent(project)}';
+                }),
                 openAccount: () => setState(() => viewingAccount = true),
               ),
       ),
@@ -531,65 +616,58 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
         'data': {'current': current, 'password': next},
       });
       profile = await api.call('/api/v1/pages/me');
-      await restorePush();
+      unawaited(restorePush());
       setState(() => error = '');
     } catch (e) {
       setState(() => error = e.toString());
     }
   }
 
-  Widget notifiedDetail() {
-    final requestId = notifiedRequest!;
-    void close() => setState(() => notifiedRequest = null);
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (p, r) {
-        if (!p) close();
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(t('تفاصيل الطلب', 'Request details')),
-          leading: BackButton(onPressed: close),
-        ),
-        body: FutureBuilder<Map<String, dynamic>>(
-          future: api.call('/api/requests/$requestId'),
-          builder: (ctx, s) {
-            if (s.hasError)
-              return Center(
-                child: Text(
-                  t(
-                    'تعذر فتح الطلب أو ليست لديك صلاحية عرضه',
-                    'Request unavailable or access denied',
-                  ),
-                ),
-              );
-            if (!s.hasData)
-              return const Center(child: CircularProgressIndicator());
-            final row = s.requireData;
-            return ListView(
-              padding: const EdgeInsets.all(20),
-              children: [
-                Text(
-                  row['number'] ?? '',
-                  style: Theme.of(ctx).textTheme.titleLarge,
-                ),
-                Text(row['project_name'] ?? ''),
-                Text(row['created_by_name'] ?? ''),
-                for (final line in row['lines'] ?? [])
-                  ListTile(
-                    title: Text(line['material_name'] ?? ''),
-                    trailing: Text(
-                      "${line['quantity']} ${line['unit_name'] ?? ''}",
-                    ),
-                  ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
+  String? sectionPath;
+  Widget workspace(String path, VoidCallback close) => Workspace(
+    key: ValueKey(path),
+    api: api,
+    path: path,
+    dark: dark,
+    close: () async {
+      final session = api.session;
+      close();
+      try {
+        final me = await api.call('/api/v1/pages/me');
+        if (!mounted || session != api.session || profile == null) return;
+        final language = me['locale'] == 'en' ? 'en' : 'ar';
+        final night = me['theme'] == 1;
+        setState(() {
+          profile = me;
+          locale = api.locale = language;
+          dark = night;
+        });
+        await api.storage.write(key: 'locale', value: language);
+        await api.storage.write(key: 'theme', value: night ? 'dark' : 'light');
+      } catch (e) {
+        if (mounted && session == api.session)
+          setState(() => error = e.toString());
+      }
+    },
+    choosingFile: (value) => choosingFile = value,
+    rotated: () {
+      startSync();
+      unawaited(restorePush());
+    },
+    expired: () async {
+      devicePush.detach();
+      syncTimer?.cancel();
+      queue?.active = false;
+      await api.clear();
+      if (mounted)
+        setState(() {
+          profile = null;
+          notifiedRequest = null;
+          sectionPath = null;
+          viewingAccount = false;
+        });
+    },
+  );
   Widget account(BuildContext context) {
     final me = profile!;
     Widget tile(
@@ -603,7 +681,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: dark ? const Color(0xff203651) : const Color(0xffedf5fe),
+          color: const Color(0xffedf5fe),
           borderRadius: BorderRadius.circular(14),
         ),
         child: Icon(icon, color: blue),
@@ -623,6 +701,12 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             Text('${me['role_name']}'),
+            if (me['force_password_change'] != true)
+              tile(
+                Icons.apps,
+                t('أقسام العمل', 'Workspace'),
+                tap: () => setState(() => sectionPath = '/more'),
+              ),
             const SizedBox(height: 20),
             tile(
               Icons.email_outlined,

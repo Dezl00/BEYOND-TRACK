@@ -9,12 +9,6 @@
   --paper-rule: #ccd2da;
   --paper-fill: #f3f5f8;
 }
-[data-theme="dark"] {
-  --chart-requested: #818181;
-  --chart-received: #e0e0e0;
-  --chart-over: #dc8c85;
-  --chart-unused: #242424;
-}
 .report-controls {
   position: relative;
   margin-block-end: 20px;

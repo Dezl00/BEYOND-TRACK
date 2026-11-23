@@ -14,6 +14,7 @@ class Overview extends StatefulWidget {
     required this.canCreate,
     required this.openRequest,
     required this.openAccount,
+    required this.openSections,
   });
   final SubmissionQueue? queue;
   final bool canCreate;
@@ -21,6 +22,7 @@ class Overview extends StatefulWidget {
   final String name;
   final bool arabic;
   final VoidCallback openAccount;
+  final ValueChanged<String> openSections;
   final ValueChanged<String> openRequest;
   @override
   State<Overview> createState() => _OverviewState();
@@ -244,7 +246,7 @@ class _OverviewState extends State<Overview> {
             selectedIndex: requests ? 1 : 0,
             onDestinationSelected: (i) {
               if (i == 2) {
-                widget.openAccount();
+                widget.openSections(project);
                 return;
               }
               setState(() => requests = i == 1);
@@ -260,7 +262,7 @@ class _OverviewState extends State<Overview> {
               ),
               NavigationDestination(
                 icon: const Icon(Icons.more_horiz),
-                label: t('الحساب', 'Account'),
+                label: t('الأقسام', 'Sections'),
               ),
             ],
           ),

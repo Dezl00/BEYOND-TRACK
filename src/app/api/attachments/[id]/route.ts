@@ -24,15 +24,12 @@ export async function GET(
       ((receipt_key IS NOT NULL AND receipt_id IS NULL) OR (upload_key IS NOT NULL AND linked_at IS NULL)) pending
       FROM attachments WHERE id=${id}`);
     if (!file) throw new AppError("notFound", 404);
-    if (file.pending || file.purpose === "invoice") {
-      const actor = await requireActor();
-      if (file.pending && actor.id !== file.uploaded_by)
-        throw new AppError("forbidden", 403);
-      if (file.purpose === "invoice") {
-        await requireRequest(actor, file.request_id);
-        if (!canViewPrices(actor)) throw new AppError("forbidden", 403);
-      }
-    }
+    const actor = await requireActor();
+    await requireRequest(actor, file.request_id);
+    if (file.pending && file.uploaded_by !== actor.id)
+      throw new AppError("forbidden", 403);
+    if (["quotation", "alternative", "payment", "invoice"].includes(file.purpose) && !canViewPrices(actor))
+      throw new AppError("forbidden", 403);
     const url =
       file.cloudinary_url ||
       cloud().url(file.public_id, {

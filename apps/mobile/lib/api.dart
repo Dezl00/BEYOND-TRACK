@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/services.dart';
 import 'page_cache.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -114,5 +115,8 @@ class TrackApi {
     await storage.delete(key: 'sessionExpiry');
     session = null;
     await storage.delete(key: 'session');
+    await const MethodChannel(
+      'online.beyondtrack.app/device',
+    ).invokeMethod<void>('clearWorkspace');
   }
 }

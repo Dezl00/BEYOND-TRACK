@@ -27,7 +27,7 @@ export async function sendAndroidPush(token:string, title:string, body:string, r
   const response=await fetch("https://fcm.googleapis.com/v1/projects/beyond-91cad/messages:send",{
     method:"POST",signal:AbortSignal.timeout(10000),
     headers:{Authorization:"Bearer "+await accessToken(),"Content-Type":"application/json"},
-    body:JSON.stringify({message:{token,notification:{title,body},data:{requestId,notificationId},android:{ttl:"300s",notification:{tag:notificationId}}}})
+    body:JSON.stringify({message:{token,notification:{title,body},data:{requestId,notificationId},android:{ttl:"300s",notification:{tag:notificationId,channel_id:"track_updates_v1",sound:"track_notification"}}}})
   });
   if(response.ok)return true;
   const data=await response.json();

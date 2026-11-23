@@ -32,6 +32,11 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
     [ready, setReady] = useState(false),
     [ios, setIos] = useState(false);
   useEffect(() => {
+    if (navigator.userAgent.includes("BeyondTrackAndroid/")) {
+      setInstalled(true);
+      setReady(true);
+      return;
+    }
     const standalone = window.matchMedia("(display-mode: standalone)");
     function update() {
       setInstalled(

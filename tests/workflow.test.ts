@@ -91,7 +91,7 @@ import { GET as exportResource } from "@/app/api/export/route";
 import { parse as parseCsv } from "csv-parse/sync";
 import { ar } from "@/messages/ar";
 import { catalogExport } from "@/server/catalog-export";
-import { decrypt } from "@/server/security";
+import { decrypt, hash, token } from "@/server/security";
 import {
   importTemplate,
   parseImport,
@@ -1130,9 +1130,23 @@ describe("Request to receipt", () => {
       ),
     ).rejects.toThrow();
     await submitQuotations(buyer, await price(), meta);
-    const opened = await openFile();
-    expect(opened.status).toBe(302);
-    expect(opened.headers.get("location")).toBe(publicUrl);
+    expect((await openFile()).status).toBe(401);
+    for (const [user, expected] of [[ids.engineer, 403], [ids.owner, 302]] as const) {
+      const sessionToken = token();
+      await pg.query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at,ip,user_agent) VALUES($1,$2,now()+interval '1 hour','127.0.0.1','attachment-test')",
+        [user, hash(sessionToken)],
+      );
+      state.cookies.set("bt-session", sessionToken);
+      try {
+        const opened = await openFile();
+        expect(opened.status).toBe(expected);
+        if (expected === 302) expect(opened.headers.get("location")).toBe(publicUrl);
+      } finally {
+        state.cookies.delete("bt-session");
+        await pg.query("DELETE FROM sessions WHERE token_hash=$1", [hash(sessionToken)]);
+      }
+    }
     expect((await requestDetail(engineer, id)).quotes).toHaveLength(0);
     expect((await requestDetail(finance, id)).quotes).toHaveLength(1);
     const change = async (who: Actor, status: number, reason = "") =>

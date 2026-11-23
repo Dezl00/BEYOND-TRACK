@@ -489,13 +489,8 @@ html[dir="ltr"]
     color: #64748b;
   }
 }
-html[data-theme="dark"] .import-dropzone {
-  background: #fff;
-  color: #1e293b;
-}
-html[data-theme="dark"] .import-dropzone .muted {
-  color: #64748b;
-}
+html[data-theme="dark"] .import-dropzone { background: var(--bg); color: var(--text); }
+html[data-theme="dark"] .import-dropzone .muted { color: var(--secondary); }
 @media (max-width: 600px) {
   .import-preview-tab {
     gap: 5px;
@@ -599,4 +594,11 @@ html[data-theme="dark"] .import-dropzone .muted {
     font-size: 11px;
     padding: 5px 7px;
   }
+}
+
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { animation: track-theme-reveal 320ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes track-theme-reveal {
+  from { clip-path: circle(0 at 100% 0); }
+  to { clip-path: circle(150vmax at 100% 0); }
 }

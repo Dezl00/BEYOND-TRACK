@@ -6,6 +6,10 @@
         android:label="BEYOND TRACK"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="track_updates_v1"/>
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.captures" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/capture_paths"/>
+        </provider>
         <activity
             android:name=".MainActivity"
             android:exported="true"
