@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "storage_bucket": "beyond-91cad.firebasestorage.app",
+    "project_id": "beyond-91cad",
+    "project_number": "234556358522"
+  },
+  "client": [
+    {
+      "client_info": {
+        "android_client_info": {
+          "package_name": "com.beyondtrack.attendance"
+        },
+        "mobilesdk_app_id": "1:234556358522:android:db895689ab092af925e0c3"
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQBT4q_zKcCf1H2bkV8CXXdpJMvNohIVw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "android_client_info": {
+          "package_name": "online.beyondtrack.app"
+        },
+        "mobilesdk_app_id": "1:234556358522:android:674bcc4620b0e5d225e0c3"
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQBT4q_zKcCf1H2bkV8CXXdpJMvNohIVw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

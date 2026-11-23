@@ -1,7 +1,7 @@
 import { linkAttachments } from "./attachments";
 import { receiptQuantityError } from "@/lib/receiving";
 import type { QuotePrice } from "@/lib/quotations";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
 import type { z } from "zod";
 import { db, one, rows, sql, type Executor } from "@/db";
@@ -170,6 +170,17 @@ export async function saveRequest(
   requirePermission(actor, input.id ? "requests.edit" : "requests.create");
   return db().transaction(async (tx) => {
     await requireProject(actor, input.projectId, tx, true);
+    const submission = input.submissionId;
+    const fingerprint = submission ? createHash("sha256").update(JSON.stringify(input)).digest("hex") : "";
+    if (submission) {
+      if (!input.submit || input.id) throw new AppError("invalid");
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${actor.id + ":" + submission},0))`);
+      const prior = await one<{ request_id:string; payload_hash:string }>(sql`SELECT request_id,payload_hash FROM mobile_submissions WHERE user_id=${actor.id} AND submission_id=${submission}`,tx);
+      if (prior) {
+        if (prior.payload_hash !== fingerprint) throw new AppError("conflict",409);
+        return {id:prior.request_id};
+      }
+    }
     let existing: RequestRow | undefined;
     if (input.id) {
       existing = await requireRequest(actor, input.id, tx, true);
@@ -305,6 +316,7 @@ export async function saveRequest(
       input.projectId,
     );
     if (status !== 0) await notify(tx, id, existing ? 1 : 0, actor.id, { handoffChanged: status !== previousStatus });
+    if (submission) await tx.execute(sql`INSERT INTO mobile_submissions(user_id,submission_id,request_id,payload_hash) VALUES (${actor.id},${submission},${id},${fingerprint})`);
     return { id };
   });
 }

@@ -126,7 +126,7 @@ export async function processJobs(limit = 20) {
                   sql`INSERT INTO notifications(user_id,event_id,type,request_id) VALUES (${u.id},${job.id},${type},${requestId}) ON CONFLICT(user_id,event_id) DO NOTHING RETURNING id`,
                   tx,
                 );
-                if (notification && pushConfigured())
+                if (notification && (pushConfigured() || process.env.FIREBASE_SERVICE_ACCOUNT_JSON))
                   await tx.execute(
                     sql`INSERT INTO outbox(kind,payload) VALUES(3,${JSON.stringify({ notificationId: notification.id })}::jsonb)`,
                   );

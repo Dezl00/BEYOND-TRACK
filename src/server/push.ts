@@ -1,3 +1,4 @@
+import { sendAndroidPush } from "./android-push";
 import { language } from "@/messages/catalog";
 import { parseLocale, type Locale } from "@/messages/types";
 import webpush from "web-push";
@@ -47,8 +48,16 @@ export async function deliverPush(
     sql`SELECT CASE WHEN p.forced THEN p.in_app ELSE COALESCE(n.in_app,p.in_app) END enabled FROM notification_policy p LEFT JOIN notification_preferences n ON n.type=p.type AND n.user_id=${data.user_id} WHERE p.type=${data.type}`,
   );
   if (!pref?.enabled) return;
-  if (!pushConfigured()) throw new Error("Push not configured");
+
   const {m:ar}=language(parseLocale(user.locale));
+  if (data.endpoint.startsWith("android:")) {
+    const session = await one(sql`SELECT id FROM sessions WHERE id=${data.auth}::uuid AND user_id=${data.user_id} AND expires_at>now()`);
+    if (!session || !(await sendAndroidPush(data.endpoint.slice(8),ar.nav.notifications,ar.notificationTypes[data.type],data.request_id,notificationId))) {
+      await db().execute(sql`DELETE FROM push_subscriptions WHERE id=${subscriptionId} AND auth=${data.auth}`);
+    }
+    return;
+  }
+  if (!pushConfigured()) throw new Error("Push not configured");
   try {
     await webpush.sendNotification(
       {

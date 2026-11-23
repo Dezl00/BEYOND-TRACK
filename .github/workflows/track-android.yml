@@ -1,0 +1,57 @@
+name: BEYOND TRACK Android
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [release, patch]
+        required: true
+      version:
+        description: Installed release version for a patch (e.g. 1.0.0+1)
+        type: string
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: shorebirdtech/setup-shorebird@v1
+      - name: Build release or send patch
+        env:
+          OPERATION: ${{ inputs.operation }}
+          VERSION: ${{ inputs.version }}
+          SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+          APP_ID: ${{ vars.SHOREBIRD_APP_ID }}
+          STORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -eu
+          : "${SHOREBIRD_TOKEN:?}" "${STORE:?}" "${ANDROID_STORE_PASSWORD:?}" "${ANDROID_KEY_ALIAS:?}" "${ANDROID_KEY_PASSWORD:?}"
+          [[ "$APP_ID" =~ ^[0-9a-fA-F-]{36}$ ]]
+          printf 'app_id: %s\n' "$APP_ID" > shorebird.yaml
+          sed -i '/^  assets:/a\    - shorebird.yaml' pubspec.yaml
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/track.jks"
+          umask 077
+          printf '%s' "$STORE" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          if [[ "$OPERATION" == "release" ]]; then
+            shorebird release android --artifact apk --flutter-version=3.47.9
+          else
+            : "${VERSION:?Provide the installed release version}"
+            shorebird patch android --release-version="$VERSION"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: inputs.operation == 'release'
+        with:
+          name: beyond-track-android
+          path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error

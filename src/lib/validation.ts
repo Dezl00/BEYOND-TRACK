@@ -69,6 +69,7 @@ const line = z.union([
 export const requestSchema = z
   .object({
     id: uuid.optional(),
+    submissionId: uuid.optional(),
     projectId: uuid,
     requiredBy: dateOnly.or(z.literal("")).optional(),
     version: z.number().int().positive().optional(),
