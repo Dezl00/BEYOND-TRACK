@@ -47,7 +47,7 @@ jobs:
             shorebird release android --artifact apk --flutter-version=3.47.9
           else
             : "${VERSION:?Provide the installed release version}"
-            shorebird patch android --release-version="$VERSION"
+            shorebird patch android --release-version="$VERSION" --track=stable --allow-asset-diffs
           fi
       - name: Verify notification sound in release APK
         if: inputs.operation == 'release'
