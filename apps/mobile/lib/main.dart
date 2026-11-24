@@ -1,4 +1,5 @@
 import 'sections.dart';
+import 'page_motion.dart';
 import 'account_settings.dart';
 import 'track_header.dart';
 import 'theme_reveal.dart';
@@ -59,10 +60,11 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     try {
       final enabled = await api.storage.read(key: 'notify:$user') != '0';
       if (!mounted || session != api.session) return;
-      if (enabled)
+      final authorized = enabled && await devicePush.authorized();
+      if (authorized)
         await devicePush.update(user, true, requestPermission: false);
       if (mounted && session == api.session)
-        setState(() => pushEnabled = enabled);
+        setState(() => pushEnabled = authorized);
     } catch (e) {
       if (mounted && session == api.session)
         setState(() {
@@ -75,16 +77,37 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
   }
 
   Future<void> togglePush(bool value) async {
-    if (pushBusy) return;
+    if (pushBusy || profile == null) return;
+    final session = api.session;
     setState(() {
       pushBusy = true;
-      pushEnabled = value;
+      error = '';
     });
     try {
       await devicePush.update(profile!['id'], value);
+      if (mounted && session == api.session)
+        setState(() => pushEnabled = value);
+    } on NotificationPermissionDenied {
+      if (mounted && session == api.session) {
+        setState(() => pushEnabled = false);
+        messenger.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(
+              t(
+                'يحتاج التطبيق إلى إذن الإشعارات',
+                'Notification permission is required',
+              ),
+            ),
+            action: SnackBarAction(
+              label: t('الإعدادات', 'Settings'),
+              onPressed: devicePush.openSettings,
+            ),
+          ),
+        );
+      }
     } catch (e) {
-      pushEnabled = !value;
-      error = e.toString();
+      if (mounted && session == api.session)
+        setState(() => error = e.toString());
     } finally {
       if (mounted) setState(() => pushBusy = false);
     }
@@ -200,6 +223,22 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  Future<Map<String, dynamic>> loadProfile() async {
+    final me = await api.page('/api/v1/pages/me', force: true);
+    if (me['force_password_change'] != true &&
+        (me['navigation'] as List).any((item) => item['key'] == 'dashboard')) {
+      // On a first visit keep the sign-in/unlock screen until the dashboard is ready.
+      try {
+        await api.prepare(sectionPath('dashboard', api.project.value.id));
+      } on ApiFailure catch (e) {
+        if (e.status == 401) rethrow;
+      } on Exception {
+        /* The home screen provides a retry when offline. */
+      }
+    }
+    return me;
+  }
+
   Future<void> unlock() async {
     if (authenticating) return;
     authenticating = true;
@@ -222,7 +261,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       api.session = await api.storage.read(key: 'session');
       if (api.session != null) {
         try {
-          profile = await api.call('/api/v1/pages/me');
+          profile = await loadProfile();
           unawaited(restorePush());
         } catch (e) {
           profile = null;
@@ -300,7 +339,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
         password.clear();
         code.clear();
       } else {
-        profile = await api.call('/api/v1/pages/me');
+        profile = await loadProfile();
         unawaited(restorePush());
         password.clear();
         code.clear();
@@ -367,11 +406,46 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       themeAnimationDuration: Duration.zero,
       builder: (_, child) => ThemeReveal(key: reveal, child: child!),
       theme: ThemeData(
-        colorScheme: scheme,
+        colorScheme: scheme.copyWith(shadow: Colors.transparent),
+        shadowColor: Colors.transparent,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {TargetPlatform.android: DirectionalPageMotion()},
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            backgroundColor: scheme.onSurface.withValues(alpha: .05),
+            side: BorderSide.none,
+          ),
+        ),
+        segmentedButtonTheme: SegmentedButtonThemeData(
+          style: ButtonStyle(
+            side: const WidgetStatePropertyAll(BorderSide.none),
+            backgroundColor: WidgetStateProperty.resolveWith(
+              (s) => s.contains(WidgetState.selected)
+                  ? blue.withValues(alpha: dark ? .35 : .13)
+                  : scheme.onSurface.withValues(alpha: .05),
+            ),
+          ),
+        ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          elevation: 0,
+          focusElevation: 0,
+          hoverElevation: 0,
+          highlightElevation: 0,
+          disabledElevation: 0,
+        ),
+        dividerTheme: const DividerThemeData(color: Colors.transparent),
+        expansionTileTheme: const ExpansionTileThemeData(
+          shape: Border(),
+          collapsedShape: Border(),
+        ),
         appBarTheme: const AppBarTheme(
           backgroundColor: blue,
           foregroundColor: Colors.white,
           toolbarHeight: 72,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          shadowColor: Colors.transparent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
           ),
@@ -379,6 +453,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
         fontFamily: locale == 'ar' ? 'IBM Plex Sans Arabic' : 'IBM Plex Sans',
         scaffoldBackgroundColor: dark ? Colors.black : Colors.white,
         chipTheme: ChipThemeData(
+          side: BorderSide.none,
           backgroundColor: day.surfaceContainerLow,
           labelStyle: TextStyle(color: day.onSurface),
         ),
@@ -392,6 +467,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
+            elevation: 0,
             backgroundColor: blue,
             foregroundColor: Colors.white,
             minimumSize: const Size(48, 48),
@@ -439,23 +515,12 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
             : profile!['force_password_change'] == true
             ? account(ctx)
             : Overview(
+                key: ValueKey(profile!['id']),
                 api: api,
                 queue: queue,
-                openRequest: (id) => Navigator.of(ctx).push(
-                  MaterialPageRoute(
-                    builder: (_) => RequestDetail(api: api, id: id),
-                  ),
-                ),
-                canCreate: (profile!['permissions'] as List).contains(
-                  'requests.create',
-                ),
-                name: profile!['name'],
+                profile: profile!,
                 arabic: locale == 'ar',
-                hasDashboard: (profile!['navigation'] as List).any(
-                  (n) => n['key'] == 'dashboard',
-                ),
-                directory: (openAccount) => directory(ctx, openAccount),
-                account: account(ctx, embedded: true),
+                account: account(ctx),
               ),
       ),
     );
@@ -623,7 +688,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
         'command': 'password',
         'data': {'current': current, 'password': next},
       });
-      profile = await api.call('/api/v1/pages/me');
+      profile = await loadProfile();
       unawaited(restorePush());
       setState(() => error = '');
     } catch (e) {
@@ -631,25 +696,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     }
   }
 
-  Widget directory(BuildContext context, VoidCallback openAccount) =>
-      SectionDirectory(
-        profile: profile!,
-        arabic: locale == 'ar',
-        open: (section) {
-          if (section == 'settings') {
-            openAccount();
-            return;
-          }
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) =>
-                  SectionPage(api: api, section: section, profile: profile!),
-            ),
-          );
-        },
-      );
-
-  Widget account(BuildContext context, {bool embedded = false}) {
+  Widget account(BuildContext context) {
     final me = profile!;
     Widget tile(
       IconData icon,
@@ -673,14 +720,6 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       onTap: tap,
     );
     return Scaffold(
-      appBar: embedded
-          ? null
-          : TrackHeader(
-              api: api,
-              title: t('الحساب', 'Account'),
-              primary: me['force_password_change'] == true,
-              selectable: me['force_password_change'] != true,
-            ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
@@ -696,19 +735,39 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
               t('البريد الإلكتروني', 'Email'),
               value: me['email'],
             ),
-            tile(
-              Icons.language,
-              t('اللغة', 'Language'),
-              value: locale == 'ar' ? 'العربية' : 'English',
-              tap: () => preferences(language: locale == 'ar' ? 'en' : 'ar'),
+            ListTile(
+              title: Text(t('اللغة', 'Language')),
+              trailing: Directionality(
+                textDirection: TextDirection.ltr,
+                child: SegmentedButton<String>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(value: 'ar', label: Text('AR')),
+                    ButtonSegment(value: 'en', label: Text('EN')),
+                  ],
+                  selected: {locale},
+                  onSelectionChanged: (v) => preferences(language: v.single),
+                ),
+              ),
             ),
-            tile(
-              Icons.dark_mode_outlined,
-              t('الوضع الداكن', 'Dark mode'),
-              control: Switch(
-                activeTrackColor: const Color(0xff218552),
-                value: dark,
-                onChanged: (v) => preferences(night: v),
+            ListTile(
+              title: Text(t('المظهر', 'Appearance')),
+              trailing: SegmentedButton<bool>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(
+                    value: false,
+                    icon: const Icon(Icons.light_mode_outlined),
+                    tooltip: t('فاتح', 'Light'),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    icon: const Icon(Icons.dark_mode_outlined),
+                    tooltip: t('داكن', 'Dark'),
+                  ),
+                ],
+                selected: {dark},
+                onSelectionChanged: (v) => preferences(night: v.single),
               ),
             ),
             tile(
@@ -742,22 +801,28 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
                 tile(
                   item.$2,
                   item.$3,
-                  tap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => AccountSettings(
-                        api: api,
-                        section: item.$1,
-                        title: item.$3,
-                        owner: me['is_owner'] == true,
+                  tap: () async {
+                    final paths = item.$1 == 'system'
+                        ? ['/api/v1/pages/system']
+                        : [
+                            '/api/v1/pages/security',
+                            '/api/v1/pages/notification-preferences',
+                          ];
+                    if (!await prepareNavigation(context, api, paths) ||
+                        !context.mounted)
+                      return;
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => AccountSettings(
+                          api: api,
+                          section: item.$1,
+                          title: item.$3,
+                          owner: me['is_owner'] == true,
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
-            tile(
-              Icons.lock_outline,
-              t('حماية الجهاز', 'Device protection'),
-              value: t('إجبارية', 'Required'),
-            ),
             tile(
               Icons.password,
               t('تغيير كلمة المرور', 'Change password'),

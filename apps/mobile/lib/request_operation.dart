@@ -32,7 +32,7 @@ class _RequestOperationState extends State<RequestOperation> {
   String get action => widget.action;
   List get lines => widget.request['lines'];
   String t(String a, String b) => widget.api.locale == 'ar' ? a : b;
-  late final suppliers = widget.api.call(
+  late final suppliers = widget.api.page(
     '/api/options?resource=suppliers&selectable=1',
   );
   Future<void> attach(String purpose, List<Map<String, String>> files) async {
@@ -207,11 +207,10 @@ class _RequestOperationState extends State<RequestOperation> {
             future: suppliers,
             builder: (_, s) {
               if (s.hasError) return Text(s.error.toString());
-              if (!s.hasData) return const LinearProgressIndicator();
               return DropdownButtonFormField<String>(
                 decoration: InputDecoration(labelText: t('المورد', 'Supplier')),
                 items: [
-                  for (final v in s.requireData['items'])
+                  for (final v in s.data?['items'] ?? [])
                     DropdownMenuItem(
                       value: v['id'] as String,
                       child: Text(v['name']),

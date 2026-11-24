@@ -2,12 +2,25 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'api.dart';
+import 'package:flutter/services.dart';
+
+class NotificationPermissionDenied implements Exception {}
 
 class DeviceNotifications {
   final TrackApi api;
   DeviceNotifications(this.api);
   StreamSubscription<String>? refresh;
   String? registered;
+  Future<bool> authorized() async {
+    if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+    final settings = await FirebaseMessaging.instance.getNotificationSettings();
+    return settings.authorizationStatus == AuthorizationStatus.authorized;
+  }
+
+  Future<void> openSettings() => const MethodChannel(
+    'online.beyondtrack.app/device',
+  ).invokeMethod<void>('notificationSettings');
+
   Future<void> firstLaunch() async {
     try {
       if (await api.storage.read(key: 'promptedForPush') == '1') return;
@@ -33,11 +46,7 @@ class DeviceNotifications {
           ? await messaging.requestPermission()
           : await messaging.getNotificationSettings();
       if (permission.authorizationStatus != AuthorizationStatus.authorized)
-        throw StateError(
-          api.locale == 'ar'
-              ? 'فعّل إذن الإشعارات من إعدادات الجهاز'
-              : 'Allow notifications in Android settings',
-        );
+        throw NotificationPermissionDenied();
       final token = await messaging.getToken().timeout(
         const Duration(seconds: 20),
       );

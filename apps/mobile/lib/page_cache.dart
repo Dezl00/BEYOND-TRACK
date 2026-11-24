@@ -28,15 +28,27 @@ class PageCache {
   }
 
   Future<Map<String, dynamic>?> read(String session, String path) async {
+    return (await readEntry(session, path))?.body;
+  }
+
+  Future<({Map<String, dynamic> body, DateTime expiry})?> readEntry(
+    String session,
+    String path,
+  ) async {
     final result = await (await _database).query(
       'pages',
-      columns: ['body'],
+      columns: ['body', 'expires'],
       where: 'scope=? AND path=? AND expires>?',
       whereArgs: [scope(session), path, DateTime.now().millisecondsSinceEpoch],
       limit: 1,
     );
     if (result.isEmpty) return null;
-    return jsonDecode(result.single['body'] as String) as Map<String, dynamic>;
+    return (
+      body: jsonDecode(result.single['body'] as String) as Map<String, dynamic>,
+      expiry: DateTime.fromMillisecondsSinceEpoch(
+        result.single['expires'] as int,
+      ),
+    );
   }
 
   Future<void> erase(String session) async {

@@ -335,7 +335,7 @@ class _ResourceLookupState extends State<ResourceLookup> {
       }
     });
     try {
-      final res = await widget.api.call(
+      final res = await widget.api.page(
         Uri(
           path: '/api/options',
           queryParameters: {
@@ -384,7 +384,6 @@ class _ResourceLookupState extends State<ResourceLookup> {
               title: Text(r['name']),
               onTap: () => Navigator.pop(context, r),
             ),
-          if (busy) const LinearProgressIndicator(),
           if (error.isNotEmpty)
             TextButton(
               onPressed: () => load(more: rows.isNotEmpty),

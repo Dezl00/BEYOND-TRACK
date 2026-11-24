@@ -1,11 +1,28 @@
+import 'dart:async';
 import 'package:beyond_track/api.dart';
+import 'package:beyond_track/page_cache.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:beyond_track/sections.dart';
 import 'package:beyond_track/overview.dart';
 import 'package:beyond_track/track_header.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+class MemoryCache extends PageCache {
+  final entries = <String,({Map<String,dynamic> body, DateTime expiry})>{};
+  @override
+  Future<({Map<String,dynamic> body, DateTime expiry})?> readEntry(String session,String path) async => entries['$session:$path'];
+  @override
+  Future<void> save(String session,String path,Map<String,dynamic> body,DateTime expires) async {entries['$session:$path']=(body:body,expiry:expires);}
+  @override
+  Future<void> erase(String session) async {entries.removeWhere((k,v)=>k.startsWith('$session:'));}
+}
+
 class FakeApi extends TrackApi {
+  FakeApi() { session='test'; }
+  @override
+  final cache = MemoryCache();
+  Completer<void>? delay;
   final paths = <String>[];
   @override
   Future<Map<String, dynamic>> call(
@@ -13,6 +30,7 @@ class FakeApi extends TrackApi {
     Map<String, dynamic>? data,
   ]) async {
     paths.add(path);
+    if (delay != null) await delay!.future;
     if (path.startsWith('/api/options?resource=projects')) {
       return {
         'items': [
@@ -63,95 +81,61 @@ class FakeApi extends TrackApi {
 }
 
 void main() {
-  testWidgets(
-    'primary tabs share the selected project and one navigation layout',
-    (tester) async {
-      final api = FakeApi()..locale = 'en';
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Overview(
-            api: api,
-            name: 'Employee',
-            arabic: false,
-            queue: null,
-            canCreate: false,
-            hasDashboard: true,
-            openRequest: (_) {},
-            account: const Text('Profile'),
-            directory: (_) => const Text('Directory'),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('Employee'), findsOneWidget);
-      await tester.tap(find.text('All projects'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('North'));
-      await tester.pumpAndSettle();
-      for (final tab in ['Requests', 'Sections', 'Account', 'Home']) {
-        await tester.tap(
-          find.descendant(
-            of: find.byType(NavigationBar),
-            matching: find.text(tab),
-          ),
-        );
-        await tester.pumpAndSettle();
-        expect(tester.getSize(find.byType(AppBar)).height, 72);
-        expect(
-          tester.widget<NavigationBar>(find.byType(NavigationBar)).height,
-          64,
-        );
-        expect(find.text('North'), findsOneWidget);
-        expect(
-          tester.widget<TrackHeader>(find.byType(TrackHeader)).home,
-          tab == 'Home',
-        );
-      }
-      expect(api.paths, contains('/api/v1/pages/requests?project=north'));
-      api.client.close();
-    },
-  );
-  testWidgets(
-    'limited roles retain the primary header and navigation on every tab',
-    (tester) async {
-      final api = FakeApi()..locale = 'en';
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Overview(
-            api: api,
-            name: 'User',
-            arabic: false,
-            queue: null,
-            canCreate: false,
-            hasDashboard: false,
-            openRequest: (_) {},
-            account: const Text('Account content'),
-            directory: (open) =>
-                TextButton(onPressed: open, child: const Text('Open settings')),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<TrackHeader>(find.byType(TrackHeader))
-            .preferredSize
-            .height,
-        72,
-      );
-      expect(
-        tester.widget<NavigationBar>(find.byType(NavigationBar)).height,
-        64,
-      );
-      await tester.tap(find.text('Open settings'));
-      await tester.pumpAndSettle();
-      expect(find.text('Account content'), findsOneWidget);
-      expect(find.text('All projects'), findsOneWidget);
-      expect(find.byType(NavigationBar), findsOneWidget);
-      expect(api.paths, isEmpty);
-      api.client.close();
-    },
-  );
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({'sessionExpiry':DateTime.now().add(const Duration(hours:1)).toIso8601String()});
+  });
+  Widget shell(FakeApi api, List<String> allowed) => MaterialApp(home: Overview(
+    api:api, profile:{'name':'Employee One','permissions':[], 'navigation':[for(final k in allowed) {'key':k}]},
+    arabic:false,queue:null,account:const Text('Profile'),
+  ));
+  Finder tab(String label) => find.descendant(of:find.byType(NavigationBar), matching:find.text(label));
+  testWidgets('primary tabs retain project, search and cached data; only account hides its header', (tester) async {
+    final api=FakeApi()..locale='en';
+    await tester.pumpWidget(shell(api,['dashboard','requests','notifications','settings']));
+    await tester.pumpAndSettle();
+    expect(find.text('Employee'),findsOneWidget);
+    final bell = find.byIcon(Icons.notifications_none_rounded);
+    expect(tester.getCenter(bell).dx,lessThan(tester.getCenter(find.byIcon(Icons.account_circle_outlined)).dx));
+    await tester.tap(find.text('All projects'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('North'));
+    await tester.pumpAndSettle();
+    await tester.tap(tab('Requests'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField),'saved search');
+    await tester.tap(tab('Account'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TrackHeader),findsNothing);
+    expect(find.text('Profile'),findsOneWidget);
+    await tester.tap(tab('Requests'));
+    await tester.pumpAndSettle();
+    expect(find.text('saved search'),findsOneWidget);
+    expect(find.text('North'),findsOneWidget);
+    expect(api.paths.where((path)=>path=='/api/v1/pages/requests?project=north'),hasLength(1));
+    api.client.close();
+  });
+  testWidgets('department-only role has a home and can open its assigned section without a dashboard grant', (tester) async {
+    final api=FakeApi()..locale='en';
+    await tester.pumpWidget(shell(api,['technical','settings']));
+    await tester.pumpAndSettle();
+    expect(tab('Requests'),findsNothing);
+    expect(find.text('Request statistics'),findsNothing);
+    expect(find.text('Technical Office'),findsOneWidget);
+    api.delay=Completer<void>();
+    await tester.tap(find.text('Technical Office'));
+    await tester.pump();
+    expect(find.text('Hello'),findsOneWidget);
+    expect(find.byType(CircularProgressIndicator),findsNothing);
+    api.delay!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('PO-21'),findsOneWidget);
+    expect(find.byType(NavigationBar),findsOneWidget);
+    expect(api.paths,['/api/v1/pages/technical']);
+    await tester.tap(tab('Account'));
+    await tester.pumpAndSettle();
+    expect(find.text('Profile'),findsOneWidget);
+    api.client.close();
+  });
   testWidgets('directory respects server navigation and unit access', (
     tester,
   ) async {

@@ -46,6 +46,17 @@ class MainActivity : FlutterActivity() {
         MethodChannel(engine.dartExecutor.binaryMessenger, "online.beyondtrack.app/device")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "notificationSettings" -> {
+                        val settings = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName)
+                        } else {
+                            Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                        }
+                        startActivity(settings)
+                        result.success(null)
+                        return@setMethodCallHandler
+                    }
                     "saveFile" -> {
                         if(saveResult != null){result.error("busy","File picker is active",null); return@setMethodCallHandler}
                         saveBytes=call.argument<ByteArray>("bytes")

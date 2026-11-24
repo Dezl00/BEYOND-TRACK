@@ -40,10 +40,10 @@ class _AccountSettingsState extends State<AccountSettings> {
       error = '';
     });
     try {
-      final res = await widget.api.call(
+      final res = await widget.api.page(
         '/api/v1/pages/' + (system ? 'system' : 'notification-preferences'),
       );
-      final sec = system ? {} : await widget.api.call('/api/v1/pages/security');
+      final sec = system ? {} : await widget.api.page('/api/v1/pages/security');
       if (!mounted) return;
       policies.clear();
       forced.clear();
@@ -120,7 +120,6 @@ class _AccountSettingsState extends State<AccountSettings> {
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        if (busy) const LinearProgressIndicator(),
         if (error.isNotEmpty)
           ListTile(
             title: Text(error),
@@ -131,11 +130,6 @@ class _AccountSettingsState extends State<AccountSettings> {
           ),
         if (ready) ...[
           if (system) ...[
-            toggle(
-              t('الوضع الداكن الافتراضي', 'Default dark mode'),
-              settings['defaultTheme'] == 1,
-              (v) => setState(() => settings['defaultTheme'] = v ? 1 : 0),
-            ),
             toggle(
               t('الأرقام العربية', 'Arabic numerals'),
               settings['digits'] == 1,

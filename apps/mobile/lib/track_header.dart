@@ -1,7 +1,33 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 
+Future<bool> prepareNavigation(
+  BuildContext context,
+  TrackApi api,
+  List<String> paths,
+) async {
+  final session = api.session;
+  try {
+    await Future.wait(paths.map(api.prepare));
+    return context.mounted &&
+        session == api.session &&
+        ModalRoute.of(context)?.isCurrent != false;
+  } catch (error) {
+    if (context.mounted && session == api.session) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+    return false;
+  }
+}
+
 Future<void> chooseProject(BuildContext context, TrackApi api) async {
+  if (!await prepareNavigation(context, api, [
+        '/api/options?resource=projects',
+      ]) ||
+      !context.mounted)
+    return;
   final ar = api.locale == 'ar';
   final selected = await showModalBottomSheet<({String id, String name})>(
     context: context,
@@ -37,7 +63,7 @@ class _ProjectPickerState extends State<_ProjectPicker> {
       issue = null;
     });
     try {
-      final response = await widget.api.call(
+      final response = await widget.api.page(
         Uri(
           path: '/api/options',
           queryParameters: {
@@ -79,7 +105,6 @@ class _ProjectPickerState extends State<_ProjectPicker> {
                 name: row['name'] as String,
               )),
             ),
-          if (busy) const Center(child: CircularProgressIndicator()),
           if (issue != null)
             ListTile(
               title: Text(issue!),
@@ -103,6 +128,8 @@ class TrackHeader extends StatelessWidget implements PreferredSizeWidget {
     required this.api,
     required this.title,
     this.home = false,
+    this.account,
+    this.notifications,
     this.back,
     this.afterChange,
     this.primary = false,
@@ -111,7 +138,7 @@ class TrackHeader extends StatelessWidget implements PreferredSizeWidget {
   final TrackApi api;
   final String title;
   final bool home, primary, selectable;
-  final VoidCallback? back, afterChange;
+  final VoidCallback? back, afterChange, account, notifications;
   @override
   Size get preferredSize => const Size.fromHeight(72);
   @override
@@ -119,56 +146,92 @@ class TrackHeader extends StatelessWidget implements PreferredSizeWidget {
     toolbarHeight: 72,
     automaticallyImplyLeading: false,
     centerTitle: false,
-    leading: home
-        ? Padding(
-            padding: const EdgeInsets.all(10),
-            child: Image.asset('assets/brand/mark.png'),
-          )
-        : primary
+    leading: home || primary
         ? null
         : BackButton(onPressed: back ?? () => Navigator.maybePop(context)),
-    title: Text(
-      title,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-    ),
-    actions: [
-      if (selectable)
-        ValueListenableBuilder(
-          valueListenable: api.project,
-          builder: (ctx, value, _) => ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.sizeOf(ctx).width * .40,
-            ),
-            child: TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
-              onPressed: () async {
-                final old = api.project.value.id;
-                await chooseProject(ctx, api);
-                if (ctx.mounted && old != api.project.value.id)
-                  afterChange?.call();
-              },
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      value.name.isEmpty
-                          ? (api.locale == 'ar'
-                                ? 'كل المشاريع'
-                                : 'All projects')
-                          : value.name,
+    title: home
+        ? Row(
+            textDirection: TextDirection.ltr,
+            children: [
+              if (notifications != null)
+                IconButton(
+                  tooltip: api.locale == 'ar' ? 'الإشعارات' : 'Notifications',
+                  onPressed: notifications,
+                  icon: const Icon(Icons.notifications_none_rounded),
+                ),
+              if (selectable)
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: projectPicker(),
+                  ),
+                )
+              else
+                const Spacer(),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      api.locale == 'ar' ? 'أهلاً' : 'Hello',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    Text(
+                      title.trim().split(RegExp(r'\s+')).first,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  const Icon(Icons.expand_more, size: 18),
-                ],
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: api.locale == 'ar' ? 'الحساب' : 'Account',
+                onPressed: account,
+                icon: const Icon(Icons.account_circle_outlined),
+              ),
+            ],
+          )
+        : Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          ),
+    actions: [if (!home && selectable) projectPicker()],
+  );
+
+  Widget projectPicker() => ValueListenableBuilder(
+    valueListenable: api.project,
+    builder: (ctx, value, _) => ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(ctx).width * .40),
+      child: TextButton(
+        style: TextButton.styleFrom(foregroundColor: Colors.white),
+        onPressed: () async {
+          final old = api.project.value.id;
+          await chooseProject(ctx, api);
+          if (ctx.mounted && old != api.project.value.id) afterChange?.call();
+        },
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                value.name.isEmpty
+                    ? (api.locale == 'ar' ? 'كل المشاريع' : 'All projects')
+                    : value.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-          ),
+            const Icon(Icons.expand_more, size: 18),
+          ],
         ),
-    ],
+      ),
+    ),
   );
 }

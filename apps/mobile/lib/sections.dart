@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'section_labels.dart';
 
-const _icons = <String, IconData>{
+const sectionIcons = <String, IconData>{
   'projects': Icons.domain_outlined,
   'boq': Icons.inventory_2_outlined,
   'materials': Icons.category_outlined,
@@ -38,6 +38,36 @@ const _queues = {
   'receipts',
 };
 
+List<String> allowedSections(Map profile) {
+  final allowed = (profile['navigation'] as List)
+      .map((item) => item['key'])
+      .whereType<String>()
+      .toSet();
+  return [
+    for (final key in allowed)
+      if (sectionIcons.containsKey(key)) key,
+    if (allowed.contains('boq')) 'materials',
+    if (allowed.contains('boq') && profile['canManageUnits'] == true) 'units',
+  ];
+}
+
+String sectionPath(
+  String section,
+  String project, {
+  String query = '',
+  String? cursor,
+}) {
+  final params = {
+    if (project.isNotEmpty) 'project': project,
+    if (query.isNotEmpty) 'q': query,
+    if (cursor != null) 'cursor': cursor,
+  };
+  return Uri(
+    path: '/api/v1/pages/$section',
+    queryParameters: params.isEmpty ? null : params,
+  ).toString();
+}
+
 class SectionDirectory extends StatelessWidget {
   const SectionDirectory({
     super.key,
@@ -51,16 +81,7 @@ class SectionDirectory extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final names = arabic ? sectionArabic : sectionEnglish;
-    final allowed = (profile['navigation'] as List)
-        .map((item) => item['key'])
-        .whereType<String>()
-        .toSet();
-    final sections = [
-      for (final key in allowed)
-        if (_icons.containsKey(key)) key,
-      if (allowed.contains('boq')) 'materials',
-      if (allowed.contains('boq') && profile['canManageUnits'] == true) 'units',
-    ];
+    final sections = allowedSections(profile);
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       itemCount: sections.length,
@@ -68,7 +89,7 @@ class SectionDirectory extends StatelessWidget {
       itemBuilder: (_, i) {
         final key = sections[i];
         return ListTile(
-          leading: Icon(_icons[key]),
+          leading: Icon(sectionIcons[key]),
           title: Text(names[key]!),
           trailing: const Icon(Icons.arrow_forward_ios, size: 16),
           onTap: () => open(key),
@@ -84,10 +105,12 @@ class SectionPage extends StatefulWidget {
     required this.api,
     required this.section,
     this.profile = const {},
+    this.back,
   });
   final TrackApi api;
   final String section;
   final Map profile;
+  final VoidCallback? back;
 
   @override
   State<SectionPage> createState() => _SectionPageState();
@@ -124,44 +147,56 @@ class _SectionPageState extends State<SectionPage> {
     super.dispose();
   }
 
-  Future<void> load({bool more = false}) async {
+  String? displayedPath;
+  Future<void> load({bool more = false, bool force = false}) async {
     if (more && (busy || next == null)) return;
-    final generationAtStart = ++generation;
-    setState(() {
-      busy = true;
-      error = '';
-      if (!more) {
-        rows.clear();
-        next = null;
-      }
-    });
-    try {
-      final page = await widget.api.call(
-        Uri(
-          path: '/api/v1/pages/$keyName',
-          queryParameters: {
-            if (selectedProject.isNotEmpty) 'project': selectedProject,
-            if (query.isNotEmpty) 'q': query,
-            if (more) 'cursor': next!,
-          },
-        ).toString(),
-      );
+    final version = ++generation;
+    final base = sectionPath(keyName, selectedProject, query: query);
+    final path = more
+        ? sectionPath(keyName, selectedProject, query: query, cursor: next)
+        : base;
+    void apply(Map<String, dynamic> page) {
+      if (!mounted || generation != version) return;
       final data = report ? page['data'] as Map : page;
-      if (!mounted || generationAtStart != generation) return;
       setState(() {
+        if (!more) rows.clear();
         if (report) {
-          summary = page['overview'] as Map;
-          projectName = page['context']['name'] as String;
+          summary = page['overview'];
+          projectName = page['context']['name'];
         }
         rows.addAll((data['items'] as List).cast<Map>());
         next = data['next'];
       });
+    }
+
+    setState(() {
+      busy = true;
+      error = '';
+      if (displayedPath != base) {
+        rows.clear();
+        next = null;
+        summary = {};
+        projectName = '';
+        displayedPath = base;
+      }
+    });
+    try {
+      apply(
+        await widget.api.page(path, force: force, preview: more ? null : apply),
+      );
     } catch (e) {
-      if (mounted && generation == generationAtStart)
-        setState(() => error = e.toString());
+      if (mounted && version == generation)
+        setState(() {
+          if (e is ApiFailure && [401, 403, 404].contains(e.status)) {
+            rows.clear();
+            summary = {};
+            next = null;
+            projectName = '';
+          }
+          error = e.toString();
+        });
     } finally {
-      if (mounted && generation == generationAtStart)
-        setState(() => busy = false);
+      if (mounted && version == generation) setState(() => busy = false);
     }
   }
 
@@ -186,13 +221,10 @@ class _SectionPageState extends State<SectionPage> {
         }
       }
       if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => RequestDetail(
-            api: widget.api,
-            id: row[keyName == 'notifications' ? 'request_id' : 'id'],
-          ),
-        ),
+      await openRequestDetail(
+        context,
+        widget.api,
+        row[keyName == 'notifications' ? 'request_id' : 'id'],
       );
       if (mounted) await load();
     } else {
@@ -365,7 +397,7 @@ class _SectionPageState extends State<SectionPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: TrackHeader(api: widget.api, title: title),
+    appBar: TrackHeader(api: widget.api, title: title, back: widget.back),
     floatingActionButton: canWrite(false)
         ? FloatingActionButton(
             onPressed: () => editResource(),
@@ -374,7 +406,7 @@ class _SectionPageState extends State<SectionPage> {
           )
         : null,
     body: RefreshIndicator(
-      onRefresh: () => load(),
+      onRefresh: () => load(force: true),
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
@@ -459,11 +491,7 @@ class _SectionPageState extends State<SectionPage> {
               ],
             );
           if (i == rows.length + 1) {
-            if (busy)
-              return const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              );
+            if (busy) return const SizedBox.shrink();
             if (error.isNotEmpty)
               return Column(
                 children: [
@@ -504,7 +532,7 @@ class _SectionPageState extends State<SectionPage> {
               t('المطلوب', 'Requested') + ' ' + row['requested'].toString(),
           ].where((v) => v != null && v != '').join(' · ');
           return ListTile(
-            leading: Icon(_icons[keyName]),
+            leading: Icon(sectionIcons[keyName]),
             title: Text(rowTitle(row)),
             subtitle: subtitle.isEmpty ? null : Text(subtitle),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
@@ -520,6 +548,21 @@ String indexedLabel(List<String> values, dynamic index, String fallback) =>
     index is int && index >= 0 && index < values.length
     ? values[index]
     : fallback;
+
+Future<void> openRequestDetail(
+  BuildContext context,
+  TrackApi api,
+  String id,
+) async {
+  if (!await prepareNavigation(context, api, ['/api/requests/$id']) ||
+      !context.mounted)
+    return;
+  await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => RequestDetail(api: api, id: id),
+    ),
+  );
+}
 
 class RequestDetail extends StatefulWidget {
   const RequestDetail({
@@ -547,9 +590,10 @@ class _RequestDetailState extends State<RequestDetail> {
     '',
   );
   String get path => '/requests/${widget.id}';
-  Future<Map<String, dynamic>> fetch() => widget.api.call('/api$path');
+  Future<Map<String, dynamic>> fetch({bool force = false}) =>
+      widget.api.page('/api$path', force: force);
   void refresh() => setState(() {
-    record = fetch();
+    record = fetch(force: true);
   });
   Future<void> transition(
     Map request,
@@ -627,9 +671,8 @@ class _RequestDetailState extends State<RequestDetail> {
     ),
     body: FutureBuilder<Map<String, dynamic>>(
       future: record,
+      initialData: widget.api.snapshot('/api$path'),
       builder: (ctx, s) {
-        if (s.connectionState != ConnectionState.done)
-          return const Center(child: CircularProgressIndicator());
         if (s.hasError)
           return Center(
             child: Column(
@@ -643,6 +686,7 @@ class _RequestDetailState extends State<RequestDetail> {
               ],
             ),
           );
+        if (!s.hasData) return const SizedBox.shrink();
         final r = s.requireData, actions = r['actions'] as Map;
         final approved = {12: 1, 13: 1, 15: 2, 5: 16}[r['status']];
         return RefreshIndicator(

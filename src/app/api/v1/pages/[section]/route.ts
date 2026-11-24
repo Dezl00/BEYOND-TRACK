@@ -78,6 +78,11 @@ export async function GET(
         permissions: catalog.filter((p) => can(actor, p)),
         permissionCatalog: catalog,
         canManageUnits: canManageUnits(actor),
+        projectScope: can(actor, "projects.all")
+          ? "all"
+          : (await one<{ scope: string }>(
+              sql`SELECT md5(COALESCE(string_agg(project_id::text, ',' ORDER BY project_id), '')) AS scope FROM project_users WHERE user_id=${id}::uuid`,
+            ))?.scope,
         navigation: permittedNavigation(actor),
       });
     }

@@ -30,16 +30,134 @@ class TrackApi {
 
   final project = ValueNotifier((id: '', name: ''));
   final cache = PageCache();
-  bool cacheable(String path) =>
-      path == '/api/v1/pages/me' ||
-      path.split('?').first == '/api/v1/pages/requests' ||
-      path.startsWith('/api/v1/pages/dashboard') ||
-      path.startsWith('/api/options?resource=projects') ||
-      path.startsWith('/api/options?resource=materials&');
-  Future<Map<String, dynamic>?> cached(String path) async {
-    final current = session;
-    if (current == null || !cacheable(path)) return null;
-    return cache.read(current, path);
+  final _memory =
+      <
+        String,
+        ({Map<String, dynamic> body, DateTime expiry, DateTime fetched})
+      >{};
+  final _pending = <String, Future<Map<String, dynamic>>>{};
+  int _generation = 0;
+  final changes = ValueNotifier(0);
+  String _pathKey(String path) =>
+      path == '/api/v1/pages/me' ? path : '$locale:$path';
+
+  Future<Map<String, dynamic>> page(
+    String path, {
+    bool force = false,
+    void Function(Map<String, dynamic>)? preview,
+  }) async {
+    final current = session, generation = _generation, diskKey = _pathKey(path);
+    final key = '$current:$diskKey';
+    final entry = _memory[key];
+    final now = DateTime.now();
+    Map<String, dynamic>? saved;
+    if (entry != null && entry.expiry.isAfter(now)) {
+      if (!force &&
+          now.difference(entry.fetched) < const Duration(seconds: 45)) {
+        return entry.body;
+      }
+      saved = entry.body;
+    } else if (current != null) {
+      saved = await cache.read(current, diskKey);
+    }
+    if (session != current || generation != _generation)
+      throw StateError('Session changed');
+    if (saved != null) preview?.call(saved);
+    final running = _pending[key];
+    if (running != null) return running;
+    final request = _fetchPage(path, diskKey, key, current, generation, saved);
+    _pending[key] = request;
+    try {
+      return await request;
+    } finally {
+      if (identical(_pending[key], request)) _pending.remove(key);
+    }
+  }
+
+  Future<Map<String, dynamic>> _fetchPage(
+    String path,
+    String diskKey,
+    String key,
+    String? current,
+    int generation,
+    Map<String, dynamic>? saved,
+  ) async {
+    try {
+      final value = await call(path);
+      if (generation != _generation || current != session)
+        throw StateError('Session changed');
+      if (path == '/api/v1/pages/me' &&
+          saved != null &&
+          [
+            'permissions',
+            'navigation',
+            'role_id',
+            'canManageUnits',
+            'projectScope',
+            'workflow_role',
+            'force_password_change',
+          ].any(
+            (field) => jsonEncode(saved[field]) != jsonEncode(value[field]),
+          )) {
+        await _invalidate();
+        generation = _generation;
+        project.value = (id: '', name: '');
+      }
+      if (current != null) {
+        final expiry = DateTime.tryParse(
+          await storage.read(key: 'sessionExpiry') ?? '',
+        );
+        if (expiry != null &&
+            expiry.isAfter(DateTime.now()) &&
+            current == session &&
+            generation == _generation) {
+          _memory[key] = (body: value, expiry: expiry, fetched: DateTime.now());
+          await cache.save(current, diskKey, value, expiry);
+        }
+      }
+      return value;
+    } on SocketException {
+      if (current != session || generation != _generation || saved == null)
+        rethrow;
+      return saved;
+    } on TimeoutException {
+      if (current != session || generation != _generation || saved == null)
+        rethrow;
+      return saved;
+    }
+  }
+
+  /// Finish a cold read on the source screen before starting the transition.
+  Future<void> prepare(String path) async {
+    final current = session, diskKey = _pathKey(path);
+    if (snapshot(path) != null) return;
+    if (current != null) {
+      final generation = _generation;
+      final cached = await cache.readEntry(current, diskKey);
+      if (cached != null && current == session && generation == _generation) {
+        _memory['$current:$diskKey'] = (
+          body: cached.body,
+          expiry: cached.expiry,
+          fetched: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+        return;
+      }
+    }
+    await page(path);
+  }
+
+  Map<String, dynamic>? snapshot(String path) {
+    final entry = _memory['$session:${_pathKey(path)}'];
+    return entry != null && entry.expiry.isAfter(DateTime.now())
+        ? entry.body
+        : null;
+  }
+
+  Future<void> _invalidate() async {
+    _generation++;
+    _pending.clear();
+    _memory.clear();
+    if (session != null) await cache.erase(session!);
   }
 
   Future<Map<String, dynamic>> call(
@@ -47,26 +165,15 @@ class TrackApi {
     Map<String, dynamic>? data,
   ]) async {
     final current = session;
-    if (data != null || current == null || !cacheable(path))
-      return _network(path, data);
-    try {
-      final value = await _network(path);
-      if (session == current) {
-        final expiry = DateTime.tryParse(
-          await storage.read(key: 'sessionExpiry') ?? '',
-        );
-        if (expiry != null) await cache.save(current, path, value, expiry);
-      }
-      return value;
-    } on SocketException {
-      final value = await cached(path);
-      if (value == null) rethrow;
-      return value;
-    } on TimeoutException {
-      final value = await cached(path);
-      if (value == null) rethrow;
-      return value;
+    final value = await _network(path, data);
+    if (current != null &&
+        session == current &&
+        data != null &&
+        (path == '/api/commands' || path == '/api/import')) {
+      await _invalidate();
+      changes.value++;
     }
+    return value;
   }
 
   Future<Map<String, dynamic>> _network(
@@ -94,8 +201,9 @@ class TrackApi {
         .timeout(const Duration(seconds: 25));
     final value = jsonDecode(body) as Map<String, dynamic>;
     if ((response.statusCode == 401 || response.statusCode == 403) &&
-        session != null)
-      await cache.erase(session!);
+        sendingSession != null &&
+        session == sendingSession)
+      await _invalidate();
     if (response.statusCode >= 300)
       throw ApiFailure(
         response.statusCode,
@@ -215,7 +323,7 @@ class TrackApi {
   }
 
   Future<void> clear() async {
-    if (session != null) await cache.erase(session!);
+    await _invalidate();
     await storage.delete(key: 'sessionExpiry');
     session = null;
     await storage.delete(key: 'session');
