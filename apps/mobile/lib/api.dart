@@ -1,8 +1,11 @@
 import 'dart:async';
-import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'page_cache.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiFailure implements Exception {
@@ -25,6 +28,7 @@ class TrackApi {
   String? session;
   String locale = 'ar';
 
+  final project = ValueNotifier((id: '', name: ''));
   final cache = PageCache();
   bool cacheable(String path) =>
       path == '/api/v1/pages/me' ||
@@ -110,13 +114,111 @@ class TrackApi {
     return value;
   }
 
+  bool pickingFile = false;
+  static String operationId() {
+    final random = Random.secure(),
+        bytes = List.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    final hex = bytes.map((v) => v.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
+  Future<void> openAttachment(String id) async {
+    final req = await client.getUrl(origin.resolve('/api/attachments/$id'));
+    req.followRedirects = false;
+    req.cookies.add(Cookie('__Host-bt', session!));
+    final res = await req.close(), url = res.headers.value('location');
+    await res.drain<void>();
+    if (res.statusCode != 302 || url == null)
+      throw ApiFailure(res.statusCode, 'HTTP ${res.statusCode}');
+    await const MethodChannel(
+      'online.beyondtrack.app/device',
+    ).invokeMethod('openAttachment', {'url': url});
+  }
+
+  Future<List<Map<String, String>>> pickAttachments(
+    String id,
+    String purpose,
+    String key,
+  ) async {
+    final current = session;
+    pickingFile = true;
+    late final List<XFile> files;
+    try {
+      files = await openFiles(
+        acceptedTypeGroups: [
+          const XTypeGroup(
+            label: 'PDF / Images',
+            mimeTypes: [
+              'application/pdf',
+              'image/png',
+              'image/jpeg',
+              'image/webp',
+            ],
+          ),
+        ],
+      );
+    } finally {
+      pickingFile = false;
+    }
+    final results = <Map<String, String>>[];
+    for (final file in files) {
+      if (session != current || current == null)
+        throw StateError('Session expired');
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty || bytes.length > 4 * 1024 * 1024)
+        throw StateError(
+          locale == 'ar' ? 'الحد الأقصى ٤ ميغابايت' : 'Maximum size is 4 MB',
+        );
+      final boundary = 'track-${operationId()}';
+      final req = await client.postUrl(origin.resolve('/api/attachments'));
+      req.followRedirects = false;
+      req.cookies.add(Cookie('__Host-bt', current));
+      req.headers.set('Origin', origin.origin);
+      req.headers.set(
+        'Content-Type',
+        'multipart/form-data; boundary=$boundary',
+      );
+      for (final e in {
+        'requestId': id,
+        'purpose': purpose,
+        if (purpose == 'receipt')
+          'receiptKey': key
+        else if (purpose != 'request')
+          'uploadKey': key,
+      }.entries) {
+        req.add(
+          utf8.encode(
+            '--$boundary\r\nContent-Disposition: form-data; name="${e.key}"\r\n\r\n${e.value}\r\n',
+          ),
+        );
+      }
+      final name = file.name.replaceAll(RegExp(r'["\r\n/\\]'), '_');
+      req.add(
+        utf8.encode(
+          '--$boundary\r\nContent-Disposition: form-data; name="file"; filename="$name"\r\nContent-Type: application/octet-stream\r\n\r\n',
+        ),
+      );
+      req.add(bytes);
+      req.add(utf8.encode('\r\n--$boundary--\r\n'));
+      final res = await req.close().timeout(const Duration(seconds: 45)),
+          data = jsonDecode(await utf8.decoder.bind(res).join());
+      if (res.statusCode >= 300)
+        throw ApiFailure(
+          res.statusCode,
+          data['error'] ?? 'HTTP ${res.statusCode}',
+        );
+      results.add({'id': data['id'], 'name': name});
+    }
+    return results;
+  }
+
   Future<void> clear() async {
     if (session != null) await cache.erase(session!);
     await storage.delete(key: 'sessionExpiry');
     session = null;
     await storage.delete(key: 'session');
-    await const MethodChannel(
-      'online.beyondtrack.app/device',
-    ).invokeMethod<void>('clearWorkspace');
+    project.value = (id: '', name: '');
   }
 }

@@ -1,6 +1,5 @@
 package online.beyondtrack.app
 
-import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.KeyguardManager
@@ -9,11 +8,6 @@ import android.media.AudioManager
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
-import android.print.PrintManager
-import android.webkit.CookieManager
-import android.webkit.URLUtil
-import io.flutter.plugins.webviewflutter.WebViewFlutterAndroidExternalApi
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -49,7 +43,6 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(engine)
         MethodChannel(engine.dartExecutor.binaryMessenger, "online.beyondtrack.app/device")
             .setMethodCallHandler { call, result ->
-                val cookies = CookieManager.getInstance()
                 when (call.method) {
                     "pickFiles" -> {
                         if (fileSelection != null) { result.success(emptyList<String>()); return@setMethodCallHandler }
@@ -78,57 +71,6 @@ class MainActivity : FlutterActivity() {
                             fileSelection = null
                             result.success(emptyList<String>())
                         }
-                        return@setMethodCallHandler
-                    }
-                    "workspaceSession" -> {
-                        val origin = call.argument<String>("origin").orEmpty()
-                        val token = cookies.getCookie(origin).orEmpty().split(";").map { it.trim() }.firstOrNull { it.startsWith("__Host-bt=") }?.substringAfter("=")
-                        result.success(token)
-                        return@setMethodCallHandler
-                    }
-                    "clearWorkspace" -> {
-                        cookies.removeAllCookies { result.success(null) }
-                        return@setMethodCallHandler
-                    }
-                    "prepareWorkspace" -> {
-                        val origin = call.argument<String>("origin").orEmpty()
-                        val session = call.argument<String>("session").orEmpty()
-                        val uri = Uri.parse(origin)
-                        val view = WebViewFlutterAndroidExternalApi.getWebView(engine, call.argument<Number>("view")!!.toLong())
-                        if (uri.scheme != "https" || !session.matches(Regex("[a-f0-9]{64}")) || view == null) {
-                            result.error("workspace", "Invalid workspace session", null)
-                            return@setMethodCallHandler
-                        }
-                        view.settings.allowFileAccess = false
-                        view.settings.allowContentAccess = false
-                        view.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                        view.setDownloadListener { url, _, disposition, mime, _ ->
-                            val dest = Uri.parse(url)
-                            if (dest.scheme == uri.scheme && dest.authority == uri.authority &&
-                                dest.path in listOf("/api/export", "/api/reports/export", "/api/import")) {
-                                val name = URLUtil.guessFileName(url, disposition, mime).substringAfterLast('/')
-                                val download = DownloadManager.Request(dest)
-                                    .addRequestHeader("Cookie", cookies.getCookie(origin).orEmpty())
-                                    .setMimeType(mime)
-                                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
-                                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                getSystemService(DownloadManager::class.java)?.enqueue(download)
-                            }
-                        }
-                        val attrs = "; Path=/; Secure; HttpOnly; SameSite=Lax"
-                        val lang = if (call.argument<String>("locale") == "en") "en" else "ar"
-                        val theme = if (call.argument<Boolean>("dark") == true) "1" else "0"
-                        cookies.setCookie(origin, "bt-locale=$lang$attrs")
-                        cookies.setCookie(origin, "bt-theme=$theme$attrs")
-                        cookies.setCookie(origin, "__Host-bt=$session$attrs") { ok ->
-                            if (ok) result.success(null) else result.error("cookie", "Session unavailable", null)
-                        }
-                        return@setMethodCallHandler
-                    }
-                    "printPage" -> {
-                        val view = WebViewFlutterAndroidExternalApi.getWebView(engine, call.argument<Number>("view")!!.toLong())
-                        if (view != null) getSystemService(PrintManager::class.java)?.print("BEYOND TRACK", view.createPrintDocumentAdapter("BEYOND TRACK"), null)
-                        result.success(null)
                         return@setMethodCallHandler
                     }
                     "openAttachment" -> {

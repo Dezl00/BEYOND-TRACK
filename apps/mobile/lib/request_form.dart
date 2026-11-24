@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'submissions.dart';
+import 'track_header.dart';
+import 'resource_editor.dart';
 
 Future<bool?> openRequestForm(
   BuildContext context,
@@ -9,11 +11,11 @@ Future<bool?> openRequestForm(
   String project,
   bool arabic,
 ) {
-  return showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) =>
-        RequestForm(api: api, queue: queue, project: project, arabic: arabic),
+  return Navigator.of(context).push<bool>(
+    MaterialPageRoute(
+      builder: (_) =>
+          RequestForm(api: api, queue: queue, project: project, arabic: arabic),
+    ),
   );
 }
 
@@ -34,9 +36,6 @@ class RequestForm extends StatefulWidget {
 }
 
 class _RequestFormState extends State<RequestForm> {
-  late final materials = widget.api.call(
-    '/api/options?resource=materials&selectable=1&project=${widget.project}',
-  );
   final lines = <String, Map<String, String>>{};
   String notes = '', error = '';
   bool busy = false;
@@ -79,9 +78,14 @@ class _RequestFormState extends State<RequestForm> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(t('طلب جديد', 'New request')),
-    content: SingleChildScrollView(
+  Widget build(BuildContext context) => Scaffold(
+    appBar: TrackHeader(
+      api: widget.api,
+      title: t('طلب جديد', 'New request'),
+      afterChange: () => Navigator.pop(context),
+    ),
+    body: SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -91,35 +95,31 @@ class _RequestFormState extends State<RequestForm> {
               labelText: t('نطاق الاستخدام', 'Usage scope'),
             ),
           ),
-          FutureBuilder<Map<String, dynamic>>(
-            future: materials,
-            builder: (c, s) {
-              if (s.hasError) return Text(s.error.toString());
-              if (!s.hasData) return const LinearProgressIndicator();
-              return DropdownButton<String>(
-                isExpanded: true,
-                hint: Text(t('إضافة مادة', 'Add material')),
-                items: [
-                  for (final m in s.requireData['items'])
-                    DropdownMenuItem(
-                      value: m['id'] as String,
-                      child: Text(m['name']),
-                    ),
-                ],
-                onChanged: (id) {
-                  if (id == null) return;
-                  final m = (s.requireData['items'] as List).firstWhere(
-                    (m) => m['id'] == id,
-                  );
-                  setState(
-                    () => lines.putIfAbsent(
-                      id,
-                      () => {'id': id, 'name': m['name'], 'quantity': '1'},
-                    ),
-                  );
-                },
-              );
-            },
+          OutlinedButton.icon(
+            icon: const Icon(Icons.add),
+            label: Text(t('إضافة مادة', 'Add material')),
+            onPressed: busy
+                ? null
+                : () async {
+                    final m = await showModalBottomSheet<Map>(
+                      context: context,
+                      isScrollControlled: true,
+                      builder: (_) => ResourceLookup(
+                        api: widget.api,
+                        resource: 'materials',
+                        project: widget.project,
+                        title: t('اختيار المادة', 'Choose material'),
+                      ),
+                    );
+                    if (m == null || !mounted) return;
+                    final id = m['id'] as String;
+                    setState(
+                      () => lines.putIfAbsent(
+                        id,
+                        () => {'id': id, 'name': m['name'], 'quantity': '1'},
+                      ),
+                    );
+                  },
           ),
           for (final line in lines.values)
             TextFormField(
@@ -141,15 +141,19 @@ class _RequestFormState extends State<RequestForm> {
         ],
       ),
     ),
-    actions: [
-      TextButton(
-        onPressed: busy ? null : () => Navigator.pop(context, false),
-        child: Text(t('إلغاء', 'Cancel')),
+    bottomNavigationBar: SafeArea(
+      child: OverflowBar(
+        children: [
+          TextButton(
+            onPressed: busy ? null : () => Navigator.pop(context, false),
+            child: Text(t('إلغاء', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: busy ? null : send,
+            child: Text(t('إرسال', 'Submit')),
+          ),
+        ],
       ),
-      FilledButton(
-        onPressed: busy ? null : send,
-        child: Text(t('إرسال', 'Submit')),
-      ),
-    ],
+    ),
   );
 }

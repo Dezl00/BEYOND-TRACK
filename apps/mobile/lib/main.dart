@@ -1,4 +1,6 @@
-import 'workspace.dart';
+import 'sections.dart';
+import 'account_settings.dart';
+import 'track_header.dart';
 import 'theme_reveal.dart';
 import 'submissions.dart';
 import 'dart:async';
@@ -43,7 +45,7 @@ class TrackApp extends StatefulWidget {
 class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
   final api = TrackApi();
   final reveal = GlobalKey<ThemeRevealState>();
-  bool choosingFile = false;
+
   late final devicePush = DeviceNotifications(api);
   bool pushEnabled = false, pushBusy = false;
   Future<void> restorePush() async {
@@ -88,6 +90,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     }
   }
 
+  final homePage = GlobalKey();
   final messenger = GlobalKey<ScaffoldMessengerState>();
   StreamSubscription<RemoteMessage>? foregroundMessage;
   String? notifiedRequest;
@@ -95,6 +98,8 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
   void receiveLink(RemoteMessage message) {
     final id = message.data['requestId'];
     if (id is String && RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id) && mounted) {
+      final home = homePage.currentContext;
+      if (home != null) Navigator.of(home).popUntil((route) => route.isFirst);
       setState(() => notifiedRequest = id);
     }
   }
@@ -148,7 +153,6 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     synchronize();
   }
 
-  bool viewingAccount = false;
   final id = TextEditingController(),
       password = TextEditingController(),
       code = TextEditingController();
@@ -175,7 +179,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused &&
-        !choosingFile &&
+        !api.pickingFile &&
         !authenticating &&
         !locked)
       setState(() => locked = true);
@@ -221,7 +225,6 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
           profile = await api.call('/api/v1/pages/me');
           unawaited(restorePush());
         } catch (e) {
-          viewingAccount = false;
           profile = null;
           setState(() => error = e.toString());
         }
@@ -334,13 +337,11 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       devicePush.detach();
       pushEnabled = false;
       notifiedRequest = null;
-      sectionPath = null;
       syncTimer?.cancel();
       queue?.active = false;
       queue = null;
       await api.clear();
       setState(() {
-        viewingAccount = false;
         profile = null;
         error = '';
       });
@@ -367,6 +368,14 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       builder: (_, child) => ThemeReveal(key: reveal, child: child!),
       theme: ThemeData(
         colorScheme: scheme,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: blue,
+          foregroundColor: Colors.white,
+          toolbarHeight: 72,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
+          ),
+        ),
         fontFamily: locale == 'ar' ? 'IBM Plex Sans Arabic' : 'IBM Plex Sans',
         scaffoldBackgroundColor: dark ? Colors.black : Colors.white,
         chipTheme: ChipThemeData(
@@ -393,6 +402,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
         ),
       ),
       home: Builder(
+        key: homePage,
         builder: (ctx) => locked
             ? Scaffold(
                 body: Center(
@@ -415,39 +425,37 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
             ? login()
             : notifiedRequest != null &&
                   profile!['force_password_change'] != true
-            ? workspace(
-                '/requests/$notifiedRequest',
-                () => setState(() => notifiedRequest = null),
-              )
-            : sectionPath != null && profile!['force_password_change'] != true
-            ? workspace(sectionPath!, () => setState(() => sectionPath = null))
-            : (viewingAccount || profile!['force_password_change'] == true)
             ? PopScope(
                 canPop: false,
-                onPopInvokedWithResult: (p, r) {
-                  if (!p) setState(() => viewingAccount = false);
+                onPopInvokedWithResult: (popped, _) {
+                  if (!popped) setState(() => notifiedRequest = null);
                 },
-                child: account(ctx),
+                child: RequestDetail(
+                  api: api,
+                  id: notifiedRequest!,
+                  close: () => setState(() => notifiedRequest = null),
+                ),
               )
-            : !(profile!['navigation'] as List).any(
-                (n) => n['key'] == 'dashboard',
-              )
-            ? workspace('/more', () => setState(() => viewingAccount = true))
+            : profile!['force_password_change'] == true
+            ? account(ctx)
             : Overview(
                 api: api,
                 queue: queue,
-                openRequest: (id) => setState(() => notifiedRequest = id),
+                openRequest: (id) => Navigator.of(ctx).push(
+                  MaterialPageRoute(
+                    builder: (_) => RequestDetail(api: api, id: id),
+                  ),
+                ),
                 canCreate: (profile!['permissions'] as List).contains(
                   'requests.create',
                 ),
                 name: profile!['name'],
                 arabic: locale == 'ar',
-                openSections: (project) => setState(() {
-                  sectionPath = project.isEmpty
-                      ? '/more'
-                      : '/more?project=${Uri.encodeQueryComponent(project)}';
-                }),
-                openAccount: () => setState(() => viewingAccount = true),
+                hasDashboard: (profile!['navigation'] as List).any(
+                  (n) => n['key'] == 'dashboard',
+                ),
+                directory: (openAccount) => directory(ctx, openAccount),
+                account: account(ctx, embedded: true),
               ),
       ),
     );
@@ -623,52 +631,25 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     }
   }
 
-  String? sectionPath;
-  Widget workspace(String path, VoidCallback close) => Workspace(
-    key: ValueKey(path),
-    api: api,
-    path: path,
-    dark: dark,
-    close: () async {
-      final session = api.session;
-      close();
-      try {
-        final me = await api.call('/api/v1/pages/me');
-        if (!mounted || session != api.session || profile == null) return;
-        final language = me['locale'] == 'en' ? 'en' : 'ar';
-        final night = me['theme'] == 1;
-        setState(() {
-          profile = me;
-          locale = api.locale = language;
-          dark = night;
-        });
-        await api.storage.write(key: 'locale', value: language);
-        await api.storage.write(key: 'theme', value: night ? 'dark' : 'light');
-      } catch (e) {
-        if (mounted && session == api.session)
-          setState(() => error = e.toString());
-      }
-    },
-    choosingFile: (value) => choosingFile = value,
-    rotated: () {
-      startSync();
-      unawaited(restorePush());
-    },
-    expired: () async {
-      devicePush.detach();
-      syncTimer?.cancel();
-      queue?.active = false;
-      await api.clear();
-      if (mounted)
-        setState(() {
-          profile = null;
-          notifiedRequest = null;
-          sectionPath = null;
-          viewingAccount = false;
-        });
-    },
-  );
-  Widget account(BuildContext context) {
+  Widget directory(BuildContext context, VoidCallback openAccount) =>
+      SectionDirectory(
+        profile: profile!,
+        arabic: locale == 'ar',
+        open: (section) {
+          if (section == 'settings') {
+            openAccount();
+            return;
+          }
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) =>
+                  SectionPage(api: api, section: section, profile: profile!),
+            ),
+          );
+        },
+      );
+
+  Widget account(BuildContext context, {bool embedded = false}) {
     final me = profile!;
     Widget tile(
       IconData icon,
@@ -692,6 +673,14 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       onTap: tap,
     );
     return Scaffold(
+      appBar: embedded
+          ? null
+          : TrackHeader(
+              api: api,
+              title: t('الحساب', 'Account'),
+              primary: me['force_password_change'] == true,
+              selectable: me['force_password_change'] != true,
+            ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
@@ -701,12 +690,6 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             Text('${me['role_name']}'),
-            if (me['force_password_change'] != true)
-              tile(
-                Icons.apps,
-                t('أقسام العمل', 'Workspace'),
-                tap: () => setState(() => sectionPath = '/more'),
-              ),
             const SizedBox(height: 20),
             tile(
               Icons.email_outlined,
@@ -736,6 +719,40 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
                 onChanged: pushBusy ? null : togglePush,
               ),
             ),
+            if (me['force_password_change'] != true)
+              for (final item in [
+                (
+                  'security',
+                  Icons.security,
+                  t('الأمان والجلسات', 'Security and sessions'),
+                ),
+                (
+                  'notification-preferences',
+                  Icons.tune,
+                  t('تفضيلات الإشعارات', 'Notification preferences'),
+                ),
+                if (me['is_owner'] == true ||
+                    (me['permissions'] as List).contains('settings.edit'))
+                  (
+                    'system',
+                    Icons.settings,
+                    t('إعدادات النظام', 'System settings'),
+                  ),
+              ])
+                tile(
+                  item.$2,
+                  item.$3,
+                  tap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => AccountSettings(
+                        api: api,
+                        section: item.$1,
+                        title: item.$3,
+                        owner: me['is_owner'] == true,
+                      ),
+                    ),
+                  ),
+                ),
             tile(
               Icons.lock_outline,
               t('حماية الجهاز', 'Device protection'),
