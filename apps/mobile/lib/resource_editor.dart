@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'track_header.dart';
+import 'track_widgets.dart';
 import 'section_labels.dart';
 
 const resourceCommands = {
@@ -20,11 +21,13 @@ class ResourceEditor extends StatefulWidget {
     required this.section,
     required this.profile,
     this.row,
+    this.modal = false,
   });
   final TrackApi api;
   final String section;
   final Map profile;
   final Map? row;
+  final bool modal;
   @override
   State<ResourceEditor> createState() => _ResourceEditorState();
 }
@@ -81,6 +84,7 @@ class _ResourceEditorState extends State<ResourceEditor> {
       values['projectIds'] = List<String>.from(row['project_ids'] ?? []);
     if (section == 'boq') {
       values['level'] = row['level'] ?? 1;
+      values['unitId'] = row['unit_id'];
       values['parentId'] = row['parent_id'];
       values['projectId'] = row['project_id'] ?? widget.api.project.value.id;
     }
@@ -124,7 +128,10 @@ class _ResourceEditorState extends State<ResourceEditor> {
         api: widget.api,
         resource: resource,
         level: level,
-        project: values['projectId'] ?? widget.api.project.value.id,
+        project:
+            values['projectId'] ??
+            widget.row?['project_id'] ??
+            widget.api.project.value.id,
         title: label,
       ),
     );
@@ -188,7 +195,11 @@ class _ResourceEditorState extends State<ResourceEditor> {
         'command': resourceCommands[section],
         'data': values,
       });
-      if (mounted) Navigator.pop(context, true);
+      if (mounted)
+        Navigator.pop(
+          context,
+          widget.modal ? Map<String, dynamic>.of(values) : true,
+        );
     } catch (e) {
       if (mounted)
         setState(() {
@@ -199,99 +210,147 @@ class _ResourceEditorState extends State<ResourceEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: TrackHeader(
-      api: widget.api,
-      title: (widget.api.locale == 'ar'
-          ? sectionArabic
-          : sectionEnglish)[section]!,
-      selectable: !busy,
-      afterChange: () => Navigator.pop(context),
-    ),
-    body: Form(
-      key: form,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          field('name', t('الاسم', 'Name')),
-          if (section == 'projects') ...[
-            field('code', t('الكود', 'Code'), required: false),
-            field('location', t('الموقع', 'Location'), required: false),
-            field('client', t('العميل', 'Client'), required: false),
-            field('details', t('التفاصيل', 'Details'), required: false),
-          ],
-          if (section == 'units') field('symbol', t('الرمز', 'Symbol')),
-          if (section == 'boq') ...[
-            DropdownButtonFormField<int>(
-              initialValue: values['level'],
-              items: [
-                for (var i = 1; i <= 3; i++)
-                  DropdownMenuItem(
-                    value: i,
-                    child: Text('${t('المستوى', 'Level')} $i'),
-                  ),
-              ],
-              onChanged: widget.row != null
-                  ? null
-                  : (i) => setState(() {
-                      values['level'] = i;
-                      values['parentId'] = null;
-                      values.remove('description');
-                    }),
-            ),
-            if (values['level'] > 1)
-              selector(
-                'parentId',
-                'boq',
-                t('البند الأب', 'Parent item'),
-                level: values['level'] - 1,
+  Widget build(BuildContext context) {
+    final title = (widget.api.locale == 'ar'
+        ? sectionArabic
+        : sectionEnglish)[section]!;
+    if (widget.modal)
+      return Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 640),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  (widget.row == null
+                          ? t('إضافة', 'Add')
+                          : t('تعديل', 'Edit')) +
+                      ' · ' +
+                      title,
+                ),
+                trailing: CloseButton(
+                  onPressed: busy ? null : () => Navigator.pop(context),
+                ),
               ),
-            if (values['level'] == 3) ...[
-              field('description', t('الوصف', 'Description')),
-              selector('unitId', 'units', t('الوحدة', 'Unit')),
-              field('quantity', t('الكمية', 'Quantity')),
+              Flexible(child: editor()),
             ],
-          ],
-          if (section == 'materials') ...[
-            selector('boqItemId', 'boq', t('البند', 'BOQ item'), level: 3),
-            field('quantity', t('الكمية', 'Quantity')),
-            selector('unitId', 'units', t('الوحدة', 'Unit')),
-          ],
-          if (section == 'users') ...[
-            field('email', t('البريد الإلكتروني', 'Email')),
-            field('username', t('اسم المستخدم', 'Username')),
-            field('jobTitle', t('المسمى الوظيفي', 'Job title')),
-            field(
-              'password',
-              t('كلمة المرور', 'Password'),
-              required: widget.row == null,
-              secret: true,
+          ),
+        ),
+      );
+    return Scaffold(
+      appBar: TrackHeader(
+        api: widget.api,
+        title: (widget.api.locale == 'ar'
+            ? sectionArabic
+            : sectionEnglish)[section]!,
+        selectable: !busy,
+        afterChange: () => Navigator.pop(context),
+      ),
+      body: editor(),
+    );
+  }
+
+  Widget editor() => Form(
+    key: form,
+    child: ListView(
+      shrinkWrap: widget.modal,
+      padding: const EdgeInsets.all(16),
+      children: [
+        field('name', t('الاسم', 'Name')),
+        if (section == 'projects') ...[
+          field('code', t('الكود', 'Code'), required: false),
+          field('location', t('الموقع', 'Location'), required: false),
+          field('client', t('العميل', 'Client'), required: false),
+          for (final (key, label) in [
+            ('startDate', t('تاريخ البدء', 'Start date')),
+            ('endDate', t('تاريخ الانتهاء', 'End date')),
+          ])
+            DateField(
+              label: label,
+              value: values[key] ?? '',
+              changed: (v) => setState(() => values[key] = v),
             ),
-            selector('roleId', 'roles', t('الدور', 'Role')),
+          field('details', t('التفاصيل', 'Details'), required: false),
+          if (widget.row != null)
+            SwitchListTile(
+              title: Text(t('أرشفة المشروع', 'Archive project')),
+              value: values['archived'] == true,
+              onChanged: (v) => setState(() => values['archived'] = v),
+            ),
+        ],
+        if (section == 'units') field('symbol', t('الرمز', 'Symbol')),
+        if (section == 'boq') ...[
+          DropdownButtonFormField<int>(
+            initialValue: values['level'],
+            items: [
+              for (var i = 1; i <= 3; i++)
+                DropdownMenuItem(
+                  value: i,
+                  child: Text('${t('المستوى', 'Level')} $i'),
+                ),
+            ],
+            onChanged: widget.row != null
+                ? null
+                : (i) => setState(() {
+                    values['level'] = i;
+                    values['parentId'] = null;
+                    values.remove('description');
+                  }),
+          ),
+          if (values['level'] > 1)
             selector(
-              'projectIds',
-              'projects',
-              t('المشاريع المسندة', 'Assigned projects'),
-              multi: true,
+              'parentId',
+              'boq',
+              t('البند الأب', 'Parent item'),
+              level: values['level'] - 1,
             ),
+          if (values['level'] == 3) ...[
+            field('description', t('الوصف', 'Description')),
+            selector('unitId', 'units', t('الوحدة', 'Unit')),
+            field('quantity', t('الكمية', 'Quantity')),
           ],
-          if (section == 'roles')
-            for (final permission in widget.profile['permissionCatalog'] ?? [])
-              CheckboxListTile(
-                title: Text(permission),
-                value: (values['permissions'] as List).contains(permission),
-                onChanged: (v) => setState(() {
-                  final list = values['permissions'] as List;
-                  v == true ? list.add(permission) : list.remove(permission);
-                }),
-              ),
-          if (error.isNotEmpty) Text(error),
-          FilledButton(
-            onPressed: busy ? null : save,
-            child: Text(t('حفظ', 'Save')),
+        ],
+        if (section == 'materials') ...[
+          selector('boqItemId', 'boq', t('البند', 'BOQ item'), level: 3),
+          field('quantity', t('الكمية', 'Quantity')),
+          selector('unitId', 'units', t('الوحدة', 'Unit')),
+        ],
+        if (section == 'users') ...[
+          field('email', t('البريد الإلكتروني', 'Email')),
+          field('username', t('اسم المستخدم', 'Username')),
+          field('jobTitle', t('المسمى الوظيفي', 'Job title')),
+          field(
+            'password',
+            t('كلمة المرور', 'Password'),
+            required: widget.row == null,
+            secret: true,
+          ),
+          selector('roleId', 'roles', t('الدور', 'Role')),
+          selector(
+            'projectIds',
+            'projects',
+            t('المشاريع المسندة', 'Assigned projects'),
+            multi: true,
           ),
         ],
-      ),
+        if (section == 'roles')
+          for (final permission in widget.profile['permissionCatalog'] ?? [])
+            CheckboxListTile(
+              title: Text(permission),
+              value: (values['permissions'] as List).contains(permission),
+              onChanged: (v) => setState(() {
+                final list = values['permissions'] as List;
+                v == true ? list.add(permission) : list.remove(permission);
+              }),
+            ),
+        if (error.isNotEmpty) Text(error),
+        FilledButton(
+          onPressed: busy ? null : save,
+          child: Text(t('حفظ', 'Save')),
+        ),
+      ],
     ),
   );
 }
@@ -304,10 +363,14 @@ class ResourceLookup extends StatefulWidget {
     required this.project,
     required this.title,
     this.level,
+    this.filters = const {},
+    this.onPick,
   });
   final TrackApi api;
   final String resource, project, title;
   final int? level;
+  final Map<String, String> filters;
+  final ValueChanged<Map>? onPick;
   @override
   State<ResourceLookup> createState() => _ResourceLookupState();
 }
@@ -340,7 +403,8 @@ class _ResourceLookupState extends State<ResourceLookup> {
           path: '/api/options',
           queryParameters: {
             'resource': widget.resource,
-            'selectable': '1',
+            if (widget.onPick == null) 'selectable': '1',
+            ...widget.filters,
             if (q.isNotEmpty) 'q': q,
             if (widget.level != null) 'level': widget.level.toString(),
             if (widget.project.isNotEmpty &&
@@ -369,20 +433,20 @@ class _ResourceLookupState extends State<ResourceLookup> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(
-            decoration: InputDecoration(
-              labelText: widget.title,
-              prefixIcon: const Icon(Icons.search),
-            ),
-            onSubmitted: (v) {
-              q = v.trim();
+          LiveSearch(
+            initialQuery: q,
+            label: widget.title,
+            changed: (v) {
+              q = v;
               load();
             },
           ),
           for (final r in rows)
             ListTile(
               title: Text(r['name']),
-              onTap: () => Navigator.pop(context, r),
+              onTap: () => widget.onPick == null
+                  ? Navigator.pop(context, r)
+                  : widget.onPick!(r),
             ),
           if (error.isNotEmpty)
             TextButton(

@@ -721,6 +721,7 @@ export const en = {
     "required": "This field is required.",
     "positive": "Enter a quantity greater than zero.",
     "forcePassword": "Change your password first.",
+    "androidPushUnavailable": "Android notifications are unavailable. Check the Firebase configuration on the server.",
     "configured": "The service configuration is incomplete.",
     "noMaterial": "No materials available.",
     "receipt": "Enter a received or returned quantity.",

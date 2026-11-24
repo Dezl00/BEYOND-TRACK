@@ -1,4 +1,5 @@
 import 'sections.dart';
+import 'track_widgets.dart';
 import 'page_motion.dart';
 import 'account_settings.dart';
 import 'track_header.dart';
@@ -49,6 +50,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
 
   late final devicePush = DeviceNotifications(api);
   bool pushEnabled = false, pushBusy = false;
+  String pushError = '';
   Future<void> restorePush() async {
     final user = profile?['id'], session = api.session;
     if (!mounted ||
@@ -64,11 +66,14 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       if (authorized)
         await devicePush.update(user, true, requestPermission: false);
       if (mounted && session == api.session)
-        setState(() => pushEnabled = authorized);
+        setState(() {
+          pushEnabled = authorized;
+          pushError = '';
+        });
     } catch (e) {
       if (mounted && session == api.session)
         setState(() {
-          error = e.toString();
+          pushError = e.toString();
           pushEnabled = false;
         });
     } finally {
@@ -81,7 +86,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     final session = api.session;
     setState(() {
       pushBusy = true;
-      error = '';
+      pushError = '';
     });
     try {
       await devicePush.update(profile!['id'], value);
@@ -107,7 +112,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       }
     } catch (e) {
       if (mounted && session == api.session)
-        setState(() => error = e.toString());
+        setState(() => pushError = e.toString());
     } finally {
       if (mounted) setState(() => pushBusy = false);
     }
@@ -375,6 +380,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       await api.call('/api/auth/logout', {});
       devicePush.detach();
       pushEnabled = false;
+      pushError = '';
       notifiedRequest = null;
       syncTimer?.cancel();
       queue?.active = false;
@@ -404,7 +410,10 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       supportedLocales: const [Locale('ar'), Locale('en')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       themeAnimationDuration: Duration.zero,
-      builder: (_, child) => ThemeReveal(key: reveal, child: child!),
+      builder: (_, child) => Directionality(
+        textDirection: locale == 'ar' ? TextDirection.rtl : TextDirection.ltr,
+        child: ThemeReveal(key: reveal, child: child!),
+      ),
       theme: ThemeData(
         colorScheme: scheme.copyWith(shadow: Colors.transparent),
         shadowColor: Colors.transparent,
@@ -417,17 +426,33 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
             side: BorderSide.none,
           ),
         ),
+        switchTheme: SwitchThemeData(
+          trackColor: WidgetStateProperty.resolveWith(
+            (s) => s.contains(WidgetState.selected) ? trackGreen : null,
+          ),
+          thumbColor: WidgetStateProperty.resolveWith(
+            (s) => s.contains(WidgetState.selected) ? Colors.white : null,
+          ),
+        ),
         segmentedButtonTheme: SegmentedButtonThemeData(
           style: ButtonStyle(
+            shape: const WidgetStatePropertyAll(StadiumBorder()),
+            foregroundColor: WidgetStateProperty.resolveWith(
+              (s) => s.contains(WidgetState.selected)
+                  ? Colors.white
+                  : scheme.onSurface,
+            ),
             side: const WidgetStatePropertyAll(BorderSide.none),
             backgroundColor: WidgetStateProperty.resolveWith(
               (s) => s.contains(WidgetState.selected)
-                  ? blue.withValues(alpha: dark ? .35 : .13)
+                  ? blue
                   : scheme.onSurface.withValues(alpha: .05),
             ),
           ),
         ),
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: blue,
+          foregroundColor: Colors.white,
           elevation: 0,
           focusElevation: 0,
           hoverElevation: 0,
@@ -498,7 +523,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
                 ),
               )
             : profile == null
-            ? login()
+            ? login(ctx)
             : notifiedRequest != null &&
                   profile!['force_password_change'] != true
             ? PopScope(
@@ -526,7 +551,34 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     );
   }
 
-  Widget login() {
+  Widget languageControl() => SegmentedButton<String>(
+    showSelectedIcon: false,
+    segments: const [
+      ButtonSegment(value: 'ar', label: Text('AR')),
+      ButtonSegment(value: 'en', label: Text('EN')),
+    ],
+    selected: {locale},
+    onSelectionChanged: (v) => preferences(language: v.single),
+  );
+  Widget appearanceControl() => SegmentedButton<bool>(
+    showSelectedIcon: false,
+    segments: [
+      ButtonSegment(
+        value: false,
+        icon: const Icon(Icons.light_mode_outlined),
+        tooltip: t('فاتح', 'Light'),
+      ),
+      ButtonSegment(
+        value: true,
+        icon: const Icon(Icons.dark_mode_outlined),
+        tooltip: t('داكن', 'Dark'),
+      ),
+    ],
+    selected: {dark},
+    onSelectionChanged: (v) => preferences(night: v.single),
+  );
+
+  Widget login(BuildContext context) {
     final title = switch (mode) {
       'otp' => t('رمز التحقق', 'Verification code'),
       'forgot' => t('استعادة الحساب', 'Recover account'),
@@ -535,18 +587,17 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
     };
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.language),
-          onPressed: () => preferences(language: locale == 'ar' ? 'en' : 'ar'),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-            ),
-            onPressed: () => preferences(night: !dark),
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            children: [
+              languageControl(),
+              const SizedBox(width: 8),
+              appearanceControl(),
+            ],
           ),
-        ],
+        ),
       ),
       body: SafeArea(
         child: Center(
@@ -582,7 +633,6 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
                     if (mode == 'otp' || mode == 'reset')
                       TextField(
                         controller: code,
-                        textDirection: TextDirection.ltr,
                         keyboardType: TextInputType.number,
                         autofillHints: const [AutofillHints.oneTimeCode],
                         inputFormatters: [
@@ -720,122 +770,148 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       onTap: tap,
     );
     return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Text(
-              me['name'] as String,
-              style: Theme.of(context).textTheme.headlineSmall,
+      body: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.fromLTRB(
+              16,
+              MediaQuery.paddingOf(context).top + 20,
+              16,
+              22,
             ),
-            Text('${me['role_name']}'),
-            const SizedBox(height: 20),
-            tile(
-              Icons.email_outlined,
-              t('البريد الإلكتروني', 'Email'),
-              value: me['email'],
+            decoration: const BoxDecoration(
+              color: blue,
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
             ),
-            ListTile(
-              title: Text(t('اللغة', 'Language')),
-              trailing: Directionality(
-                textDirection: TextDirection.ltr,
-                child: SegmentedButton<String>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment(value: 'ar', label: Text('AR')),
-                    ButtonSegment(value: 'en', label: Text('EN')),
-                  ],
-                  selected: {locale},
-                  onSelectionChanged: (v) => preferences(language: v.single),
+            child: Column(
+              children: [
+                const CircleAvatar(
+                  radius: 28,
+                  backgroundColor: Color(0x33ffffff),
+                  child: Icon(
+                    Icons.person_rounded,
+                    color: Colors.white,
+                    size: 34,
+                  ),
                 ),
-              ),
-            ),
-            ListTile(
-              title: Text(t('المظهر', 'Appearance')),
-              trailing: SegmentedButton<bool>(
-                showSelectedIcon: false,
-                segments: [
-                  ButtonSegment(
-                    value: false,
-                    icon: const Icon(Icons.light_mode_outlined),
-                    tooltip: t('فاتح', 'Light'),
+                const SizedBox(height: 6),
+                Text(
+                  me['name'],
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w600,
                   ),
-                  ButtonSegment(
-                    value: true,
-                    icon: const Icon(Icons.dark_mode_outlined),
-                    tooltip: t('داكن', 'Dark'),
+                ),
+                const SizedBox(height: 5),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                ],
-                selected: {dark},
-                onSelectionChanged: (v) => preferences(night: v.single),
-              ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 3,
+                      horizontal: 12,
+                    ),
+                    child: Text(
+                      (me['job_title'] as String?)?.trim().isNotEmpty == true
+                          ? me['job_title']
+                          : me['role_name'],
+                      style: const TextStyle(color: blue, fontSize: 12),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            tile(
-              Icons.notifications_outlined,
-              t('إشعارات الجهاز', 'Push notifications'),
-              control: Switch(
-                value: pushEnabled,
-                onChanged: pushBusy ? null : togglePush,
-              ),
+          ),
+          const SizedBox(height: 12),
+          tile(
+            Icons.email_outlined,
+            t('البريد الإلكتروني', 'Email'),
+            value: me['email'],
+          ),
+          ListTile(
+            title: Text(t('اللغة', 'Language')),
+            trailing: languageControl(),
+          ),
+          ListTile(
+            title: Text(t('المظهر', 'Appearance')),
+            trailing: appearanceControl(),
+          ),
+          tile(
+            Icons.notifications_outlined,
+            t('إشعارات الجهاز', 'Push notifications'),
+            control: Switch(
+              value: pushEnabled,
+              onChanged: pushBusy ? null : togglePush,
             ),
-            if (me['force_password_change'] != true)
-              for (final item in [
+          ),
+          if (pushError.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(pushError),
+            ),
+          if (me['force_password_change'] != true)
+            for (final item in [
+              (
+                'security',
+                Icons.security,
+                t('الأمان والجلسات', 'Security and sessions'),
+              ),
+              (
+                'notification-preferences',
+                Icons.tune,
+                t('تفضيلات الإشعارات', 'Notification preferences'),
+              ),
+              if (me['is_owner'] == true ||
+                  (me['permissions'] as List).contains('settings.edit'))
                 (
-                  'security',
-                  Icons.security,
-                  t('الأمان والجلسات', 'Security and sessions'),
+                  'system',
+                  Icons.settings,
+                  t('إعدادات النظام', 'System settings'),
                 ),
-                (
-                  'notification-preferences',
-                  Icons.tune,
-                  t('تفضيلات الإشعارات', 'Notification preferences'),
-                ),
-                if (me['is_owner'] == true ||
-                    (me['permissions'] as List).contains('settings.edit'))
-                  (
-                    'system',
-                    Icons.settings,
-                    t('إعدادات النظام', 'System settings'),
-                  ),
-              ])
-                tile(
-                  item.$2,
-                  item.$3,
-                  tap: () async {
-                    final paths = item.$1 == 'system'
-                        ? ['/api/v1/pages/system']
-                        : [
-                            '/api/v1/pages/security',
-                            '/api/v1/pages/notification-preferences',
-                          ];
-                    if (!await prepareNavigation(context, api, paths) ||
-                        !context.mounted)
-                      return;
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AccountSettings(
-                          api: api,
-                          section: item.$1,
-                          title: item.$3,
-                          owner: me['is_owner'] == true,
-                        ),
+            ])
+              tile(
+                item.$2,
+                item.$3,
+                tap: () async {
+                  final paths = item.$1 == 'system'
+                      ? ['/api/v1/pages/system']
+                      : [
+                          '/api/v1/pages/security',
+                          '/api/v1/pages/notification-preferences',
+                        ];
+                  if (!await prepareNavigation(context, api, paths) ||
+                      !context.mounted)
+                    return;
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => AccountSettings(
+                        api: api,
+                        section: item.$1,
+                        title: item.$3,
+                        owner: me['is_owner'] == true,
                       ),
-                    );
-                  },
-                ),
-            tile(
-              Icons.password,
-              t('تغيير كلمة المرور', 'Change password'),
-              tap: () => changePassword(context),
-            ),
-            tile(
-              Icons.logout,
-              t('تسجيل الخروج', 'Sign out'),
-              tap: () => logout(context),
-            ),
-            if (error.isNotEmpty) Text(error),
-          ],
-        ),
+                    ),
+                  );
+                },
+              ),
+          tile(
+            Icons.password,
+            t('تغيير كلمة المرور', 'Change password'),
+            tap: () => changePassword(context),
+          ),
+          tile(
+            Icons.logout,
+            t('تسجيل الخروج', 'Sign out'),
+            tap: () => logout(context),
+          ),
+          if (error.isNotEmpty) Text(error),
+        ],
       ),
     );
   }

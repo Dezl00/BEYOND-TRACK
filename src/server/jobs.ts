@@ -1,6 +1,7 @@
+import { androidPushConfigured } from "./android-push";
 import { language } from "@/messages/catalog";
 import { parseLocale, type Locale } from "@/messages/types";
-import { workflowRecipients } from "./workflow-notifications";
+import { currentHandoff, workflowRecipients } from "./workflow-notifications";
 import { departmentScope } from "./access";
 import { requestLink } from "@/lib/request-links";
 import { prepareRequestEmail } from "./request-email";
@@ -53,8 +54,9 @@ export async function processJobs(limit = 20) {
             number: string;
             status: number;
             visited: number[];
+            handoff: string;
           }>(
-            sql`SELECT project_id,created_by,number,status,ARRAY(SELECT DISTINCT t.to_status FROM request_timeline t WHERE t.request_id=r.id) visited FROM purchase_requests r WHERE id=${requestId}`,
+            sql`SELECT project_id,created_by,number,status,${currentHandoff} handoff,ARRAY(SELECT DISTINCT t.to_status FROM request_timeline t WHERE t.request_id=r.id) visited FROM purchase_requests r WHERE id=${requestId}`,
             tx,
           );
           if (request) {
@@ -88,6 +90,9 @@ export async function processJobs(limit = 20) {
             );
             const { stage, handoff } = job.payload;
             const recipients = new Set(await workflowRecipients(requestId, stage, handoff, tx));
+            const inboxRecipients = stage === undefined
+              ? new Set(await workflowRecipients(requestId, request.status, request.handoff, tx))
+              : recipients;
             for (const u of users) {
               const {m:ar}=language(parseLocale(u.locale));
               const department = departmentScope(u);
@@ -117,7 +122,7 @@ export async function processJobs(limit = 20) {
               );
               if (
                 u.id !== actorId &&
-                (pref.in_app ||
+                ((pref.in_app && (u.is_owner || u.id === request.created_by || inboxRecipients.has(u.id))) ||
                   (job.payload.technicalReturn &&
                     (u.id === request.created_by ||
                       u.workflow_role === "construction")))
@@ -126,7 +131,7 @@ export async function processJobs(limit = 20) {
                   sql`INSERT INTO notifications(user_id,event_id,type,request_id) VALUES (${u.id},${job.id},${type},${requestId}) ON CONFLICT(user_id,event_id) DO NOTHING RETURNING id`,
                   tx,
                 );
-                if (notification && (pushConfigured() || process.env.FIREBASE_SERVICE_ACCOUNT_JSON))
+                if (notification && (pushConfigured() || androidPushConfigured()))
                   await tx.execute(
                     sql`INSERT INTO outbox(kind,payload) VALUES(3,${JSON.stringify({ notificationId: notification.id })}::jsonb)`,
                   );

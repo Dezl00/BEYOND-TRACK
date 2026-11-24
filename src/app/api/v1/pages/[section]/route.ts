@@ -10,6 +10,7 @@ import {
   actionsForModule,
   specialPermissions,
   requestModules,
+  stageStatuses,
   canManageUnits,
 } from "@/lib/domain";
 import {
@@ -160,7 +161,12 @@ export async function GET(
       }
     }
     if (section === "requests" || requestModules.some((m) => m === section))
-      return json(await listRequests(actor, q, section));
+    {
+      const statuses = stageStatuses[section] ?? Array.from({ length: 17 }, (_, i) => i);
+      if (q.status !== undefined && !statuses.includes(q.status))
+        throw new AppError("invalid", 422);
+      return json({ ...await listRequests(actor, q, section), statuses });
+    }
     if (section === "units" && !canManageUnits(actor))
       throw new AppError("forbidden", 403);
     if (

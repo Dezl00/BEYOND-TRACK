@@ -120,3 +120,14 @@ const auditEnglish = [
   "Password reset",
   "Session revoked",
 ];
+
+// Fallback for installed servers that predate queue status metadata.
+const departmentStatuses = <String, List<int>>{
+  'construction': [12, 13, 14],
+  'technical': [1],
+  'project_management': [15],
+  'procurement': [2, 3, 4, 5, 10, 11],
+  'finance': [10],
+  'accounts': [11, 16],
+  'receipts': [3, 4, 5, 6, 16],
+};

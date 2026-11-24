@@ -1,11 +1,28 @@
-import { createSign } from "node:crypto";
+import { createPrivateKey, createSign } from "node:crypto";
+
+let account: { raw: string; client_email: string; privateKey: ReturnType<typeof createPrivateKey> } | undefined;
+function serviceAccount() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  if (!raw) return undefined;
+  if (account?.raw === raw) return account;
+  try {
+    const key = JSON.parse(raw);
+    if (key.project_id !== "beyond-91cad" || typeof key.client_email !== "string" || !key.client_email || typeof key.private_key !== "string")
+      return undefined;
+    account = { raw, client_email: key.client_email, privateKey: createPrivateKey(key.private_key) };
+    cached = undefined;
+    return account;
+  } catch { return undefined; }
+}
+export function androidPushConfigured() {
+  return !!serviceAccount();
+}
 
 let cached: { value: string; expires: number } | undefined;
 async function accessToken() {
+  const key = serviceAccount();
+  if (!key) throw new Error("Firebase configuration missing");
   if (cached && cached.expires > Date.now()) return cached.value;
-  const key = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "{}");
-  if (key.project_id !== "beyond-91cad" || !key.private_key || !key.client_email)
-    throw new Error("Firebase configuration missing");
   const now = Math.floor(Date.now() / 1000);
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
   const url = "https://oauth2.googleapis.com/token";
@@ -13,7 +30,7 @@ async function accessToken() {
     iss: key.client_email, scope: "https://www.googleapis.com/auth/firebase.messaging",
     aud: url, iat: now, exp: now + 3600,
   });
-  const signature = createSign("RSA-SHA256").update(body).sign(key.private_key,"base64url");
+  const signature = createSign("RSA-SHA256").update(body).sign(key.privateKey,"base64url");
   const res = await fetch(url,{method:"POST",signal:AbortSignal.timeout(8000),body:new URLSearchParams({
     grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer",assertion:body+"."+signature
   })});

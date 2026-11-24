@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'track_widgets.dart';
+import 'section_labels.dart';
 import 'sections.dart' show sectionPath;
 
 class RequestsList extends StatefulWidget {
@@ -20,7 +22,8 @@ class RequestsList extends StatefulWidget {
 }
 
 class _RequestsListState extends State<RequestsList> {
-  final search = TextEditingController();
+  int? status;
+  List<int> statuses = List.generate(statusesEnglish.length, (i) => i);
   final rows = <Map>[];
   String query = '', error = '';
   String? next;
@@ -45,7 +48,6 @@ class _RequestsListState extends State<RequestsList> {
   @override
   void dispose() {
     widget.api.changes.removeListener(changed);
-    search.dispose();
     super.dispose();
   }
 
@@ -56,6 +58,7 @@ class _RequestsListState extends State<RequestsList> {
       'requests',
       widget.project,
       query: query,
+      filters: {if (status != null) 'status': status.toString()},
       cursor: reset ? null : next,
     );
     setState(() {
@@ -66,6 +69,8 @@ class _RequestsListState extends State<RequestsList> {
       if (!mounted || version != generation) return;
       setState(() {
         if (reset) rows.clear();
+        if (data['statuses'] is List)
+          statuses = List<int>.from(data['statuses']);
         rows.addAll((data['items'] as List).cast<Map>());
         next = data['next'];
       });
@@ -100,21 +105,26 @@ class _RequestsListState extends State<RequestsList> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 96),
       children: [
-        TextField(
-          controller: search,
-          textInputAction: TextInputAction.search,
-          onSubmitted: (q) {
-            if (query != q.trim()) {
-              rows.clear();
-              next = null;
-            }
-            query = q.trim();
+        LiveSearch(
+          initialQuery: query,
+          label: t('بحث في الطلبات', 'Search requests'),
+          changed: (v) {
+            query = v;
+            rows.clear();
+            next = null;
             load(reset: true);
           },
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            labelText: t('بحث في الطلبات', 'Search requests'),
-          ),
+        ),
+        StatusTabs(
+          statuses: statuses,
+          value: status,
+          arabic: widget.arabic,
+          changed: (v) {
+            status = v;
+            rows.clear();
+            next = null;
+            load(reset: true);
+          },
         ),
         const SizedBox(height: 16),
         for (final item in rows)
@@ -129,7 +139,14 @@ class _RequestsListState extends State<RequestsList> {
               ),
               title: Text(item['number']),
               subtitle: Text(item['project_name']),
-              trailing: const Icon(Icons.chevron_right),
+              trailing: SizedBox(
+                width: 116,
+                child: StatusBadge(
+                  item['status'],
+                  widget.arabic,
+                  compact: true,
+                ),
+              ),
               onTap: () => widget.open(item['id']),
             ),
           ),

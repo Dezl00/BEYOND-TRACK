@@ -562,6 +562,43 @@ describe("Authorization and database invariants", () => {
   });
 });
 describe("Request to receipt", () => {
+  it("routes each purchasing stage to its assigned role within the project", async () => {
+    await pg.exec("BEGIN");
+    try {
+      const assignments = [
+        ["construction", [12, 13], ["construction.approve"]],
+        ["technical", [1], ["technical.approve"]],
+        ["project_management", [15], ["project_management.approve"]],
+        ["procurement", [2, 5], ["procurement.approve", "procurement.edit"]],
+        ["finance", [10], ["finance.approve"]],
+        ["accounts", [11, 16], ["accounts.approve"]],
+        ["receipts", [3, 4], ["receipts.create"]],
+      ] as const;
+      const members: string[] = [];
+      const expected = new Map<number, string>();
+      for (const [department, stages, grants] of assignments) {
+        const role = randomUUID(), user = randomUUID();
+        await pg.query("INSERT INTO roles(id,name) VALUES($1,$2)", [role, department + "-" + role]);
+        for (const key of ["requests.view", "requests.view_all", ...grants]) {
+          await pg.query("INSERT INTO permissions(key,label) VALUES($1,$1) ON CONFLICT DO NOTHING", [key]);
+          await pg.query("INSERT INTO role_permissions SELECT $1,id FROM permissions WHERE key=$2", [role,key]);
+        }
+        await pg.query("INSERT INTO users(id,name,email,username,job_title,password_hash,role_id) VALUES($1,$2,$3,$4,$2,'unused',$5)", [user,department,user+"@example.invalid",user,role]);
+        await pg.query("INSERT INTO project_users(project_id,user_id) VALUES($1,$2)", [ids.p1,user]);
+        members.push(user);
+        for(const status of stages) expected.set(status,user);
+      }
+      const requestId = randomUUID();
+      await pg.query("INSERT INTO purchase_requests(id,project_id,created_by,status) VALUES($1,$2,$3,12)", [requestId,ids.p1,ids.engineer]);
+      for(const [status,user] of expected) {
+        await pg.query("UPDATE purchase_requests SET status=$1 WHERE id=$2", [status,requestId]);
+        const actual = await workflowRecipients(requestId,status,requestId);
+        expect(actual.filter(id => members.includes(id))).toEqual([user]);
+      }
+    } finally {
+      await pg.exec("ROLLBACK");
+    }
+  });
   it("adds the requester and fellow project engineers to the receiving team", async () => {
     await pg.exec("BEGIN");
     try {

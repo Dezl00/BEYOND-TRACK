@@ -157,8 +157,10 @@ export async function login(input: z.infer<typeof loginSchema>) {
       tx,
     );
     if ((global?.otp_required && !fresh.otp_exempt) || fresh.otp_enabled) {
-      if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM)
-        throw new AppError("configured", 503);
+      if (!process.env.RESEND_API_KEY?.trim())
+        throw new AppError("mailKeyMissing", 503);
+      if (!process.env.EMAIL_FROM?.trim())
+        throw new AppError("mailSenderMissing", 503);
       const challenge = randomUUID(),
         code = String(randomInt(0, 1_000_000)).padStart(6, "0");
       await tx.execute(

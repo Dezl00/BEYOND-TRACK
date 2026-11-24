@@ -470,7 +470,7 @@ describe("WhatsApp delivery", () => {
       `https://beyond-track.online/requests/${ids.request}`,
     );
   });
-  it("routes both channels to all project assignees of the current step and suppresses superseded handoffs", async () => {
+  it("routes notifications to all project assignees of the current step and suppresses superseded handoffs", async () => {
     const second = randomUUID(), outside = randomUUID(), observer = randomUUID();
     await pg.query("INSERT INTO role_permissions(role_id,permission_id) SELECT $1,id FROM permissions WHERE key IN('projects.all','requests.view_all') ON CONFLICT DO NOTHING", [ids.role]);
     const observerRole = randomUUID();
@@ -480,9 +480,11 @@ describe("WhatsApp delivery", () => {
       await pg.query("INSERT INTO users(id,name,email,username,job_title,password_hash,role_id,whatsapp_country_code,whatsapp_number,whatsapp_enabled) VALUES($1::uuid,'Test',$2,$1::text,'Test','unused',$3,'+20',$4,true)", [id, id + "@example.invalid", role, phone]);
       if (id !== outside) await pg.query("INSERT INTO project_users(project_id,user_id) VALUES($1,$2)", [ids.project,id]);
     }
-    await pg.exec("UPDATE notification_policy SET email=true");
+    await pg.exec("UPDATE notification_policy SET in_app=true,email=true");
     await notify(db(), ids.request, 0, ids.sender);
     await processJobs(10);
+    const inbox = await pg.query<{user_id:string}>("SELECT DISTINCT user_id FROM notifications WHERE request_id=$1 AND user_id=ANY($2::uuid[])", [ids.request,[second,outside,observer]]);
+    expect(inbox.rows.map(n => n.user_id)).toEqual([second]);
     expect(state.sendMail.mock.calls.map(([mail]) => mail.to).sort()).toEqual(
       [ids.user, second].map(id => id + "@example.invalid").sort(),
     );

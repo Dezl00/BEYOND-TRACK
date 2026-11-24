@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'track_widgets.dart';
 import 'submissions.dart';
 import 'track_header.dart';
 import 'resource_editor.dart';
@@ -37,7 +38,7 @@ class RequestForm extends StatefulWidget {
 
 class _RequestFormState extends State<RequestForm> {
   final lines = <String, Map<String, String>>{};
-  String notes = '', error = '';
+  String notes = '', requiredBy = '', error = '';
   bool busy = false;
   String t(String a, String e) => widget.arabic ? a : e;
   Future<void> send() async {
@@ -63,8 +64,15 @@ class _RequestFormState extends State<RequestForm> {
       await widget.queue.submit({
         'projectId': widget.project,
         'notes': notes.trim(),
+        'requiredBy': requiredBy,
         'lines': lines.values
-            .map((l) => {'materialId': l['id'], 'quantity': l['quantity']})
+            .map(
+              (l) => {
+                'materialId': l['id'],
+                'quantity': l['quantity'],
+                'notes': l['notes'] ?? '',
+              },
+            )
             .toList(),
       });
       if (mounted) Navigator.pop(context, true);
@@ -82,14 +90,27 @@ class _RequestFormState extends State<RequestForm> {
     appBar: TrackHeader(
       api: widget.api,
       title: t('طلب جديد', 'New request'),
-      afterChange: () => Navigator.pop(context),
+      selectable: false,
     ),
     body: SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          ListTile(
+            leading: const Icon(Icons.domain_outlined),
+            title: Text(t('المشروع', 'Project')),
+            subtitle: Text(widget.api.project.value.name),
+          ),
+          DateField(
+            label: t('تاريخ الحاجة', 'Required by'),
+            value: requiredBy,
+            changed: (v) => setState(() => requiredBy = v),
+          ),
           TextField(
+            maxLength: 2000,
+            minLines: 2,
+            maxLines: 4,
             onChanged: (v) => notes = v,
             decoration: InputDecoration(
               labelText: t('نطاق الاستخدام', 'Usage scope'),
@@ -116,12 +137,17 @@ class _RequestFormState extends State<RequestForm> {
                     setState(
                       () => lines.putIfAbsent(
                         id,
-                        () => {'id': id, 'name': m['name'], 'quantity': '1'},
+                        () => {
+                          'id': id,
+                          'name': m['name'],
+                          'unit': m['unit_name'] ?? '',
+                          'quantity': '1',
+                        },
                       ),
                     );
                   },
           ),
-          for (final line in lines.values)
+          for (final line in lines.values) ...[
             TextFormField(
               key: ValueKey(line['id']),
               initialValue: line['quantity'],
@@ -131,12 +157,24 @@ class _RequestFormState extends State<RequestForm> {
               onChanged: (v) => line['quantity'] = v,
               decoration: InputDecoration(
                 labelText: line['name'],
+                helperText: t('الكمية', 'Quantity'),
+                suffixText: line['unit'],
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => setState(() => lines.remove(line['id'])),
                 ),
               ),
             ),
+            TextFormField(
+              key: ValueKey('note-' + line['id']!),
+              initialValue: line['notes'],
+              maxLength: 1000,
+              decoration: InputDecoration(
+                labelText: t('ملاحظات المادة', 'Material notes'),
+              ),
+              onChanged: (v) => line['notes'] = v,
+            ),
+          ],
           if (error.isNotEmpty) Text(error),
         ],
       ),

@@ -1,3 +1,4 @@
+import { androidPushConfigured } from "@/server/android-push";
 import { z } from "zod";
 import { db, one, sql } from "@/db";
 import { requireActor } from "@/server/auth";
@@ -14,7 +15,7 @@ export async function POST(req:Request) {
     if(remove) {
       await db().execute(sql`DELETE FROM push_subscriptions WHERE endpoint=${endpoint} AND user_id=${a.id} AND auth=${a.session_id}`);
     } else {
-      if(!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) throw new AppError("configured",503);
+      if(!androidPushConfigured()) throw new AppError("androidPushUnavailable",503);
       const count=await one<{n:number}>(sql`SELECT count(*)::int n FROM push_subscriptions WHERE user_id=${a.id} AND endpoint<>${endpoint} AND auth<>${a.session_id}`);
       if((count?.n??0)>=10)throw new AppError("rate",429);
       await db().transaction(async tx=>{

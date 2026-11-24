@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:beyond_track/api.dart';
+import 'package:beyond_track/track_widgets.dart';
 import 'package:beyond_track/page_cache.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:beyond_track/sections.dart';
@@ -7,6 +8,7 @@ import 'package:beyond_track/overview.dart';
 import 'package:beyond_track/track_header.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 class MemoryCache extends PageCache {
   final entries = <String,({Map<String,dynamic> body, DateTime expiry})>{};
@@ -31,6 +33,14 @@ class FakeApi extends TrackApi {
   ]) async {
     paths.add(path);
     if (delay != null) await delay!.future;
+    if(path=='/api/commands' && data?['command']=='notification-read')return {};
+    if(path.startsWith('/api/options?resource=boq')) {
+      final level=Uri.parse(path).queryParameters['level']!;
+      return {'items':[{'id':'filter-'+level,'name':'Branch '+level}],'next':null};
+    }
+    if (path.startsWith('/api/v1/pages/materials')) return {'items':[
+      {'id':'steel','name':'Steel','code':'M1','quantity':'6.000','unit_name':'kg','active':true}], 'next':null};
+    if (path.startsWith('/api/v1/pages/notifications')) return {'items':[], 'next':null};
     if (path.startsWith('/api/options?resource=projects')) {
       return {
         'items': [
@@ -95,7 +105,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Employee'),findsOneWidget);
     final bell = find.byIcon(Icons.notifications_none_rounded);
-    expect(tester.getCenter(bell).dx,lessThan(tester.getCenter(find.byIcon(Icons.account_circle_outlined)).dx));
+    expect(tester.getCenter(bell).dx,lessThan(tester.getCenter(find.byIcon(Icons.person_rounded)).dx));
     await tester.tap(find.text('All projects'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('North'));
@@ -159,6 +169,7 @@ void main() {
     );
     expect(find.text('المواد'), findsOneWidget);
     expect(find.text('وحدات القياس'), findsNothing);
+    expect(find.text('الإعدادات'), findsNothing);
     expect(find.text('الحسابات'), findsNothing);
     await tester.tap(find.text('جدول الكميات'));
     expect(selected, 'boq');
@@ -186,6 +197,75 @@ void main() {
       api.client.close();
     },
   );
+  testWidgets('catalog rows, edit dialog, cascading filters and instant search', (tester) async {
+    final api=FakeApi()..locale='en';
+    await tester.pumpWidget(MaterialApp(home:SectionPage(api:api,section:'materials',profile:const {'permissions':['boq.edit','boq.create','boq.delete']})));
+    await tester.pumpAndSettle();
+    expect(find.byType(DataTable),findsOneWidget);
+    expect(find.text('6'),findsOneWidget);
+    await tester.tap(find.byTooltip('Edit'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog),findsOneWidget);
+    await tester.tap(find.byType(CloseButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Filter'));
+    await tester.pumpAndSettle();
+    expect(find.text('Secondary section'),findsOneWidget);
+    for(final (level,label) in [(1,'Main section'),(2,'Secondary section'),(3,'Subsection')]) {
+      await tester.tap(find.text(label));await tester.pumpAndSettle();
+      await tester.tap(find.text('Branch '+level.toString()));await tester.pumpAndSettle();
+    }
+    expect(api.paths.where((path)=>path.contains('level=3') && path.contains('seconds=filter-2')),isNotEmpty);
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField),'steel');
+    await tester.pump(const Duration(milliseconds:220));
+    await tester.pumpAndSettle();
+    expect(api.paths.last,contains('q=steel'));
+    expect(Uri.parse(api.paths.last).queryParameters,containsPair('leaves','filter-3'));
+    api.client.close();
+  });
+  testWidgets('bell opens an anchored inbox and links to all notifications',(tester)async{
+    final api=FakeApi()..locale='en';
+    await tester.pumpWidget(shell(api,['requests','notifications']));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Notifications'));
+    await tester.pumpAndSettle();
+    expect(find.text('Mark all read'),findsOneWidget);
+    await tester.tap(find.text('Mark all read'));await tester.pumpAndSettle();
+    expect(api.paths,contains('/api/commands'));
+    await tester.tap(find.text('View all notifications'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SectionPage),findsOneWidget);
+    api.client.close();
+  });
+  for(final ar in [true,false]) {
+    testWidgets('narrow header and primary shortcuts follow '+(ar?'RTL':'LTR'),(tester)async{
+      tester.view.devicePixelRatio=1;
+      tester.view.physicalSize=const Size(320,680);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final api=FakeApi()..locale=ar?'ar':'en';
+      await tester.pumpWidget(MaterialApp(locale:Locale(api.locale),supportedLocales:const[Locale('ar'),Locale('en')],
+        localizationsDelegates:GlobalMaterialLocalizations.delegates,
+        home:Overview(api:api,profile:{'name':'Employee','permissions':[],'navigation':[for(final k in ['dashboard','requests','technical','notifications']){'key':k}]},
+          arabic:ar,queue:null,account:const SizedBox())));
+      await tester.pumpAndSettle();
+      final bell=tester.getCenter(find.byIcon(Icons.notifications_none_rounded)).dx;
+      final account=tester.getCenter(find.byIcon(Icons.person_rounded)).dx;
+      expect(bell<account,!ar);
+      final buttons=find.byType(FilledButton);
+      expect(buttons,findsNWidgets(3));
+      expect(tester.getTopLeft(buttons.first).dy,tester.getTopLeft(buttons.last).dy);
+      expect(tester.takeException(),isNull);
+      api.client.close();
+    });
+  }
+  test('quantity formatting preserves fractional precision',(){
+    expect(quantityText('6.000'),'6');
+    expect(quantityText('0.015'),'0.015');
+    expect(quantityText('600.200'),'600.2');
+  });
   testWidgets('project report shows its native summary and consumption rows', (
     tester,
   ) async {

@@ -1,6 +1,8 @@
+import 'account_settings.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'track_widgets.dart';
 import 'request_form.dart';
 import 'requests_list.dart';
 import 'section_labels.dart';
@@ -222,31 +224,77 @@ class _OverviewState extends State<Overview>
                     ? widget.profile['name']
                     : labels[active]!,
                 account: () => select('account'),
+                onRequest: (id) => openRequestDetail(context, widget.api, id),
                 notifications: navigation.contains('notifications')
                     ? () => select('notifications')
                     : null,
               ),
         bottomNavigationBar: SafeArea(
           top: false,
-          child: NavigationBar(
-            elevation: 0,
-            height: 64,
-            selectedIndex: tabs.indexOf(tab),
-            onDestinationSelected: (i) => select(tabs[i]),
-            destinations: [
-              for (final k in tabs)
-                NavigationDestination(
-                  icon: Icon(
-                    {
-                      'home': Icons.home_outlined,
-                      'requests': Icons.receipt_long_outlined,
-                      'sections': Icons.grid_view_rounded,
-                      'account': Icons.person_outline,
-                    }[k],
-                  ),
-                  label: labels[k]!,
+          minimum: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+          child: Material(
+            color: const Color(0xff15171b),
+            borderRadius: BorderRadius.circular(26),
+            child: Padding(
+              padding: const EdgeInsets.all(5),
+              child: LayoutBuilder(
+                builder: (ctx, box) => Stack(
+                  children: [
+                    AnimatedPositionedDirectional(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOutCubic,
+                      start: box.maxWidth * tabs.indexOf(tab) / tabs.length,
+                      top: 0,
+                      bottom: 0,
+                      width: box.maxWidth / tabs.length,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: trackBlue,
+                          borderRadius: BorderRadius.circular(21),
+                        ),
+                      ),
+                    ),
+                    NavigationBarTheme(
+                      data: NavigationBarThemeData(
+                        iconTheme: const WidgetStatePropertyAll(
+                          IconThemeData(color: Colors.white, size: 21),
+                        ),
+                        labelTextStyle: const WidgetStatePropertyAll(
+                          TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      child: NavigationBar(
+                        backgroundColor: Colors.transparent,
+                        indicatorColor: Colors.transparent,
+
+                        elevation: 0,
+                        height: 54,
+                        selectedIndex: tabs.indexOf(tab),
+                        onDestinationSelected: (i) => select(tabs[i]),
+                        destinations: [
+                          for (final k in tabs)
+                            NavigationDestination(
+                              icon: Icon(
+                                {
+                                  'home': Icons.home_outlined,
+                                  'requests': Icons.receipt_long_outlined,
+                                  'sections': Icons.grid_view_rounded,
+                                  'account': Icons.person_outline,
+                                }[k],
+                              ),
+                              label: labels[k]!,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-            ],
+              ),
+            ),
           ),
         ),
         floatingActionButton: active == 'requests' && canCreate
@@ -334,21 +382,81 @@ class _OverviewState extends State<Overview>
     final names = widget.arabic ? sectionArabic : sectionEnglish;
     final stats = dashboard?['stats'] as Map?;
     final latest = dashboard?['latest'] as List?;
-    Widget heading(String label) => Padding(
-      padding: const EdgeInsets.only(top: 16, bottom: 10),
-      child: Text(label, style: Theme.of(context).textTheme.titleMedium),
-    );
-    Widget shortcut(IconData icon, String label, VoidCallback action) =>
-        TextButton.icon(
-          style: TextButton.styleFrom(
-            backgroundColor: palette.onSurface.withValues(alpha: .055),
-            foregroundColor: palette.onSurface,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    final destinations = <String>{
+      if (canCreate) 'new',
+      for (final k in [
+        'construction',
+        'technical',
+        'project_management',
+        'procurement',
+        'finance',
+        'accounts',
+        'receipts',
+      ])
+        if (navigation.contains(k)) k,
+      if (navigation.contains('requests')) 'requests',
+      ...allowedSections(
+        widget.profile,
+      ).where((k) => !['notifications', 'settings'].contains(k)),
+      'sections',
+      'account',
+      if (navigation.contains('notifications')) 'notifications',
+      'security',
+    }.take(3);
+    Widget shortcut(String key) => Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: trackBlue,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 3),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
-          onPressed: action,
-          icon: Icon(icon, color: blue, size: 20),
-          label: Text(label),
-        );
+          onPressed: key == 'new'
+              ? createRequest
+              : key == 'security'
+              ? () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => AccountSettings(
+                      api: widget.api,
+                      section: 'security',
+                      title: t('الأمان', 'Security'),
+                      owner: widget.profile['is_owner'] == true,
+                    ),
+                  ),
+                )
+              : () => open(key),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                key == 'new'
+                    ? Icons.add_rounded
+                    : key == 'security'
+                    ? Icons.security
+                    : sectionIcons[key] ??
+                          (key == 'account'
+                              ? Icons.person_outline
+                              : Icons.grid_view_rounded),
+                size: 19,
+              ),
+              Text(
+                key == 'new'
+                    ? t('طلب جديد', 'New request')
+                    : key == 'security'
+                    ? t('الأمان', 'Security')
+                    : names[key] ?? labels[key]!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
     return RefreshIndicator(
       onRefresh: () => loadHome(force: true),
       child: ListView(
@@ -356,7 +464,7 @@ class _OverviewState extends State<Overview>
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
         children: [
           if (hasStats) ...[
-            heading(t('إحصائيات الطلبات', 'Request statistics')),
+            const SizedBox(height: 8),
             LayoutBuilder(
               builder: (ctx, box) {
                 final cols = box.maxWidth >= 560 ? 4 : 2;
@@ -381,8 +489,11 @@ class _OverviewState extends State<Overview>
                     ])
                       Container(
                         width: size,
-                        height: size,
-                        padding: const EdgeInsets.all(14),
+
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: fill,
                           borderRadius: BorderRadius.circular(16),
@@ -390,11 +501,15 @@ class _OverviewState extends State<Overview>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(icon, color: blue),
-                            const Spacer(),
-                            Text(
-                              stats?[key]?.toString() ?? '—',
-                              style: Theme.of(ctx).textTheme.headlineMedium,
+                            Row(
+                              children: [
+                                Icon(icon, color: blue, size: 19),
+                                const Spacer(),
+                                Text(
+                                  stats?[key]?.toString() ?? '—',
+                                  style: Theme.of(ctx).textTheme.titleLarge,
+                                ),
+                              ],
                             ),
                             Text(
                               label,
@@ -414,20 +529,10 @@ class _OverviewState extends State<Overview>
                 child: Text(t('إعادة المحاولة', 'Retry')),
               ),
           ],
-          heading(t('اختصارات سريعة', 'Quick shortcuts')),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (canCreate)
-                shortcut(
-                  Icons.add_circle_outline,
-                  t('طلب جديد', 'New request'),
-                  createRequest,
-                ),
-              for (final key in allowedSections(widget.profile))
-                shortcut(sectionIcons[key]!, names[key]!, () => open(key)),
-            ],
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: destinations.map(shortcut).toList(),
           ),
           if (widget.queue != null)
             FutureBuilder<List<Map<String, Object?>>>(
@@ -457,14 +562,32 @@ class _OverviewState extends State<Overview>
               ),
             ),
           if (latest != null) ...[
-            heading(t('أحدث الطلبات', 'Recent requests')),
-            for (final item in latest)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(item['number']),
-                subtitle: Text(item['project_name']),
-                onTap: () => openRequestDetail(context, widget.api, item['id']),
-              ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    t('أحدث الطلبات', 'Recent requests'),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                if (navigation.contains('requests'))
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      backgroundColor: fill,
+                      foregroundColor: blue,
+                    ),
+                    onPressed: () => select('requests'),
+                    child: Text(t('كل الطلبات', 'All requests')),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            RequestTable(
+              items: latest,
+              arabic: widget.arabic,
+              open: (id) => openRequestDetail(context, widget.api, id),
+            ),
             if (latest.isEmpty) Text(t('لا توجد طلبات', 'No requests')),
           ],
         ],

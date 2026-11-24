@@ -719,6 +719,7 @@ export const ar = {
     required: "هذا الحقل مطلوب",
     positive: "أدخل كمية أكبر من صفر",
     forcePassword: "غيّر كلمة المرور أولًا",
+    androidPushUnavailable: "تعذّر تفعيل إشعارات أندرويد. تحقق من إعدادات Firebase على الخادم.",
     configured: "إعدادات التشغيل غير مكتملة",
     noMaterial: "لا توجد مواد متاحة",
     receipt: "أدخل كمية استلام أو مرتجع",

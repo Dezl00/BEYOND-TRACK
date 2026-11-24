@@ -1,4 +1,6 @@
 import 'document_tools.dart';
+import 'track_widgets.dart';
+import 'catalog_controls.dart';
 import 'resource_editor.dart';
 import 'request_operation.dart';
 import 'track_header.dart';
@@ -55,11 +57,13 @@ String sectionPath(
   String section,
   String project, {
   String query = '',
+  Map<String, String> filters = const {},
   String? cursor,
 }) {
   final params = {
     if (project.isNotEmpty) 'project': project,
     if (query.isNotEmpty) 'q': query,
+    ...filters,
     if (cursor != null) 'cursor': cursor,
   };
   return Uri(
@@ -81,18 +85,44 @@ class SectionDirectory extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final names = arabic ? sectionArabic : sectionEnglish;
-    final sections = allowedSections(profile);
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+    final sections = allowedSections(
+      profile,
+    ).where((k) => !['settings', 'notifications'].contains(k)).toList();
+    return GridView.builder(
+      padding: const EdgeInsets.all(14),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 152,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
       itemCount: sections.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (_, i) {
+      itemBuilder: (ctx, i) {
         final key = sections[i];
-        return ListTile(
-          leading: Icon(sectionIcons[key]),
-          title: Text(names[key]!),
-          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-          onTap: () => open(key),
+        return Material(
+          color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: .055),
+          borderRadius: BorderRadius.circular(18),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => open(key),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(sectionIcons[key], size: 25, color: trackBlue),
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    names[key]!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -119,6 +149,16 @@ class SectionPage extends StatefulWidget {
 class _SectionPageState extends State<SectionPage> {
   final rows = <Map>[];
   Map summary = const {};
+  Map<String, Map> catalogFilters = {};
+  int? statusFilter;
+  late List<int> statuses = departmentStatuses[widget.section] ?? [];
+  final pendingActivation = <String, bool>{};
+  bool get tabular =>
+      ['projects', 'boq', 'materials', 'units'].contains(keyName);
+  Map<String, String> get filters => {
+    if (statusFilter != null) 'status': statusFilter.toString(),
+    for (final e in catalogFilters.entries) e.key: e.value['id'],
+  };
   String projectName = '';
   String query = '', error = '';
   String? next;
@@ -138,6 +178,7 @@ class _SectionPageState extends State<SectionPage> {
   }
 
   void changed() {
+    catalogFilters = {};
     load();
   }
 
@@ -151,15 +192,28 @@ class _SectionPageState extends State<SectionPage> {
   Future<void> load({bool more = false, bool force = false}) async {
     if (more && (busy || next == null)) return;
     final version = ++generation;
-    final base = sectionPath(keyName, selectedProject, query: query);
+    final base = sectionPath(
+      keyName,
+      selectedProject,
+      filters: filters,
+      query: query,
+    );
     final path = more
-        ? sectionPath(keyName, selectedProject, query: query, cursor: next)
+        ? sectionPath(
+            keyName,
+            selectedProject,
+            filters: filters,
+            query: query,
+            cursor: next,
+          )
         : base;
     void apply(Map<String, dynamic> page) {
       if (!mounted || generation != version) return;
       final data = report ? page['data'] as Map : page;
       setState(() {
         if (!more) rows.clear();
+        if (page['statuses'] is List)
+          statuses = List<int>.from(page['statuses']);
         if (report) {
           summary = page['overview'];
           projectName = page['context']['name'];
@@ -331,17 +385,162 @@ class _SectionPageState extends State<SectionPage> {
       await chooseProject(context, widget.api);
       if (!mounted || selectedProject.isEmpty) return;
     }
-    final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => ResourceEditor(
-          api: widget.api,
-          section: keyName,
-          profile: widget.profile,
-          row: row,
+    final editor = ResourceEditor(
+      api: widget.api,
+      section: keyName,
+      profile: widget.profile,
+      row: row,
+      modal: tabular,
+    );
+    final saved = tabular
+        ? await showDialog<Map>(context: context, builder: (_) => editor)
+        : await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(builder: (_) => editor),
+          );
+    if (mounted && (saved == true || saved is Map)) {
+      if (keyName == 'projects' &&
+          row?['id'] == selectedProject &&
+          saved is Map) {
+        widget.api.project.value = (
+          id: selectedProject,
+          name: saved['name'] as String,
+        );
+      }
+      await load(force: true);
+    }
+  }
+
+  Future<void> setRowActive(Map row, bool nextValue) async {
+    final id = row['id'] as String;
+    if (pendingActivation.containsKey(id)) return;
+    setState(() => pendingActivation[id] = nextValue);
+    try {
+      await widget.api.call('/api/commands', {
+        'command': 'activation',
+        'data': {
+          'resource': resourceCommands[keyName],
+          'id': id,
+          'active': nextValue,
+        },
+      });
+      if (mounted) await load(force: true);
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => pendingActivation.remove(id));
+    }
+  }
+
+  Future<void> remove(Map row) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => DeleteResourceDialog(
+        api: widget.api,
+        resource: resourceCommands[keyName]!,
+        row: row,
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (keyName == 'projects' && selectedProject == row['id'])
+      widget.api.project.value = (id: '', name: '');
+    await load(force: true);
+  }
+
+  Widget catalogTable() {
+    final project = keyName == 'projects',
+        units = keyName == 'units',
+        boq = keyName == 'boq';
+    final edit = canWrite(true);
+    final canDelete = project
+        ? widget.profile['is_owner'] == true
+        : (widget.profile['permissions'] as List? ?? []).contains('boq.delete');
+    final columns = [
+      t('الاسم', 'Name'),
+      t('نشط', 'Active'),
+      if (edit || canDelete) t('إجراءات', 'Actions'),
+      if (!units) t('الرمز', 'Code'),
+      if (project) t('الموقع', 'Location'),
+      if (boq) t('القسم الأعلى', 'Parent'),
+      if (keyName == 'materials') t('القسم', 'Section'),
+      if (!project && !units) t('الكمية', 'Quantity'),
+      if (!project) t('الوحدة', 'Unit'),
+    ];
+    DataCell cell(dynamic v) => DataCell(
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 160),
+        child: Text(
+          v?.toString().isNotEmpty == true ? v.toString() : '—',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );
-    if (mounted && saved == true) await load();
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columnSpacing: 14,
+        horizontalMargin: 8,
+        dataRowMinHeight: 42,
+        dataRowMaxHeight: 54,
+        headingRowHeight: 36,
+        headingRowColor: WidgetStatePropertyAll(
+          Theme.of(context).colorScheme.onSurface.withValues(alpha: .05),
+        ),
+        columns: [for (final label in columns) DataColumn(label: Text(label))],
+        rows: [
+          for (final row in rows)
+            DataRow(
+              cells: [
+                cell(row['name']),
+                DataCell(
+                  Switch(
+                    value:
+                        pendingActivation[row['id']] ??
+                        (project
+                            ? row['archived'] != true
+                            : row['active'] == true),
+                    activeTrackColor: trackGreen,
+                    onChanged: edit && !pendingActivation.containsKey(row['id'])
+                        ? (v) => setRowActive(row, v)
+                        : null,
+                  ),
+                ),
+                if (edit || canDelete)
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (edit)
+                          IconButton(
+                            tooltip: t('تعديل', 'Edit'),
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                            onPressed: () => editResource(row),
+                          ),
+                        if (canDelete)
+                          IconButton(
+                            tooltip: t('حذف', 'Delete'),
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            onPressed: () => remove(row),
+                          ),
+                      ],
+                    ),
+                  ),
+                if (!units) cell(row['code']),
+                if (project) cell(row['location']),
+                if (boq) cell(row['parent_name']),
+                if (keyName == 'materials') cell(row['boq_name']),
+                if (!project && !units) cell(quantityText(row['quantity'])),
+                if (!project) cell(units ? row['symbol'] : row['unit_name']),
+              ],
+            ),
+        ],
+      ),
+    );
   }
 
   String rowTitle(Map r) {
@@ -410,7 +609,7 @@ class _SectionPageState extends State<SectionPage> {
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
-        itemCount: rows.length + 2,
+        itemCount: tabular ? 3 : rows.length + 2,
         itemBuilder: (_, i) {
           if (i == 0)
             return Column(
@@ -419,6 +618,35 @@ class _SectionPageState extends State<SectionPage> {
                 Wrap(
                   spacing: 8,
                   children: [
+                    if (['boq', 'materials'].contains(keyName))
+                      Builder(
+                        builder: (anchor) => TextButton.icon(
+                          icon: const Icon(Icons.filter_list_rounded, size: 18),
+                          label: Text(
+                            t('تصفية', 'Filter') +
+                                (catalogFilters.isEmpty
+                                    ? ''
+                                    : ' (' +
+                                          catalogFilters.length.toString() +
+                                          ')'),
+                          ),
+                          onPressed: () async {
+                            final result =
+                                await anchoredPanel<Map<String, Map>>(
+                                  anchor,
+                                  CatalogFilters(
+                                    api: widget.api,
+                                    initial: catalogFilters,
+                                    materials: keyName == 'materials',
+                                  ),
+                                );
+                            if (result != null && mounted) {
+                              catalogFilters = result;
+                              load();
+                            }
+                          },
+                        ),
+                      ),
                     if (keyName == 'boq' && canWrite(false))
                       TextButton.icon(
                         onPressed: importCatalog,
@@ -448,10 +676,10 @@ class _SectionPageState extends State<SectionPage> {
                         ),
                       ),
                     if (report && canExport && !busy && error.isEmpty)
-                      TextButton.icon(
+                      IconButton(
                         onPressed: printReport,
                         icon: const Icon(Icons.print),
-                        label: Text(t('طباعة', 'Print')),
+                        tooltip: t('طباعة', 'Print'),
                       ),
                   ],
                 ),
@@ -477,20 +705,28 @@ class _SectionPageState extends State<SectionPage> {
                             ),
                         ],
                       )
-                    : TextField(
-                        textInputAction: TextInputAction.search,
-                        onSubmitted: (text) {
-                          query = text.trim();
+                    : LiveSearch(
+                        initialQuery: query,
+                        label: t('بحث', 'Search'),
+                        changed: (v) {
+                          query = v;
                           load();
                         },
-                        decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.search),
-                          labelText: t('بحث', 'Search'),
-                        ),
                       ),
+                if (_queues.contains(keyName))
+                  StatusTabs(
+                    statuses: statuses,
+                    value: statusFilter,
+                    arabic: widget.api.locale == 'ar',
+                    changed: (v) {
+                      statusFilter = v;
+                      load();
+                    },
+                  ),
               ],
             );
-          if (i == rows.length + 1) {
+          if (tabular && i == 1) return catalogTable();
+          if (i == (tabular ? 2 : rows.length + 1)) {
             if (busy) return const SizedBox.shrink();
             if (error.isNotEmpty)
               return Column(
@@ -522,12 +758,6 @@ class _SectionPageState extends State<SectionPage> {
             row['unit_name'],
             if (keyName == 'audit') row['user_name'],
             if (keyName == 'notifications') row['number'],
-            if (row['status'] is int)
-              indexedLabel(
-                widget.api.locale == 'ar' ? statusesArabic : statusesEnglish,
-                row['status'],
-                '',
-              ),
             if (report)
               t('المطلوب', 'Requested') + ' ' + row['requested'].toString(),
           ].where((v) => v != null && v != '').join(' · ');
@@ -535,7 +765,16 @@ class _SectionPageState extends State<SectionPage> {
             leading: Icon(sectionIcons[keyName]),
             title: Text(rowTitle(row)),
             subtitle: subtitle.isEmpty ? null : Text(subtitle),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            trailing: row['status'] is int
+                ? SizedBox(
+                    width: 112,
+                    child: StatusBadge(
+                      row['status'],
+                      widget.api.locale == 'ar',
+                      compact: true,
+                    ),
+                  )
+                : const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () => select(row),
           );
         },
@@ -583,6 +822,35 @@ class RequestDetail extends StatefulWidget {
 class _RequestDetailState extends State<RequestDetail> {
   late Future<Map<String, dynamic>> record = fetch();
   bool submitting = false;
+  final olderEvents = <Map>[];
+  String? olderCursor;
+  bool loadingHistory = false, loadedHistory = false;
+  int historyVersion = 0;
+  Future<void> moreHistory(String cursor) async {
+    if (loadingHistory) return;
+    final version = historyVersion;
+    setState(() => loadingHistory = true);
+    try {
+      final page = await widget.api.page(
+        '/api' + path + '?cursor=' + Uri.encodeQueryComponent(cursor),
+      );
+      if (mounted && version == historyVersion)
+        setState(() {
+          olderEvents.addAll((page['history']['items'] as List).cast<Map>());
+          loadedHistory = true;
+          olderCursor = page['history']['next'];
+        });
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted && version == historyVersion)
+        setState(() => loadingHistory = false);
+    }
+  }
+
   String t(String a, String e) => widget.api.locale == 'ar' ? a : e;
   String status(dynamic index) => indexedLabel(
     widget.api.locale == 'ar' ? statusesArabic : statusesEnglish,
@@ -593,6 +861,11 @@ class _RequestDetailState extends State<RequestDetail> {
   Future<Map<String, dynamic>> fetch({bool force = false}) =>
       widget.api.page('/api$path', force: force);
   void refresh() => setState(() {
+    olderEvents.clear();
+    loadedHistory = false;
+    olderCursor = null;
+    historyVersion++;
+    loadingHistory = false;
     record = fetch(force: true);
   });
   Future<void> transition(
@@ -656,7 +929,12 @@ class _RequestDetailState extends State<RequestDetail> {
       if (mounted)
         setState(() {
           submitting = false;
-          record = fetch();
+          olderEvents.clear();
+          loadedHistory = false;
+          olderCursor = null;
+          historyVersion++;
+          loadingHistory = false;
+          record = fetch(force: true);
         });
     }
   }
@@ -688,6 +966,8 @@ class _RequestDetailState extends State<RequestDetail> {
           );
         if (!s.hasData) return const SizedBox.shrink();
         final r = s.requireData, actions = r['actions'] as Map;
+        final history = [...r['history']['items'], ...olderEvents];
+        final cursor = loadedHistory ? olderCursor : r['history']['next'];
         final approved = {12: 1, 13: 1, 15: 2, 5: 16}[r['status']];
         return RefreshIndicator(
           onRefresh: () async {
@@ -697,61 +977,173 @@ class _RequestDetailState extends State<RequestDetail> {
           child: ListView(
             padding: const EdgeInsets.all(20),
             children: [
-              Text(
-                r['number'].toString(),
-                style: Theme.of(ctx).textTheme.headlineSmall,
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: trackBlue.withValues(alpha: .09),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            r['number'].toString(),
+                            style: Theme.of(ctx).textTheme.headlineSmall,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: t('طباعة الطلب', 'Print request'),
+                          icon: const Icon(Icons.print_outlined),
+                          onPressed: () => printDocument(
+                            context,
+                            widget.api,
+                            r['number'].toString(),
+                            [
+                              r['project_name'] ?? '',
+                              status(r['status']),
+                              r['notes'] ?? '',
+                              for (final l in r['lines'])
+                                [
+                                      l['material_name'],
+                                      quantityText(l['quantity']),
+                                      l['unit_name'],
+                                      l['notes'],
+                                    ]
+                                    .where((v) => v != null && v != '')
+                                    .join(' · '),
+                              for (final h in history)
+                                [
+                                      status(h['to_status']),
+                                      h['user_name'],
+                                      displayDate(
+                                        ctx,
+                                        h['created_at'],
+                                        time: true,
+                                      ),
+                                      h['note'],
+                                    ]
+                                    .where((v) => v != null && v != '')
+                                    .join(' · '),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    StatusBadge(r['status'], widget.api.locale == 'ar'),
+                    const SizedBox(height: 10),
+                    for (final (icon, value) in [
+                      (Icons.domain_outlined, r['project_name']),
+                      (Icons.person_outline, r['created_by_name']),
+                      (
+                        Icons.schedule,
+                        r['created_at'] == null
+                            ? null
+                            : displayDate(ctx, r['created_at'], time: true),
+                      ),
+                      (
+                        Icons.event_available_outlined,
+                        r['required_by'] == null
+                            ? null
+                            : t('تاريخ الحاجة', 'Required by') +
+                                  ' · ' +
+                                  r['required_by'].toString(),
+                      ),
+                    ])
+                      if (value != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              Icon(icon, size: 16),
+                              const SizedBox(width: 7),
+                              Expanded(child: Text(value.toString())),
+                            ],
+                          ),
+                        ),
+                    if ((r['notes'] ?? '') != '')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Text(r['notes']),
+                      ),
+                  ],
+                ),
               ),
-              Text(
-                [
-                  r['project_name'],
-                  r['created_by_name'],
-                ].whereType<String>().join(' · '),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  t('المواد المطلوبة', 'Requested materials'),
+                  style: Theme.of(ctx).textTheme.titleMedium,
+                ),
               ),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Chip(label: Text(status(r['status']))),
-              ),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: TextButton.icon(
-                  icon: const Icon(Icons.print),
-                  label: Text(t('طباعة الطلب', 'Print request')),
-                  onPressed: () => printDocument(
-                    context,
-                    widget.api,
-                    r['number'].toString(),
-                    [
-                      r['project_name'] ?? '',
-                      status(r['status']),
-                      r['notes'] ?? '',
-                      for (final l in r['lines'])
-                        [
-                          l['material_name'],
-                          l['quantity'],
-                          l['unit_name'],
-                          l['notes'],
-                        ].where((v) => v != null && v != '').join(' · '),
-                      for (final h in r['history']['items'])
-                        [
-                          status(h['to_status']),
-                          h['user_name'],
-                          h['note'],
-                        ].where((v) => v != null && v != '').join(' · '),
+              Table(
+                columnWidths: const {
+                  0: FlexColumnWidth(2.3),
+                  1: FlexColumnWidth(),
+                  2: FlexColumnWidth(),
+                },
+                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                children: [
+                  TableRow(
+                    decoration: BoxDecoration(
+                      color: trackBlue.withValues(alpha: .09),
+                    ),
+                    children: [
+                      for (final v in [
+                        t('المادة', 'Material'),
+                        t('الكمية', 'Quantity'),
+                        t('الوحدة', 'Unit'),
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.all(7),
+                          child: Text(
+                            v,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
                     ],
                   ),
-                ),
+                  for (final line in r['lines'])
+                    TableRow(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Theme.of(
+                              ctx,
+                            ).colorScheme.onSurface.withValues(alpha: .09),
+                          ),
+                        ),
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(7),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(line['material_name']),
+                              if ((line['notes'] ?? '') != '')
+                                Text(
+                                  line['notes'],
+                                  style: Theme.of(ctx).textTheme.bodySmall,
+                                ),
+                            ],
+                          ),
+                        ),
+                        for (final v in [
+                          quantityText(line['quantity']),
+                          line['unit_name'] ?? '',
+                        ])
+                          Padding(
+                            padding: const EdgeInsets.all(7),
+                            child: Text(v),
+                          ),
+                      ],
+                    ),
+                ],
               ),
-              if ((r['notes'] ?? '') != '') Text(r['notes']),
-              const Divider(),
-              for (final line in r['lines'] as List)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(line['material_name']),
-                  subtitle: Text(line['boq_name'] ?? ''),
-                  trailing: Text(
-                    "${line['quantity']} ${line['unit_name'] ?? ''}",
-                  ),
-                ),
+              const SizedBox(height: 14),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -843,21 +1235,84 @@ class _RequestDetailState extends State<RequestDetail> {
                   title: Text(receipt['received_by'] ?? ''),
                   subtitle: Text(receipt['notes'] ?? ''),
                 ),
-              ExpansionTile(
-                title: Text(t('سجل الطلب', 'Request history')),
-                children: [
-                  for (final event in r['history']['items'])
-                    ListTile(
-                      title: Text(status(event['to_status'])),
-                      subtitle: Text(
-                        [
-                          event['user_name'],
-                          event['note'],
-                        ].whereType<String>().join(' · '),
-                      ),
-                    ),
-                ],
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  t('سجل الطلب', 'Request history'),
+                  style: Theme.of(ctx).textTheme.titleMedium,
+                ),
               ),
+              for (final event in history)
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 4),
+                            const Icon(
+                              Icons.circle,
+                              size: 10,
+                              color: trackBlue,
+                            ),
+                            Expanded(
+                              child: Container(
+                                width: 2,
+                                color: trackBlue.withValues(alpha: .2),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsetsDirectional.fromSTEB(
+                            8,
+                            0,
+                            0,
+                            16,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              StatusBadge(
+                                event['to_status'],
+                                widget.api.locale == 'ar',
+                              ),
+                              if (event['from_status'] != null &&
+                                  event['from_status'] != event['to_status'])
+                                Text(
+                                  t('الحالة السابقة', 'Previous status') +
+                                      ' · ' +
+                                      status(event['from_status']),
+                                  style: Theme.of(ctx).textTheme.bodySmall,
+                                ),
+                              Text(
+                                [
+                                  event['user_name'] ?? t('النظام', 'System'),
+                                  displayDate(
+                                    ctx,
+                                    event['created_at'],
+                                    time: true,
+                                  ),
+                                ].join(' · '),
+                              ),
+                              if ((event['note'] ?? '') != '')
+                                Text(event['note']),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (cursor != null)
+                TextButton(
+                  onPressed: loadingHistory ? null : () => moreHistory(cursor),
+                  child: Text(t('عرض أحداث أقدم', 'Show older events')),
+                ),
             ],
           ),
         );

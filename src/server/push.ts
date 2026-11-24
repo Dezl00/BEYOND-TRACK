@@ -5,7 +5,7 @@ import webpush from "web-push";
 import { db, one, sql } from "@/db";
 import { ar } from "@/messages/ar";
 import { requestScope } from "./access";
-import type { Actor } from "@/lib/domain";
+import { can, type Actor } from "@/lib/domain";
 export function pushConfigured() {
   return !!(
     process.env.VAPID_PUBLIC_KEY &&
@@ -37,6 +37,7 @@ export async function deliverPush(
     !user ||
     user.deleted_at ||
     !user.role_active ||
+    !can(user, "requests.view") ||
     user.locked ||
     !(await one(
       sql`SELECT r.id FROM purchase_requests r WHERE r.id=${data.request_id} AND ${requestScope(user)}`,
