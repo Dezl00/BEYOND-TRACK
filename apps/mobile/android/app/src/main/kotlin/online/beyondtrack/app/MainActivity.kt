@@ -17,6 +17,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var saveResult: MethodChannel.Result? = null
+    private var saveBytes: ByteArray? = null
     private var fileSelection: MethodChannel.Result? = null
     private var captureUri: Uri? = null
     private var pending: MethodChannel.Result? = null
@@ -44,6 +46,27 @@ class MainActivity : FlutterActivity() {
         MethodChannel(engine.dartExecutor.binaryMessenger, "online.beyondtrack.app/device")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "saveFile" -> {
+                        if(saveResult != null){result.error("busy","File picker is active",null); return@setMethodCallHandler}
+                        saveBytes=call.argument<ByteArray>("bytes")
+                        saveResult=result
+                        try {
+                            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type=call.argument<String>("mime")
+                                putExtra(Intent.EXTRA_TITLE,call.argument<String>("name"))
+                            },7513)
+                        } catch(e:Exception){saveResult=null;saveBytes=null;result.error("save",e.message,null)}
+                        return@setMethodCallHandler
+                    }
+                    "printDocument" -> {
+                        val title=call.argument<String>("title") ?: "BEYOND TRACK"
+                        try {
+                            val adapter=TrackPrintAdapter(title,call.argument<String>("text").orEmpty(),call.argument<Boolean>("rtl")==true){result.success(null)}
+                            (getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager).print(title,adapter,null)
+                        } catch(e:Exception){result.error("print",e.message,null)}
+                        return@setMethodCallHandler
+                    }
                     "pickFiles" -> {
                         if (fileSelection != null) { result.success(emptyList<String>()); return@setMethodCallHandler }
                         fileSelection = result
@@ -107,6 +130,17 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if(requestCode==7513){
+            try {
+                val uri=data?.data
+                if(resultCode==RESULT_OK && uri!=null){
+                    val stream=contentResolver.openOutputStream(uri) ?: throw java.io.IOException("Unavailable document")
+                    stream.use { it.write(requireNotNull(saveBytes)) }
+                }
+                saveResult?.success(null)
+            } catch(e:Exception){saveResult?.error("save",e.message,null)}
+            finally {saveResult=null;saveBytes=null}
+        }
         if (requestCode == 7512) {
             val files = mutableListOf<String>()
             if (resultCode == RESULT_OK) {

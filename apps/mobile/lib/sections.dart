@@ -1,3 +1,4 @@
+import 'document_tools.dart';
 import 'resource_editor.dart';
 import 'request_operation.dart';
 import 'track_header.dart';
@@ -226,6 +227,63 @@ class _SectionPageState extends State<SectionPage> {
     }
   }
 
+  bool get canExport {
+    final module = {'materials': 'boq', 'units': 'boq'}[keyName] ?? keyName;
+    return (widget.profile['permissions'] as List? ?? []).contains(
+          '$module.export',
+        ) &&
+        (keyName != 'reports' || report);
+  }
+
+  Future<void> importCatalog() async {
+    if (selectedProject.isEmpty) await chooseProject(context, widget.api);
+    if (!mounted || selectedProject.isEmpty) return;
+    final saved = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => ImportBoq(api: widget.api)));
+    if (saved == true && mounted) await load();
+  }
+
+  Future<void> printReport() async {
+    final selected = selectedProject, name = projectName;
+    final data = [...rows];
+    var cursor = next;
+    try {
+      while (cursor != null) {
+        final res = await widget.api.call(
+          Uri(
+            path: '/api/v1/pages/reports',
+            queryParameters: {'project': selected, 'cursor': cursor},
+          ).toString(),
+        );
+        if (!mounted || selectedProject != selected) return;
+        data.addAll((res['data']['items'] as List).cast<Map>());
+        cursor = res['data']['next'];
+      }
+      if (!mounted) return;
+      await printDocument(context, widget.api, title, [
+        name,
+        t(
+          'المادة · الوحدة · المخصص · المطلوب · المستلم',
+          'Material · Unit · Allocated · Requested · Received',
+        ),
+        for (final r in data)
+          [
+            r['name'],
+            r['unit_name'],
+            r['allocated'],
+            r['requested'],
+            r['received'],
+          ].where((v) => v != null).join(' · '),
+      ]);
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   bool canWrite(bool edit) {
     if (!resourceCommands.containsKey(keyName)) return false;
     final module = {'materials': 'boq', 'units': 'boq'}[keyName] ?? keyName;
@@ -323,39 +381,83 @@ class _SectionPageState extends State<SectionPage> {
         itemCount: rows.length + 2,
         itemBuilder: (_, i) {
           if (i == 0)
-            return report
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        projectName,
-                        style: Theme.of(context).textTheme.titleLarge,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    if (keyName == 'boq' && canWrite(false))
+                      TextButton.icon(
+                        onPressed: importCatalog,
+                        icon: const Icon(Icons.upload_file),
+                        label: Text(t('استيراد', 'Import')),
                       ),
-                      if (summary.isNotEmpty)
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            for (final (label, key) in [
-                              (t('الطلبات', 'Requests'), 'request_count'),
-                              (t('الاستلام', 'Receipts'), 'receipt_count'),
-                              (t('المواد', 'Materials'), 'materials'),
-                            ])
-                              Chip(label: Text('$label  ${summary[key]}')),
-                          ],
+                    if (canExport)
+                      TextButton.icon(
+                        icon: const Icon(Icons.download),
+                        label: Text(t('تصدير CSV', 'Export CSV')),
+                        onPressed: () => saveDownload(
+                          context,
+                          widget.api,
+                          Uri(
+                            path: report
+                                ? '/api/reports/export'
+                                : '/api/export',
+                            queryParameters: {
+                              if (!report) 'resource': keyName,
+                              if (selectedProject.isNotEmpty)
+                                'project': selectedProject,
+                              if (query.isNotEmpty) 'q': query,
+                            },
+                          ),
+                          'beyond-$keyName.csv',
+                          'text/csv',
                         ),
-                    ],
-                  )
-                : TextField(
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (text) {
-                      query = text.trim();
-                      load();
-                    },
-                    decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.search),
-                      labelText: t('بحث', 'Search'),
-                    ),
-                  );
+                      ),
+                    if (report && canExport && !busy && error.isEmpty)
+                      TextButton.icon(
+                        onPressed: printReport,
+                        icon: const Icon(Icons.print),
+                        label: Text(t('طباعة', 'Print')),
+                      ),
+                  ],
+                ),
+                report
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            projectName,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          if (summary.isNotEmpty)
+                            Wrap(
+                              spacing: 8,
+                              children: [
+                                for (final (label, key) in [
+                                  (t('الطلبات', 'Requests'), 'request_count'),
+                                  (t('الاستلام', 'Receipts'), 'receipt_count'),
+                                  (t('المواد', 'Materials'), 'materials'),
+                                ])
+                                  Chip(label: Text('$label  ${summary[key]}')),
+                              ],
+                            ),
+                        ],
+                      )
+                    : TextField(
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (text) {
+                          query = text.trim();
+                          load();
+                        },
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search),
+                          labelText: t('بحث', 'Search'),
+                        ),
+                      ),
+              ],
+            );
           if (i == rows.length + 1) {
             if (busy)
               return const Padding(
@@ -562,6 +664,36 @@ class _RequestDetailState extends State<RequestDetail> {
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: Chip(label: Text(status(r['status']))),
+              ),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.print),
+                  label: Text(t('طباعة الطلب', 'Print request')),
+                  onPressed: () => printDocument(
+                    context,
+                    widget.api,
+                    r['number'].toString(),
+                    [
+                      r['project_name'] ?? '',
+                      status(r['status']),
+                      r['notes'] ?? '',
+                      for (final l in r['lines'])
+                        [
+                          l['material_name'],
+                          l['quantity'],
+                          l['unit_name'],
+                          l['notes'],
+                        ].where((v) => v != null && v != '').join(' · '),
+                      for (final h in r['history']['items'])
+                        [
+                          status(h['to_status']),
+                          h['user_name'],
+                          h['note'],
+                        ].where((v) => v != null && v != '').join(' · '),
+                    ],
+                  ),
+                ),
               ),
               if ((r['notes'] ?? '') != '') Text(r['notes']),
               const Divider(),
