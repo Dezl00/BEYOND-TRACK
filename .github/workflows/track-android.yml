@@ -49,6 +49,17 @@ jobs:
             : "${VERSION:?Provide the installed release version}"
             shorebird patch android --release-version="$VERSION"
           fi
+      - name: Verify notification sound in release APK
+        if: inputs.operation == 'release'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          sound = Path("android/app/src/main/res/raw/track_notification.mp3").read_bytes()
+          with ZipFile("build/app/outputs/flutter-apk/app-release.apk") as apk:
+              if not any(apk.read(item) == sound for item in apk.infolist() if item.file_size == len(sound)):
+                  raise SystemExit("Release APK is missing the original notification sound")
+          PY
       - uses: actions/upload-artifact@v4
         if: inputs.operation == 'release'
         with:

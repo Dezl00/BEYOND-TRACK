@@ -41,7 +41,8 @@ class MainActivity : FlutterActivity() {
 
     private fun soundUri(): Uri {
         // Keep the resource name stable across application upgrades.
-        return Uri.parse("android.resource://$packageName/raw/track_notification")
+        val name = resources.getResourceEntryName(R.raw.track_notification)
+        return Uri.parse("android.resource://$packageName/raw/$name")
     }
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
