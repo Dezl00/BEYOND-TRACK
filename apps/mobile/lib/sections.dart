@@ -548,7 +548,9 @@ class _RequestDetailState extends State<RequestDetail> {
   );
   String get path => '/requests/${widget.id}';
   Future<Map<String, dynamic>> fetch() => widget.api.call('/api$path');
-  void refresh() => setState(() => record = fetch());
+  void refresh() => setState(() {
+    record = fetch();
+  });
   Future<void> transition(
     Map request,
     String label,

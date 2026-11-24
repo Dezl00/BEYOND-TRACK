@@ -13,6 +13,18 @@ class FakeApi extends TrackApi {
     Map<String, dynamic>? data,
   ]) async {
     paths.add(path);
+    if (path.startsWith('/api/options?resource=projects')) {
+      return {
+        'items': [
+          {'id': 'north', 'name': 'North'},
+        ],
+        'next': null,
+      };
+    }
+    if (path.startsWith('/api/v1/pages/dashboard'))
+      return {'stats': {}, 'latest': []};
+    if (path.startsWith('/api/v1/pages/requests'))
+      return {'items': [], 'next': null};
     if (path.startsWith('/api/v1/pages/reports')) {
       return {
         'context': {'name': 'North'},
@@ -51,6 +63,54 @@ class FakeApi extends TrackApi {
 }
 
 void main() {
+  testWidgets(
+    'primary tabs share the selected project and one navigation layout',
+    (tester) async {
+      final api = FakeApi()..locale = 'en';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Overview(
+            api: api,
+            name: 'Employee',
+            arabic: false,
+            queue: null,
+            canCreate: false,
+            hasDashboard: true,
+            openRequest: (_) {},
+            account: const Text('Profile'),
+            directory: (_) => const Text('Directory'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Employee'), findsOneWidget);
+      await tester.tap(find.text('All projects'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('North'));
+      await tester.pumpAndSettle();
+      for (final tab in ['Requests', 'Sections', 'Account', 'Home']) {
+        await tester.tap(
+          find.descendant(
+            of: find.byType(NavigationBar),
+            matching: find.text(tab),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.getSize(find.byType(AppBar)).height, 72);
+        expect(
+          tester.widget<NavigationBar>(find.byType(NavigationBar)).height,
+          64,
+        );
+        expect(find.text('North'), findsOneWidget);
+        expect(
+          tester.widget<TrackHeader>(find.byType(TrackHeader)).home,
+          tab == 'Home',
+        );
+      }
+      expect(api.paths, contains('/api/v1/pages/requests?project=north'));
+      api.client.close();
+    },
+  );
   testWidgets(
     'limited roles retain the primary header and navigation on every tab',
     (tester) async {

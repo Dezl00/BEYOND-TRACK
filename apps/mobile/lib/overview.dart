@@ -64,7 +64,9 @@ class _OverviewState extends State<Overview> {
   String get project => widget.api.project.value.id;
   void projectChanged() {
     if (!widget.hasDashboard) return;
-    setState(() => data = load());
+    setState(() {
+      data = load();
+    });
   }
 
   late Future<Map<String, dynamic>> data = load();
@@ -109,7 +111,9 @@ class _OverviewState extends State<Overview> {
               if (!mounted || sent != true) return;
               final pending = await widget.queue!.items();
               if (!mounted) return;
-              setState(() => data = load());
+              setState(() {
+                data = load();
+              });
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
@@ -178,7 +182,9 @@ class _OverviewState extends State<Overview> {
               if (snap.hasError)
                 return Center(
                   child: TextButton(
-                    onPressed: () => setState(() => data = load()),
+                    onPressed: () => setState(() {
+                      data = load();
+                    }),
                     child: Text(t('إعادة المحاولة', 'Retry')),
                   ),
                 );
@@ -187,7 +193,9 @@ class _OverviewState extends State<Overview> {
               final body = snap.data ?? preview!, stats = body['stats'] as Map;
               return RefreshIndicator(
                 onRefresh: () async {
-                  setState(() => data = load());
+                  setState(() {
+                    data = load();
+                  });
                   await data;
                 },
                 child: ListView(
