@@ -25,6 +25,8 @@ export function proxy(request: NextRequest) {
   ].includes(path);
   const publicPath =
     path === "/login" ||
+    path === "/privacy" ||
+    path === "/terms" ||
     path.startsWith("/api/auth/") ||
     /^\/api\/attachments\/[a-f0-9-]{36}$/i.test(path) ||
     path === "/api/jobs" ||

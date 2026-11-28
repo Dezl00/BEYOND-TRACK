@@ -65,7 +65,7 @@ function PasswordField({
   );
 }
 export default function LoginForm() {
-  const { m: msg } = useLanguage();
+  const { m: msg, locale } = useLanguage();
   
   useLoginReady();
   const [mode, setMode] = useState("login"),
@@ -248,6 +248,10 @@ export default function LoginForm() {
           <ArrowLeft size={17} />
         </Button>
       </form>
+      <nav className="login-legal" aria-label={locale === "en" ? "Legal information" : "معلومات قانونية"}>
+        <a href="/privacy">{locale === "en" ? "Privacy policy (Arabic)" : "سياسة الخصوصية"}</a>
+        <a href="/terms">{locale === "en" ? "Terms and conditions (Arabic)" : "الشروط والأحكام"}</a>
+      </nav>
       <div className="login-install">
         <InstallApp />
       </div>

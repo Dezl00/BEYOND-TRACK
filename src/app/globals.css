@@ -2871,3 +2871,4 @@ td.wrap {
     flex-wrap: wrap;
   }
 }
+.login-legal { display: flex; justify-content: center; flex-wrap: wrap; gap: 1rem; margin-block-start: 1rem; font-size: .85rem; color: var(--brand-text); text-decoration: underline; text-underline-offset: .2em; }
