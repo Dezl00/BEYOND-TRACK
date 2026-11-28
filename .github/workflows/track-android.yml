@@ -4,7 +4,7 @@ on:
     inputs:
       operation:
         type: choice
-        options: [release, patch]
+        options: [release, play-bundle, patch]
         required: true
       version:
         description: Installed release version for a patch (e.g. 1.0.0+1)
@@ -45,6 +45,8 @@ jobs:
           printf '%s' "$STORE" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
           if [[ "$OPERATION" == "release" ]]; then
             shorebird release android --artifact apk --flutter-version=3.47.9
+          elif [[ "$OPERATION" == "play-bundle" ]]; then
+            shorebird release android --artifact aab --flutter-version=3.47.9
           else
             : "${VERSION:?Provide the installed release version}"
             shorebird patch android --release-version="$VERSION" --track=stable --allow-asset-diffs
@@ -65,4 +67,11 @@ jobs:
         with:
           name: beyond-track-android
           path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: inputs.operation == 'play-bundle'
+        with:
+          name: beyond-track-play-bundle
+          path: apps/mobile/build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
