@@ -517,6 +517,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
                         icon: const Icon(Icons.fingerprint),
                         label: Text(t('فتح التطبيق', 'Unlock app')),
                       ),
+                      legalLinks(),
                       Text(error),
                     ],
                   ),
@@ -684,6 +685,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
                             : t('العودة للدخول', 'Back to sign in'),
                       ),
                     ),
+                    legalLinks(),
                     if (error.isNotEmpty) Text(error),
                   ],
                 ),
@@ -694,6 +696,29 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
       ),
     );
   }
+
+  Widget legalLinks() => Wrap(
+    alignment: WrapAlignment.center,
+    children: [
+      for (final item in [
+        ('privacy', t('سياسة الخصوصية', 'Privacy policy')),
+        ('terms', t('الشروط والأحكام', 'Terms and conditions')),
+      ])
+        TextButton(
+          child: Text(item.$2),
+          onPressed: () async {
+            try {
+              await const MethodChannel('online.beyondtrack.app/device')
+                  .invokeMethod<void>('openLegalPage', item.$1);
+            } on PlatformException {
+              messenger.currentState?.showSnackBar(
+                SnackBar(content: SelectableText('https://www.beyond-track.online/' + item.$1)),
+              );
+            }
+          },
+        ),
+    ],
+  );
 
   Future<void> changePassword(BuildContext context) async {
     String current = '', next = '';
@@ -910,6 +935,7 @@ class _TrackAppState extends State<TrackApp> with WidgetsBindingObserver {
             t('تسجيل الخروج', 'Sign out'),
             tap: () => logout(context),
           ),
+          legalLinks(),
           if (error.isNotEmpty) Text(error),
         ],
       ),

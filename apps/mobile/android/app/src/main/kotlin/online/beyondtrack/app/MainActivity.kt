@@ -46,6 +46,20 @@ class MainActivity : FlutterActivity() {
         MethodChannel(engine.dartExecutor.binaryMessenger, "online.beyondtrack.app/device")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "openLegalPage" -> {
+                        val page = call.arguments
+                        if (page != "privacy" && page != "terms") {
+                            result.error("invalid_page", "Unknown page", null)
+                        } else {
+                            try {
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.beyond-track.online/$page")))
+                                result.success(null)
+                            } catch (_: android.content.ActivityNotFoundException) {
+                                result.error("no_browser", "Browser unavailable", null)
+                            }
+                        }
+                        return@setMethodCallHandler
+                    }
                     "notificationSettings" -> {
                         val settings = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
